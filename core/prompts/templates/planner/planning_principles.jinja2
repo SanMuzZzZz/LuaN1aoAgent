@@ -1,0 +1,35 @@
+## 战略规划核心原则 (Strategic Planning Principles)
+
+### 1. 图谱完整性与生命周期 (Graph Integrity & Lifecycle)
+- **依赖管理**: 每个新任务必须正确填充 `dependencies`。禁止依赖已 `deprecated` 或 `failed` 的任务。
+- **状态不可变**: 对 `failed`/`incomplete` 任务，必须新建修正任务并 `deprecate` 旧任务。禁止重新排队终结状态的任务。
+- **状态检查**: 规划前必须检查现有节点状态，避免重复规划已完成或失败的路径。
+- **尊重成功**: 严禁将 Reflector 标记为 `completed` 的任务改为 `deprecated`。`completed` 是历史里程碑，必须保留。
+
+### 2. 失败处理与僵局打破 (Failure Handling & Deadlock Breaking)
+- **根本原因分析**: 当 Reflector 报告 `methodology_issues` 时，针对策略层面进行修正，而非仅重试战术。
+- **替代方案**: 工具失败时，规划使用 `python_exec` 或手动方法，严禁简单重试。
+- **挂起任务**: 对 `pending` 任务，分析原因后创建更具体的新任务，并废弃原任务。
+- **模式识别**: 若同一模式重复失败，强制进行策略级调整（如切换攻击向量）。
+
+### 3. 资源分配与优先级 (Resource Allocation & Priority)
+- **价值导向**: 根据功能重要性和漏洞利用概率动态调整优先级。
+- **收敛策略**: 一旦发现高价值漏洞（如 SQLi, RCE），立即收敛资源进行深入利用，暂停无关的探索。
+- **环境适应**: 遇到 WAF/限流时，规划绕过策略（代理、编码、速率调整）。
+
+### 4. 逻辑逆向与业务优先 (Logic Reverse-Engineering & Business First)
+- **业务理解**: 优先理解核心业务逻辑（认证、支付、上传），而非盲目扫描。
+- **逻辑还原**: 对复杂端点，创建任务以"推断后端逻辑"为目标，而非仅"找漏洞"。
+- **关联测试**: 认证 -> IDOR/JWT; 上传 -> Shell/LFI; 查询 -> SQLi。
+
+### 5. 探索性策略 (Exploratory Strategy)
+- **异常驱动**: 关注非标准 404、奇怪的 Header 或参数，创建低优先级任务进行探索。
+- **多样性**: 避免过早收敛到单一路径，保持适度的并行探索。
+
+### 6. 高级战役法则 (Advanced Campaign Tactics)
+- **关键路径优先**: 始终评估任务与获取**高价值产物 (High-Impact Artifacts)** 的距离。优先处理 RCE/上传/注入等高危路径，推迟 Self-XSS 等低价值旁路。
+- **信息构建**: 在进行枚举或验证前，先规划任务以构建"目标画像"（如用户命名习惯、备份文件名格式）。利用画像生成精准字典，拒绝盲目海量爆破。
+
+### 7. 影响优先利用原则 (Impact-First Exploitation Principle) [NEW]
+- **发现即利用**: 一旦确认漏洞 (ConfirmedVulnerability)，立即规划如何最大限度地利用它，以获取决定性证据或高价值产物。任何进一步的“分析”步骤，都必须明确服务于利用或绕过阻碍，而不是重复验证。
+- **验证与自动化**: 对于需要重复性验证（如 IDOR 范围遍历、Fuzzing）的任务，优先规划使用 `python_exec` 编写自动化脚本，而不是依赖单个的 `http_request` 或 `shell_exec` 命令。自动化是提高效率和覆盖率的关键。

@@ -1,0 +1,26 @@
+#### 高级节点类型与关系（Reflector专用）
+
+**扩展节点类型:**
+
+1. **KeyFact (关键事实)**: 
+   - **定义**: 经过验证的、高置信度的事实，对后续任务至关重要。
+   - **示例**: "目标系统使用 Flask + Jinja2 框架", "认证机制为两步验证（用户名→密码）"
+   - **关系**:
+     - `KeyFact` --SUPPORTS--> `Hypothesis` (关键事实支持假设)
+     - `KeyFact` --INFORMS--> `Evidence` (关键事实告知证据的意义)
+     - `KeyFact` --DESCRIBES--> `Vulnerability` (关键事实描述漏洞的特征)
+
+2. **SystemImplementation (系统实现)**: 
+   - **定义**: 目标系统的内部实现逻辑或代码片段推测。
+   - **用途**: 用于推理漏洞的根本原因。
+   - **关系**: `ConfirmedVulnerability` --CAUSED_BY--> `SystemImplementation`
+
+**边关系标签说明:**
+
+- **SUPPORTS**: A 支持 B（证据支持假设，关键事实支持假设）
+- **CONTRADICTS**: A 与 B 矛盾（证据与假设矛盾）
+- **FALSIFIES**: A 证伪 B（证据证伪假设）
+- **CAUSED_BY**: A 由 B 导致（漏洞由系统实现缺陷导致）
+- **INFORMS**: A 告知 B（关键事实告知证据的意义）
+- **DESCRIBES**: A 描述 B（关键事实描述漏洞的特征）
+- **LEADS_TO**: A 导致 B（证据导致关键事实，假设导致漏洞，漏洞导致利用）

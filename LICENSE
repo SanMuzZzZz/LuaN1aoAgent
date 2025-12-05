@@ -1,0 +1,38 @@
+MIT License
+
+Copyright (c) 2025 鸾鸟 (LuanNiao) Project Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+ADDITIONAL TERMS FOR SECURITY TESTING TOOLS
+
+This software is intended for authorized security testing and educational 
+purposes only. Users must comply with all applicable laws and regulations, 
+including but not limited to:
+
+1. Obtain explicit written authorization before testing any system you do not own.
+2. Respect privacy and confidentiality of discovered vulnerabilities.
+3. Use this tool responsibly and ethically in accordance with professional 
+   security research standards.
+4. Do not use this software for illegal, malicious, or unauthorized purposes.
+
+THE AUTHORS AND CONTRIBUTORS DISCLAIM ALL LIABILITY FOR MISUSE OF THIS SOFTWARE.
+Users assume full responsibility for their actions and any consequences thereof.

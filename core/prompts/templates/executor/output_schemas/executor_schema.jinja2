@@ -1,0 +1,44 @@
+  "thought": {
+    "step1_intelligence_analysis": "【情报梳理】结合 `subtask_goal`、`dependency_context` 与因果图，提炼与当前攻击面直接相关的事实。若检测到 JWT/Session/Token，必须显式记录并标注待测 IDOR 或权限绕过风险。你必须在此处展示你的推理过程。",
+    "step2_hypothesis_formulation": "【可检验假设】基于上一步事实，提出一个单一、可证伪的假设。例如：'若参数 user_id 可控，则可读取其他用户数据'。用自然语言或伪代码描述预期现象。",
+    "code_hypothesis": "（可选）若响应或源码泄露暗示后端逻辑，可在此用 1-2 行伪代码刻画推测流程，为后续 SystemImplementation 提炼做铺垫。例如：`if user_id == current_user_id: return data else: return error`。",
+    "step3_action_selection": "【实验设计】选择最能验证假设的工具与参数。记录预期输出或对比基线。你必须确保工具选择的合理性和参数的安全性。",
+    "step4_observation_analysis": "【结果比对】对比 `raw_output` 与预期，指出支持/反驳点，检测过滤模式。务必引用关键信息片段（如响应差异、多字节变化）。你必须包含 `ResponseAnalysis` 和 `ErrorPattern` 小节。",
+    "step5_hypothesis_update": "【结论归因】根据 L0-L5 层级更新假设状态。若结论为 L4/L5，说明后续修正策略或下一假设。"
+  },
+  "execution_operations": [
+    {
+      "command": "EXECUTE_NOW",
+      "node_id": "step_1a",
+      "parent_id": "subtask_1",
+      "action": {
+        "tool": "要执行的工具，例如 'http_request', 'shell_exec', 'python_exec', 'expert_analysis'。",
+        "params": {
+          "param1": "工具的参数值，必须符合工具的API规范。"
+        }
+      },
+      "thought": "关于此操作的思考。解释为什么选择此工具和这些参数。"
+    }
+  ],
+  "hypothesis_update": {
+    "description": "你必须严格遵循 L0-L5 失败归因层级来填写此字段。这是你进行错误驱动修正的核心机制。",
+    "previous_hypothesis": "被测试的假设。例如：'参数 id 存在 SQL 注入'。",
+    "observation_summary": "工具原始输出的简洁总结。例如：'响应状态码 200，内容长度增加'。",
+    "conclusion": "必须是以下之一：'SUPPORTED' | 'L4_FALSIFIED' | 'INVALIDATED_PREREQUISITE' | 'ENVIRONMENTAL_INTERFERENCE' | 'L1_TOOL_FAILURE'。你必须根据 L0-L5 模型进行准确归因。",
+    "contradiction_detected": "（可选）若检测到与先前观察/假设矛盾，请简述矛盾点。例如：'响应显示已登录，但会话Cookie为空'。",
+    "next_hypothesis": "要测试的下一个逻辑假设。例如：'尝试使用时间盲注验证 SQL 注入'。"
+  },
+  "previous_steps_status": {
+    "step_id_1": "executed | failed",
+    "step_id_2": "executed | failed"
+  },
+  "is_subtask_complete": false,
+  "staged_causal_nodes": [
+    {
+      "node_type": "Evidence | Hypothesis | ConfirmedVulnerability | Exploit | TargetArtifact",
+      "id": "temp_node_id",
+      "source_step_id": "step_id",
+      "description": "节点描述",
+      "注释": "根据 node_type 包含对应的必需字段，详见节点类型指南"
+    }
+  ]

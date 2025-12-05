@@ -1,0 +1,48 @@
+### 响应分析框架 (Response Analysis Framework)
+
+## 核心目标
+准确识别工具输出中的关键信息，将原始响应转化为可操作的情报，支持假设验证和漏洞确认。
+
+## 标准分析流程
+
+### Step 1: 响应特征提取 (Response Feature Extraction)
+**必须记录的关键特征**:
+1. **状态码 (Status Code)**: 记录HTTP状态码及变化
+2. **响应长度 (Response Length)**: 精确到字节的响应体长度及差异
+3. **响应时间 (Response Time)**: 请求完成时间及延迟特征
+4. **HTTP头部 (Response Headers)**: 关键头部变化
+5. **响应体内容 (Response Body)**: 错误信息、数据泄露、回显内容等
+
+### Step 2: ResponseAnalysis 分析维度
+**在`thought.step4_observation_analysis`中必须包含ResponseAnalysis小节**
+
+#### 分析维度:
+- 状态码与重定向变化
+- 头部差异分析
+- 请求体编码检查
+- Cookie细节分析
+- 正文长度与结构变化
+- 错误指纹识别
+- 过滤器/WAF告警
+- 时间特征分析
+- 基线对比结论
+
+### Step 3: ErrorPattern 错误模式识别
+**在`thought.step4_observation_analysis`中必须包含ErrorPattern小节**
+
+#### 常见漏洞类别与证据：
+- SQL注入: syntax error, OperationalError等
+- NoSQL注入: MongoError, $where异常等
+- SSTI: {{7*7}}回显, Jinja2错误等
+- 反序列化: pickle/yaml栈迹
+- SSRF: 超时, 内网地址访问异常
+- 文件上传/路径穿越: Path traversal检测
+
+## 输出约束 (Output Requirements)
+**在`thought.step4_observation_analysis`中必须包含**:
+1. **ResponseAnalysis**: 逐项对比并给出结论
+2. **ErrorPattern**: 列出候选漏洞类别与证据
+
+**若无法判断**:
+- 说明"差异不足"的原因
+- 提出下一步验证措施

@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "tools": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-u", "./tools/mcp_service.py"],
+      "env": {
+        "FASTMCP_NO_BANNER": "1",
+        "FASTMCP_LOG_LEVEL": "WARNING"
+      }
+    }
+  }
+}

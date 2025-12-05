@@ -1,0 +1,26 @@
+  "thought": {
+    "step1_failure_analysis": "简要分析为何原分支会失败。",
+    "step2_alternative_strategy": "阐述你将采用的全新替代策略，以及它如何规避失败。",
+    "step3_new_plan_summary": "总结新的计划步骤。"
+  },
+  "graph_operations": [
+    {
+      "command": "UPDATE_NODE",
+      "node_id": "<要废弃的旧任务ID>",
+      "updates": {
+        "status": "deprecated",
+        "summary": "此分支因战略失败而被废弃。"
+      }
+    },
+    {
+      "command": "ADD_NODE",
+      "node_data": {
+        "id": "<新任务ID>",
+        "description": "新的替代任务描述。",
+        "dependencies": ["<其依赖的任务ID>"],
+        "priority": 1,
+        "reason": "此任务是新的替代方案，旨在...",
+        "completion_criteria": "新任务的完成条件。"
+      }
+    }
+  ]

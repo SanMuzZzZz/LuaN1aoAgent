@@ -1,0 +1,55 @@
+  "audit_result": {
+    "status": "必须是以下之一：'completed' (子任务目标已完全满足) | 'pending' (子任务有进展但未完全满足目标，需要进一步行动) | 'failed' (子任务陷入僵局或无法取得进展) | 'GOAL_ACHIEVED' (已找到最终目标产物)。",
+    "completion_check": "对子任务完成条件是否满足的客观总结，必须基于执行日志中的证据。",
+    "is_strategic_failure": "布尔值。如果失败归因是 L4 (假设被证伪) 或 L5 (战略失败)，则必须设置为 `true`，以触发 Planner 的战略级调整。注意：L3 (环境阻断) 通常由 Executor 局部处理，除非形成环境循环才升级为 L5。",
+    "logic_issues": ["列举所有 COT 规范违反点（例如：冗余信息、信息缺失、前后矛盾、无引用等），并用 `step_id` / `node_id` 标注位置。例如：'thought.step2_hypothesis_formulation (step_1): 假设不具备可证伪性。'"],
+    "methodology_issues": ["发现的方法论缺陷列表。例如：'Executor 未能遵循盲注验证矩阵，在未确认可读路径前尝试逐字符提取。'"]
+  },
+  "attack_intelligence": {
+    "confirmed_vulnerabilities": [
+      {
+        "vulnerability_type": "漏洞类型，例如 'SQL Injection', 'SSTI', 'RCE'。",
+        "description": "漏洞的详细描述，包括其位置和影响。例如：'在登录表单的 username 参数处发现基于布尔的盲注。'",
+        "evidence": "来自执行日志的支持证据，必须是可复现的。例如：'当 payload 为 'admin' AND 1=1 -- 时，响应为 'Login successful'；当 payload 为 'admin' AND 1=2 -- 时，响应为 'Invalid credentials'。'"
+      }
+    ],
+    "protection_mechanisms": [
+      "识别到的防御机制，例如 'WAF 正在过滤包含 'UNION SELECT' 的请求。'",
+      "输入框对 '<' 和 '>' 字符进行 HTML 实体编码。"
+    ],
+    "actionable_insights": [
+      "具体的、可操作的建议，以指导 Planner 的下一步行动。例如：'已确认存在 SQL 盲注，建议 Planner 规划利用此漏洞提取数据的任务。'",
+      "由于存在 WAF，需要探索绕过 'UNION SELECT' 过滤的技术，例如使用大小写混合或注释绕过。"
+    ]
+  },
+  "key_findings": [
+    {
+      "type": "发现的类型，例如 'vulnerability', 'credential', 'system_property', 'configuration_error'。",
+      "severity": "严重性级别：'critical' | 'high' | 'medium' | 'low' | 'info'。",
+      "title": "发现的简洁标题。例如：'管理员凭证泄露'。",
+      "description": "发现的详细描述。例如：'在 /admin/config.php 中发现硬编码的管理员凭证。'",
+      "evidence": "来自执行日志的支持证据，必须是可复现的。例如：'文件内容显示：$admin_user = 'admin'; $admin_pass = 'password123';'"
+    }
+  ],
+  "key_facts": [
+    "必须被所有后续任务无条件知晓的核心事实，例如：'目标系统使用 Flask/Jinja2 框架'、'已确认存在 SSTI 漏洞'、'上传目录为 /var/www/uploads/'。这些是不容置疑的、高置信度的事实陈述，而非假设。你必须遵循 Reflector 的关键事实提炼原则。"
+  ],
+  "causal_graph_updates": {
+    "nodes": [
+      {
+        "node_type": "KeyFact | Evidence | Hypothesis | ConfirmedVulnerability | SystemImplementation | Exploit | TargetArtifact",
+        "id": "temp_node_1",
+        "source_step_id": "step_X",
+        "description": "节点的描述。",
+        "注释": "根据 node_type 包含对应字段： confidence, status, data, code_snippet_hypothesis 等"
+      }
+    ],
+    "edges": [
+      {
+        "source_id": "temp_node_1",
+        "target_id": "existing_node_abc",
+        "label": "SUPPORTS | CONTRADICTS | FALSIFIES | CAUSED_BY | INFORMS | DESCRIBES | LEADS_TO",
+        "description": "关系解释。例如：'证据 temp_node_1 支持假设 existing_node_abc。'"
+      }
+    ]
+  }

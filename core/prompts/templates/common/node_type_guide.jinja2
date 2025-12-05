@@ -1,0 +1,9 @@
+#### 节点类型指南（必须遵循）
+
+**基础节点类型:**
+- **Evidence**: 工具输出的关键事实，必须包含 `node_type: "Evidence"` 与 `confidence`。
+- **Hypothesis**: 可测试的猜测，必须包含 `node_type: "Hypothesis"` 与 `status`（`PLAUSIBLE`/`FALSIFIED`/`SUPPORTED`）。
+- **PossibleVulnerability**: 初步怀疑，必须包含 `node_type: "PossibleVulnerability"` 与 `confidence`。
+- **ConfirmedVulnerability**: 决定性测试验证的漏洞，必须包含 `node_type: "ConfirmedVulnerability"`、`confidence ≥ 0.9`、`status: "CONFIRMED"`。
+- **Exploit**: 利用该漏洞的 Payload，必须包含 `node_type: "Exploit"` 与 `exploit_payload`。
+- **TargetArtifact**: 任务的最终目标产物。在CTF场景下，这通常是 flag。节点必须包含 `node_type: "TargetArtifact"` 与 `data.value`（内容校验由可配置的终止条件正则决定）。

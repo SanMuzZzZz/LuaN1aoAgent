@@ -1,0 +1,86 @@
+# Python编译文件
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# 日志文件
+*.log
+logs/
+
+# 环境配置
+.env
+.env.local
+.env.*.local
+
+# 数据文件
+*.json
+!mcp.json
+!package.json
+!requirements*.json
+*.bak
+*.db
+*.sqlite
+
+# 临时文件
+*.tmp
+*.temp
+/tmp/
+
+# 媒体文件
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.mp4
+
+# 文本文件(除README等)
+*.txt
+!requirements.txt
+
+# IDE和编辑器
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 项目特定
+benchmarks/**
+analysis_output/**
+.kb_cache/**
+all-MiniLM-L6-v2/**
+rag/faiss_db/**
+
+# 工具和缓存
+.trae/**
+.qoder/**
+node_modules/
+
+# 文档(保留README)
+GEMINI.md
+QWEN.md
+ANALYSIS_AND_OPTIMIZATION_SUMMARY.md
+
+# 虚拟环境
+venv/
+env/
+ENV/
+.venv/
+
+# 分发/打包
+build/
+dist/
+*.egg-info/
+
+# 测试覆盖率
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# pyenv
+.python-version

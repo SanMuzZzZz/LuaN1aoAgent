@@ -1,0 +1,36 @@
+  "thought": {
+    "step1_analysis": "【信息提取】从任务目标、因果图谱、失败摘要和检索经验中提炼关键事实（引用相关 step_id / node_id），明确当前信息差距。你必须在此处展示你的推理过程。",
+    "step2_decomposition": "【任务拆分】依据关键事实与目标，将整体策略拆分为 2-4 个高层次子任务，并在每个子任务描述中明确 WHY（它将如何缩小信息差距或推进目标）。",
+    "step3_dependency_analysis": "【依赖建模】使用 \"A → B\" 或 JSON 形式显式标注子任务依赖，确保形成无环 DAG 以实现最大并行度。你必须确保依赖关系是逻辑上正确的。",
+    "step4_summary": "【计划摘要】用 1-2 句话概括整体策略，强调信息增益与成功判据，避免冗余复述。"
+  },
+  "graph_operations": [
+    {
+      "command": "ADD_NODE",
+      "node_data": {
+        "id": "subtask_1",
+        "description": "要执行任务的高级描述。必须清晰、简洁、可执行。",
+        "dependencies": [],
+        "priority": 1,
+        "reason": "为什么此任务对于实现总体目标是必要的。必须与当前上下文和目标明确关联。",
+        "completion_criteria": "任务完成的明确、可验证条件。必须是可量化的，例如 '获取所有用户列表' 或 '确认漏洞存在'。"
+      }
+    },
+    {
+      "command": "UPDATE_NODE",
+      "node_id": "existing_subtask_id",
+      "updates": {
+        "status": "deprecated",
+        "summary": "此任务因 [原因] 被废弃。"
+      }
+    }
+  ],
+  "global_mission_accomplished": false
+
+**⚠️ 关键要求**:
+- `global_mission_accomplished`: **(布尔值, 默认 false)** 仅当所有分析 (包括 Intelligence Summary) 明确、无歧义地证明顶层 `goal` 已完全达成时，才将此标志设置为 `true`。这是终止整个任务的唯一信号。
+- `graph_operations` 数组**必须**至少包含一个 `ADD_NODE` 操作, 除非 `global_mission_accomplished` 为 `true`。
+- CTF 场景下，初始规划应立即创建具体的侦察或攻击子任务，不要等待。
+- `id` 字段必须是唯一的字符串标识符。
+- `dependencies` 必须是现有任务的 `id` 数组，且不能形成循环依赖。
+- `priority` 字段的有效范围是 1 到 5，其中 1 是最高优先级。

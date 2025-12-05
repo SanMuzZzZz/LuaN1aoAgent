@@ -1,0 +1,145 @@
+[project]
+name = "LuaN1ao"
+version = "0.1.0"
+description = "AI-Powered Autonomous Penetration Testing Agent"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+
+[tool.ruff]
+# 设置行长度
+line-length = 120
+
+# 选择Python版本
+target-version = "py310"
+
+# 排除目录
+exclude = [
+    ".git",
+    ".qoder",
+    ".trae",
+    "__pycache__",
+    "*.pyc",
+    ".env",
+    "venv",
+    ".venv",
+    "analysis_output",
+    "reports",
+]
+
+[tool.ruff.lint]
+# 启用的检查规则集
+select = [
+    "E",      # pycodestyle错误
+    "W",      # pycodestyle警告
+    "F",      # Pyflakes
+    "I",      # isort (import排序)
+    "N",      # pep8-naming (命名规范)
+    "UP",     # pyupgrade (Python语法升级)
+    "B",      # flake8-bugbear (潜在bug)
+    "C4",     # flake8-comprehensions (列表推导式优化)
+    "SIM",    # flake8-simplify (代码简化)
+    "PIE",    # flake8-pie (不必要的代码)
+    "RET",    # flake8-return (return语句优化)
+    "ARG",    # flake8-unused-arguments (未使用参数)
+    "PTH",    # flake8-use-pathlib (使用pathlib)
+]
+
+# 忽略的规则
+ignore = [
+    "E501",   # 行过长（由line-length控制）
+    "B008",   # 函数调用中的参数默认值
+    "B905",   # zip()严格性
+    "N802",   # 函数名应小写（LLM相关命名除外）
+    "N806",   # 变量名应小写（允许大写缩写）
+    "ARG001", # 未使用的函数参数（回调函数常见）
+    "ARG002", # 未使用的方法参数
+    "SIM108", # 三元表达式简化（有时会降低可读性）
+]
+
+# 每个文件的最大复杂度
+[tool.ruff.lint.mccabe]
+max-complexity = 15
+
+# Import排序配置
+[tool.ruff.lint.isort]
+known-first-party = ["core", "llm", "rag", "conf", "tools"]
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+
+[tool.pylint.main]
+# 并行执行
+jobs = 0
+
+# 忽略的文件
+ignore = ["analysis_output", "reports", ".git", ".qoder"]
+
+[tool.pylint.messages_control]
+# 禁用的检查
+disable = [
+    "C0103",  # 命名不符合规范（snake_case）
+    "C0114",  # 缺少模块文档字符串
+    "C0115",  # 缺少类文档字符串
+    "C0116",  # 缺少函数/方法文档字符串
+    "R0902",  # 类属性过多
+    "R0913",  # 函数参数过多
+    "R0914",  # 局部变量过多
+    "R0915",  # 函数语句过多
+    "W0212",  # 访问受保护成员
+    "W0603",  # 使用全局变量
+    "E1101",  # 动态属性访问
+]
+
+[tool.pylint.format]
+# 最大行长度
+max-line-length = 120
+
+[tool.pylint.design]
+# 最大参数数量
+max-args = 10
+# 最大局部变量
+max-locals = 25
+# 最大返回语句
+max-returns = 10
+# 最大分支数
+max-branches = 15
+
+[tool.mypy]
+# Python版本
+python_version = "3.10"
+
+# 忽略缺失的导入
+ignore_missing_imports = true
+
+# 严格可选类型
+strict_optional = false
+
+# 警告未使用的忽略注释
+warn_unused_ignores = false
+
+# 警告未使用的配置
+warn_unused_configs = true
+
+# 检查未类型化的定义
+check_untyped_defs = false
+
+# 排除的模块
+exclude = [
+    "analysis_output",
+    "reports",
+    "tests",
+]
+
+[tool.black]
+line-length = 120
+target-version = ['py310']
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.qoder
+  | \.trae
+  | __pycache__
+  | analysis_output
+  | reports
+)/
+'''

