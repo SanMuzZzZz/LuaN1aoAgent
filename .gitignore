@@ -28,7 +28,6 @@ logs/
 /tmp/
 
 # 媒体文件
-*.png
 *.jpg
 *.jpeg
 *.gif

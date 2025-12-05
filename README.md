@@ -48,6 +48,17 @@ From information gathering to vulnerability exploitation, LuaN1ao elevates penet
 
 ---
 
+## 🖼️ Showcase
+
+<p align="center">
+  <img src="imgs/console.png" alt="Console Interface" width="45%" />
+  <img src="imgs/graph.png" alt="Graph Visualization" width="45%" />
+</p>
+
+> 💡 _More demos coming soon!_
+
+---
+
 ## 🚀 Core Innovations
 
 ### 1️⃣ **P-E-R Agent Collaboration Framework** ⭐⭐⭐

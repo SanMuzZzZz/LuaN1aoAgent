@@ -51,6 +51,17 @@
 
 ---
 
+## 🖼️ 展示
+
+<p align="center">
+  <img src="imgs/console.png" alt="控制台界面" width="45%" />
+  <img src="imgs/graph.png" alt="图谱可视化" width="45%" />
+</p>
+
+> 💡 _更多演示内容即将推出！_
+
+---
+
 ## 🚀 核心创新
 
 ### 1️⃣ **P-E-R 智能体协同框架** ⭐⭐⭐
