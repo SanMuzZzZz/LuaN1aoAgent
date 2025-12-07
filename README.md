@@ -2,13 +2,12 @@
   <img src="imgs/logo.png" alt="LuaN1ao Logo" width="200" />
 </p>
 
-<h1 align="center">LuaN1ao<br>鸾鸟</h1>
+<h1 align="center">LuaN1ao</h1>
 
 <h3 align="center">
 
 **Cognitive-Driven AI Hackers**
 
-**认知驱动的 AI 黑客**
 </h3>
 
 <div align="center">
