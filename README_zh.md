@@ -1,12 +1,14 @@
-
+<p align="center">
+  <img src="imgs/logo.png" alt="LuaN1ao Logo" width="200" />
+</p>
 
 <h1 align="center">鸾鸟<br>LuaN1ao</h1>
 
 <h2 align="center">
 
-**基于大模型的自主渗透测试智能体**
+**认知驱动的 AI 黑客**
 
-**Autonomous Penetration Testing Agent driven by LLMs**
+**Cognitive-Driven AI Hackers**
 </h2>
 
 <div align="center">
