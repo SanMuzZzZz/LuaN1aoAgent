@@ -193,6 +193,9 @@ async def api_tree_execution(op_id: str):
     return build_execution_tree(gm)
 
 
+# ============================================================================
+# 恢复您提供的实时数据加载逻辑 (Event: message)
+# ============================================================================
 @app.get("/api/events")
 async def api_events(request: Request, op_id: str):
     if not op_id:
@@ -208,15 +211,18 @@ async def api_events(request: Request, op_id: str):
                 wait_count += 1
 
             if op_id in REGISTRY:
-                yield {"event": "graph.ready", "id": str(time.time()), "data": json.dumps({"op_id": op_id})}
+                # 按照您的代码，统一使用 "message" 类型，载荷中包含真实 event
+                yield {"event": "message", "id": str(time.time()), "data": json.dumps({"event": "graph.ready", "op_id": op_id})}
+                
                 iterator = broker.subscribe(op_id).__aiter__()
                 while True:
                     if await request.is_disconnected(): break
                     try:
                         item = await asyncio.wait_for(iterator.__anext__(), timeout=15.0)
-                        yield {"event": item["event"], "id": str(item.get("ts")), "data": json.dumps(item)}
+                        # 按照您的代码，统一使用 "message" 类型
+                        yield {"event": "message", "id": str(item.get("ts")), "data": json.dumps(item)}
                     except asyncio.TimeoutError:
-                        yield {"event": "ping", "id": str(time.time()), "data": "{}"}
+                        yield {"event": "message", "id": str(time.time()), "data": json.dumps({"event": "ping"})}
                     except StopAsyncIteration:
                         break
         except Exception:
@@ -434,9 +440,10 @@ INDEX_HTML = """
     .llm-msg.assistant { border-left: 3px solid var(--success); }
     .msg-meta { font-size: 10px; color: #6e7681; margin-bottom: 8px; display: flex; justify-content: space-between; font-family: var(--font-code); }
     
+    .system-msg { padding: 10px 16px; border-bottom: 1px solid #334155; background: rgba(30, 41, 59, 0.3); font-size: 12px; }
+    
     .thought-card, .op-card { background: rgba(51, 65, 85, 0.3); border-radius: 6px; padding: 10px; margin-bottom: 10px; border: 1px solid #334155; }
     .thought-header { color: var(--accent-primary); font-weight: 600; margin-bottom: 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 6px; }
-    
     .thought-item { margin-bottom: 6px; }
     .thought-key { color: var(--text-muted); font-size: 11px; display: block; margin-bottom: 2px; }
     .thought-val { color: #e2e8f0; white-space: pre-wrap; font-family: var(--font-ui); }
@@ -448,7 +455,6 @@ INDEX_HTML = """
     .op-id { font-family: var(--font-code); font-size: 10px; color: var(--text-muted); margin-bottom: 2px; }
     .op-details { margin-top: 4px; font-family: var(--font-code); font-size: 11px; color: #94a3b8; background: #0f172a; padding: 4px; border-radius: 4px; white-space: pre-wrap; }
 
-    /* 审计/反思卡片特定样式 */
     .audit-header { color: #ec4899; } /* Pink */
     .audit-badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: bold; background: #334155; color: white; margin-bottom: 8px; }
     .audit-issues { margin-top: 8px; border-left: 2px solid #ef4444; padding-left: 8px; }
@@ -457,17 +463,17 @@ INDEX_HTML = """
     .raw-data-block { margin-top: 10px; padding-top: 10px; border-top: 1px dashed #334155; }
     .raw-data-header { font-size: 10px; color: #64748b; margin-bottom: 4px; text-transform: uppercase; }
     .raw-data-content { font-family: var(--font-code); font-size: 11px; color: #94a3b8; white-space: pre-wrap; }
+    
+    .status-item { display: inline-flex; align-items: center; gap:6px; background:rgba(255,255,255,0.05); padding:4px 8px; border-radius:4px; font-size:11px; color:#cbd5e1; border:1px solid #334155; margin-right:6px; margin-bottom:6px; }
+    .status-check { color: var(--success); } .status-cross { color: var(--error); }
+
+    .tool-output { background: #0b1120; border: 1px solid #1e293b; padding: 8px; border-radius: 4px; font-family: var(--font-code); font-size: 11px; color: #a5d6ff; white-space: pre-wrap; max-height: 200px; overflow-y: auto; }
 
     .d3-node circle, .d3-node rect, .d3-node polygon { transition: all 0.3s; cursor: pointer; }
     .d3-node:hover { filter: drop-shadow(0 0 6px var(--accent-primary)); }
     .d3-link { stroke: #475569; stroke-width: 1.5; opacity: 0.6; fill: none; }
 
-    /* Tree specific animation */
-    @keyframes pulse {
-      0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
-      70% { box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
-      100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
-    }
+    @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); } 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); } }
     .node-running circle { animation: pulse 2s infinite; stroke: var(--accent-primary); stroke-width: 2px; }
 
     .floating-panel { position: absolute; background: rgba(15, 23, 42, 0.9); border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; backdrop-filter: blur(4px); }
@@ -736,14 +742,67 @@ INDEX_HTML = """
     state.es.onmessage = e => {
       try {
           const msg = JSON.parse(e.data);
-          if(msg.event === 'graph.changed' || msg.event === 'execution.step.completed') render();
-          if(msg.event !== 'ping' && msg.event !== 'graph.ready') appendLog(msg);
-      } catch(x) {}
+          
+          // 统一处理所有事件
+          const eventType = msg.event || 'message';
+          
+          if(eventType === 'graph.changed' || eventType === 'execution.step.completed') render();
+          if(eventType === 'ping' || eventType === 'graph.ready') return;
+          
+          // 分流渲染
+          if(eventType.startsWith('llm.')) {
+              renderLLMResponse(msg);
+          } else {
+              renderSystemEvent(msg);
+          }
+      } catch(x) { console.error('Parse error', x); }
     };
-    fetch(`/api/ops/${state.op_id}/llm-events`).then(r=>r.json()).then(d=>(d.events||[]).forEach(appendLog));
+    fetch(`/api/ops/${state.op_id}/llm-events`).then(r=>r.json()).then(d=>(d.events||[]).forEach(e => {
+        if(e.event && e.event.startsWith('llm.')) renderLLMResponse(e); else renderSystemEvent(e);
+    }));
   }
   
-  function appendLog(msg) {
+  // 专门处理系统/执行事件 (execution.step.completed, graph.changed, etc)
+  function renderSystemEvent(msg) {
+      const container = document.getElementById('llm-stream');
+      const div = document.createElement('div');
+      div.className = 'system-msg';
+      const time = new Date(msg.timestamp ? msg.timestamp * 1000 : Date.now()).toLocaleTimeString();
+      let html = `<div class="msg-meta"><span>${msg.event}</span><span>${time}</span></div>`;
+      
+      const eventType = msg.event;
+      const data = msg.data || msg.payload || {};
+
+      // 针对 Tool Execution Completed 的特殊渲染
+      if (eventType === 'execution.step.completed') {
+          let result = data.result;
+          // 尝试解析 result 字符串内部的 JSON
+          if (typeof result === 'string') {
+              try { result = JSON.parse(result); } catch(e) {}
+          }
+          
+          html += `<div style="color:#a5d6ff;margin-bottom:4px;">Tool: <b>${data.tool_name}</b> (Step: ${data.step_id})</div>`;
+          html += `<div class="tool-output">${hlJson(result)}</div>`;
+      } 
+      // 针对 Graph Changed
+      else if (eventType === 'graph.changed') {
+          html += `<div style="color:#94a3b8">Graph updated: ${data.reason || 'Unknown reason'}</div>`;
+      }
+      // 针对 Intervention
+      else if (eventType === 'intervention.required') {
+          html += `<div style="color:#f59e0b;font-weight:bold;">⚠ Intervention Required</div>`;
+      }
+      // 兜底通用渲染
+      else {
+          html += `<div class="raw-data-content">${hlJson(data)}</div>`;
+      }
+      
+      div.innerHTML = html;
+      container.appendChild(div); container.scrollTop = container.scrollHeight;
+  }
+
+  // 专门处理 LLM 响应
+  function renderLLMResponse(msg) {
     const id = (msg.timestamp||Date.now()) + msg.event; 
     if(state.processedEvents.has(id)) return; 
     state.processedEvents.add(id);
@@ -780,13 +839,12 @@ INDEX_HTML = """
             delete remaining.thought;
         }
         
-        // 2. Reflector/Audit (NEW)
+        // 2. Reflector/Audit
         if (remaining.audit_result) {
             htmlContent += `<div class="thought-card" style="border-color:#ec4899;"><div class="thought-header audit-header"><svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>Reflector Audit</div>`;
             const audit = remaining.audit_result;
             htmlContent += `<div class="audit-badge" style="background:${audit.status==='passed'?'#10b981':'#f59e0b'}">Status: ${audit.status.toUpperCase()}</div>`;
             htmlContent += `<div style="font-size:12px;margin-bottom:8px;">${audit.completion_check}</div>`;
-            
             if (audit.logic_issues && audit.logic_issues.length > 0) {
                 htmlContent += `<div class="audit-issues">`;
                 audit.logic_issues.forEach(issue => { htmlContent += `<div class="audit-issue-item">⚠ ${issue}</div>`; });
@@ -814,8 +872,8 @@ INDEX_HTML = """
             htmlContent += `</div></div>`;
             delete remaining.key_findings;
         }
-        delete remaining.key_facts; // Usually redundant with key_findings
-        delete remaining.causal_graph_updates; // Don't show raw graph updates
+        delete remaining.key_facts;
+        delete remaining.causal_graph_updates;
 
         // 3. Graph Operations
         if (remaining.graph_operations && Array.isArray(remaining.graph_operations)) {
@@ -862,9 +920,26 @@ INDEX_HTML = """
              delete remaining.staged_causal_nodes;
         }
 
-        // 7. Other Data
+        // 7. Render Remaining Specific Keys nicely
         if (Object.keys(remaining).length > 0) {
-            htmlContent += `<div class="raw-data-block"><div class="raw-data-header">Other Data</div><div class="raw-data-content">${hlJson(JSON.stringify(remaining, null, 2))}</div></div>`;
+            htmlContent += `<div class="raw-data-block"><div class="raw-data-header">Status & Other Data</div><div style="display:flex;flex-wrap:wrap;">`;
+            
+            // Render specific flags as badges
+            const flags = ['global_mission_accomplished', 'is_subtask_complete', 'success'];
+            flags.forEach(f => {
+                if (remaining[f] !== undefined) {
+                    const isTrue = remaining[f] === true;
+                    htmlContent += `<div class="status-item"><span class="${isTrue?'status-check':'status-cross'}">${isTrue?'✓':'✕'}</span> ${f}</div>`;
+                    delete remaining[f];
+                }
+            });
+            htmlContent += `</div>`;
+            
+            // If anything is STILL left, dump as JSON
+            if (Object.keys(remaining).length > 0) {
+                htmlContent += `<div class="raw-data-content">${hlJson(JSON.stringify(remaining, null, 2))}</div>`;
+            }
+            htmlContent += `</div>`;
         }
         
     } else {
@@ -876,7 +951,10 @@ INDEX_HTML = """
   }
   
   function hlJson(s) {
-    if(typeof s !== 'string') s = JSON.stringify(s, null, 2);
+    if(typeof s !== 'string') {
+        if(typeof s === 'object') s = JSON.stringify(s, null, 2);
+        else s = String(s);
+    }
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, m => {
       let c = 'json-number';
       if(/^"/.test(m)) c = /:$/.test(m) ? 'json-key' : 'json-string';

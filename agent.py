@@ -815,6 +815,10 @@ async def handle_cli_approval(op_id: str, plan_data: List[Dict[str, Any]]):
     处理 CLI 端的人工审批。
     与 Web 端审批并行运行，任何一方先提交决策即生效。
     """
+    if not sys.stdin.isatty():
+        console.print("[dim]非交互式环境，跳过 CLI 审批监听。[/dim]")
+        return
+
     loop = asyncio.get_running_loop()
     
     # 1. 展示计划概要
@@ -828,54 +832,62 @@ async def handle_cli_approval(op_id: str, plan_data: List[Dict[str, Any]]):
     console.print("\n请选择操作: [bold green]y[/bold green] (批准), [bold red]n[/bold red] (拒绝), [bold blue]m[/bold blue] (修改)")
     
     # 2. 阻塞等待输入 (运行在 executor 中以免阻塞主循环)
-    while True:
-        try:
-            choice = await loop.run_in_executor(None, input, "HITL > ")
-            choice = choice.strip().lower()
-            
-            if choice == 'y':
-                intervention_manager.submit_decision(op_id, "APPROVE")
-                console.print("✅ CLI: 已批准计划。")
-                break
-            elif choice == 'n':
-                intervention_manager.submit_decision(op_id, "REJECT")
-                console.print("❌ CLI: 已拒绝计划。")
-                break
-            elif choice == 'm':
-                # 修改模式：调用系统编辑器
-                import tempfile
-                import os
-                import subprocess
+    try:
+        while True:
+            try:
+                # 使用 executor 避免阻塞主线程 loop，但要注意 input 本身的锁竞争
+                choice = await loop.run_in_executor(None, input, "HITL > ")
+                choice = choice.strip().lower()
                 
-                editor = os.getenv('EDITOR', 'vim')
-                with tempfile.NamedTemporaryFile(mode='w+', suffix='.json', delete=False) as tf:
-                    json.dump(plan_data, tf, indent=2, ensure_ascii=False)
-                    tf_path = tf.name
-                
-                try:
-                    console.print(f"正在打开编辑器 ({editor})...")
-                    # 使用 subprocess.call 而不是 run_in_executor，因为编辑器需要 stdin/stdout
-                    # 但这会阻塞 loop... 这是一个权衡。为了简单的 CLI 体验，暂时允许阻塞直到编辑器关闭。
-                    # 注意：在此期间 Web UI 可能会无响应。
-                    # 更好的做法是提示用户 Web UI 可能更适合修改。
-                    subprocess.call([editor, tf_path])
-                    
-                    with open(tf_path, 'r') as tf:
-                        modified_data = json.load(tf)
-                    
-                    intervention_manager.submit_decision(op_id, "MODIFY", modified_data)
-                    console.print("✏️ CLI: 已提交修改后的计划。")
-                    os.unlink(tf_path)
+                if choice == 'y':
+                    intervention_manager.submit_decision(op_id, "APPROVE")
+                    console.print("✅ CLI: 已批准计划。")
                     break
-                except Exception as e:
-                    console.print(f"[bold red]修改失败: {e}[/bold red]")
-                    console.print("请重试或使用 y/n。")
-            else:
-                console.print("无效输入。请输入 y, n 或 m。")
-        except asyncio.CancelledError:
-            # 任务被取消（说明 Web 端已处理）
-            console.print("\n[dim]Web 端已提交决策，CLI 审批取消。[/dim]")
-            break
+                elif choice == 'n':
+                    intervention_manager.submit_decision(op_id, "REJECT")
+                    console.print("❌ CLI: 已拒绝计划。")
+                    break
+                elif choice == 'm':
+                    # 修改模式：调用系统编辑器
+                    import tempfile
+                    import os
+                    import subprocess
+                    
+                    editor = os.getenv('EDITOR', 'vim')
+                    with tempfile.NamedTemporaryFile(mode='w+', suffix='.json', delete=False) as tf:
+                        json.dump(plan_data, tf, indent=2, ensure_ascii=False)
+                        tf_path = tf.name
+                    
+                    try:
+                        console.print(f"正在打开编辑器 ({editor})...")
+                        subprocess.call([editor, tf_path])
+                        
+                        with open(tf_path, 'r') as tf:
+                            modified_data = json.load(tf)
+                        
+                        intervention_manager.submit_decision(op_id, "MODIFY", modified_data)
+                        console.print("✏️ CLI: 已提交修改后的计划。")
+                        os.unlink(tf_path)
+                        break
+                    except Exception as e:
+                        console.print(f"[bold red]修改失败: {e}[/bold red]")
+                        console.print("请重试或使用 y/n。")
+                else:
+                    console.print("无效输入。请输入 y, n 或 m。")
+                
+                # 防止忙等待
+                await asyncio.sleep(0.1)
+
+            except EOFError:
+                console.print("\n[dim]检测到输入流关闭，停止 CLI 审批监听。[/dim]")
+                break
+            except Exception as e:
+                console.print(f"[dim]CLI 输入错误: {e}[/dim]")
+                await asyncio.sleep(1) # 出错后避让
+                
+    except asyncio.CancelledError:
+        # 任务被取消（说明 Web 端已处理）
+        console.print("\n[dim]Web 端已提交决策，CLI 审批取消。[/dim]")
 
 
 async def main():
