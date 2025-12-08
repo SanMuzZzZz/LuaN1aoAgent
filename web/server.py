@@ -764,6 +764,10 @@ INDEX_HTML = """
   
   // 专门处理系统/执行事件 (execution.step.completed, graph.changed, etc)
   function renderSystemEvent(msg) {
+      const id = (msg.timestamp||0) + '_' + msg.event;
+      if(state.processedEvents.has(id)) return;
+      state.processedEvents.add(id);
+
       const container = document.getElementById('llm-stream');
       const div = document.createElement('div');
       div.className = 'system-msg';
@@ -798,12 +802,14 @@ INDEX_HTML = """
       }
       
       div.innerHTML = html;
-      container.appendChild(div); container.scrollTop = container.scrollHeight;
+      const shouldScroll = Math.abs(container.scrollHeight - container.clientHeight - container.scrollTop) < 50;
+      container.appendChild(div);
+      if(shouldScroll) container.scrollTop = container.scrollHeight;
   }
 
   // 专门处理 LLM 响应
   function renderLLMResponse(msg) {
-    const id = (msg.timestamp||Date.now()) + msg.event; 
+    const id = (msg.timestamp||Date.now()) + '_' + msg.event; 
     if(state.processedEvents.has(id)) return; 
     state.processedEvents.add(id);
     
@@ -947,7 +953,10 @@ INDEX_HTML = """
     }
 
     div.innerHTML = `<div class="msg-meta"><span>${msg.event}</span><span>${new Date().toLocaleTimeString()}</span></div>${htmlContent}`;
-    container.appendChild(div); container.scrollTop = container.scrollHeight;
+    
+    const shouldScroll = Math.abs(container.scrollHeight - container.clientHeight - container.scrollTop) < 50;
+    container.appendChild(div); 
+    if(shouldScroll) container.scrollTop = container.scrollHeight;
   }
   
   function hlJson(s) {

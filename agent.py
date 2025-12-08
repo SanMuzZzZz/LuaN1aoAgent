@@ -830,14 +830,22 @@ async def handle_cli_approval(op_id: str, plan_data: List[Dict[str, Any]]):
         console.print(f"  {i+1}. [bold]{cmd}[/bold] {node_id}: {str(desc)[:100]}...")
 
     console.print("\n请选择操作: [bold green]y[/bold green] (批准), [bold red]n[/bold red] (拒绝), [bold blue]m[/bold blue] (修改)")
+    console.print("HITL > ", end="")
     
     # 2. 阻塞等待输入 (运行在 executor 中以免阻塞主循环)
     try:
         while True:
             try:
-                # 使用 executor 避免阻塞主线程 loop，但要注意 input 本身的锁竞争
-                choice = await loop.run_in_executor(None, input, "HITL > ")
-                choice = choice.strip().lower()
+                # 稍微让出控制权，确保 Web Server 任务有机会运行
+                await asyncio.sleep(0.1)
+                
+                # 使用 sys.stdin.readline 替代 input，避免某些环境下的 GIL 或锁竞争问题
+                # 注意：readline 会保留换行符，需要 strip
+                line = await loop.run_in_executor(None, sys.stdin.readline)
+                if not line: # EOF
+                    break
+                    
+                choice = line.strip().lower()
                 
                 if choice == 'y':
                     intervention_manager.submit_decision(op_id, "APPROVE")
@@ -872,15 +880,11 @@ async def handle_cli_approval(op_id: str, plan_data: List[Dict[str, Any]]):
                     except Exception as e:
                         console.print(f"[bold red]修改失败: {e}[/bold red]")
                         console.print("请重试或使用 y/n。")
+                        console.print("HITL > ", end="")
                 else:
                     console.print("无效输入。请输入 y, n 或 m。")
+                    console.print("HITL > ", end="")
                 
-                # 防止忙等待
-                await asyncio.sleep(0.1)
-
-            except EOFError:
-                console.print("\n[dim]检测到输入流关闭，停止 CLI 审批监听。[/dim]")
-                break
             except Exception as e:
                 console.print(f"[dim]CLI 输入错误: {e}[/dim]")
                 await asyncio.sleep(1) # 出错后避让
