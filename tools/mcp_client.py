@@ -170,6 +170,15 @@ async def initialize_sessions():
     _sessions_initialized = True
 
 
+async def reload_sessions():
+    """重新加载所有MCP会话。"""
+    global _sessions_initialized
+    await close_async_sessions()
+    _async_sessions.clear()
+    _sessions_initialized = False
+    await initialize_sessions()
+
+
 async def call_mcp_tool_async(tool: str, params: Optional[Dict] = None, server_name: Optional[str] = None) -> str:
     """异步调用MCP工具。"""
     await initialize_sessions()

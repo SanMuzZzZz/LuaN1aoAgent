@@ -18,6 +18,7 @@ try:
     from core.events import broker
     from core.graph_manager import GraphManager
     from core.intervention import intervention_manager
+    from tools.mcp_client import reload_sessions
 except ModuleNotFoundError:
     import sys as _sys
     import os as _os
@@ -25,6 +26,7 @@ except ModuleNotFoundError:
     from core.events import broker
     from core.graph_manager import GraphManager
     from core.intervention import intervention_manager
+    from tools.mcp_client import reload_sessions
 
 
 app = FastAPI(title="鸾鸟Agent Web")
@@ -34,7 +36,7 @@ app.add_middleware(
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"]
+    allow_headers=["*"],
 )
 
 
@@ -372,7 +374,56 @@ async def api_inject_task(op_id: str, payload: Dict[str, Any]):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-INDEX_HTML = """
+@app.get("/api/mcp/config")
+async def api_mcp_config():
+    config_path = "mcp.json"
+    if not os.path.exists(config_path):
+        return {"mcpServers": {}}
+    try:
+        with open(config_path, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load mcp.json: {e}")
+
+
+@app.post("/api/mcp/add")
+async def api_mcp_add(payload: Dict[str, Any]):
+    name = payload.get("name")
+    command = payload.get("command")
+    args = payload.get("args", [])
+    env = payload.get("env", {})
+    
+    if not name or not command:
+        raise HTTPException(status_code=400, detail="Name and command are required")
+        
+    config_path = "mcp.json"
+    config = {"mcpServers": {}}
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r") as f:
+                config = json.load(f)
+        except Exception:
+            pass
+            
+    config.setdefault("mcpServers", {})[name] = {
+        "type": "stdio",
+        "command": command,
+        "args": args,
+        "env": env
+    }
+    
+    try:
+        with open(config_path, "w") as f:
+            json.dump(config, f, indent=2)
+        
+        # Reload MCP sessions
+        await reload_sessions()
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save config or reload: {e}")
+
+
+INDEX_HTML = r"""
 <!doctype html>
 <html lang="zh-CN">
 <head>
@@ -409,6 +460,16 @@ INDEX_HTML = """
     #sidebar { width: 280px; background: var(--bg-app); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; flex-shrink: 0; }
     #main { flex: 1; position: relative; background-color: #0b1120; background-image: radial-gradient(#334155 1px, transparent 1px); background-size: 24px 24px; overflow: hidden; }
     #right-panel { width: 420px; background: var(--bg-panel); border-left: 1px solid var(--border-color); display: flex; flex-direction: column; flex-shrink: 0; }
+    .resizer {
+      width: 6px;
+      background: var(--border-color);
+      cursor: ew-resize;
+      flex-shrink: 0;
+      z-index: 10;
+    }
+    .resizer:hover {
+      background: var(--accent-primary);
+    }
 
     .btn { height: 32px; padding: 0 12px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-muted); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
     .btn:hover { background: #475569; color: white; }
@@ -434,7 +495,7 @@ INDEX_HTML = """
     .detail-key { width: 90px; color: var(--text-muted); text-align: right; }
     .detail-val { color: #e2e8f0; font-family: var(--font-code); word-break: break-all; white-space: pre-wrap; }
 
-    #llm-output-container { background: #0d1117; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    #llm-output-container { background: #0d1117; flex: 1; display: flex; flex-direction: column; overflow: hidden; height: 100%; }
     .llm-msg { padding: 12px 16px; border-bottom: 1px solid #21262d; font-family: var(--font-ui); font-size: 13px; line-height: 1.5; }
     .llm-msg.user { background: rgba(59, 130, 246, 0.05); border-left: 3px solid var(--accent-primary); }
     .llm-msg.assistant { border-left: 3px solid var(--success); }
@@ -477,6 +538,9 @@ INDEX_HTML = """
     .node-running circle { animation: pulse 2s infinite; stroke: var(--accent-primary); stroke-width: 2px; }
 
     .floating-panel { position: absolute; background: rgba(15, 23, 42, 0.9); border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; backdrop-filter: blur(4px); }
+    .floating-details { position: absolute; background: rgba(15, 23, 42, 0.95); border: 1px solid var(--border-color); border-radius: 8px; backdrop-filter: blur(8px); display: flex; flex-direction: column; width: 320px; max-height: 80%; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5); z-index: 40; transition: opacity 0.2s; opacity: 0; pointer-events: none; }
+    .floating-details.show { opacity: 1; pointer-events: auto; }
+    
     #legend { bottom: 20px; right: 20px; } #controls { top: 20px; right: 20px; display: flex; flex-direction: column; gap: 6px; }
     .legend-item { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 11px; color: var(--text-muted); }
     .legend-dot { width: 10px; height: 10px; border-radius: 2px; }
@@ -495,6 +559,18 @@ INDEX_HTML = """
     .toast { position: fixed; top: 20px; left: 50%; transform: translateX(-50%) translateY(-100%); background: var(--bg-card); border: 1px solid var(--border-highlight); padding: 8px 16px; border-radius: 50px; display: flex; align-items: center; gap: 8px; z-index: 200; transition: 0.3s; }
     .toast.show { transform: translateX(-50%) translateY(0); }
     .json-number { color: #79c0ff; } .json-key { color: #7ee787; } .json-string { color: #a5d6ff; } .json-boolean { color: #ff7b72; }
+  </style>
+  <style>
+    .resizer {
+      width: 6px;
+      background: var(--border-color);
+      cursor: ew-resize;
+      flex-shrink: 0;
+      z-index: 10;
+    }
+    .resizer:hover {
+      background: var(--accent-primary);
+    }
   </style>
 </head>
 <body>
@@ -519,6 +595,7 @@ INDEX_HTML = """
     </div>
     <div style="width:1px;height:24px;background:var(--border-color);margin:0 10px;"></div>
     <div class="flex gap-2">
+      <button class="btn" onclick="openMCPModal()" title="MCP服务">MCP</button>
       <button class="btn" onclick="openInjectModal()" title="注入任务">Inject</button>
       <button class="btn" onclick="render(true)" title="刷新">Refresh</button>
       <button class="btn btn-danger" onclick="abortOp()" title="终止">Stop</button>
@@ -542,15 +619,21 @@ INDEX_HTML = """
         <div style="font-weight:600;margin-bottom:6px;font-size:10px;text-transform:uppercase">Legend</div>
         <div id="legend-content"></div>
       </div>
-    </main>
-
-    <aside id="right-panel">
-      <div style="flex: 0 0 45%; display: flex; flex-direction: column; border-bottom: 1px solid var(--border-color);">
-        <div class="panel-header">Node Details</div>
-        <div id="node-detail-content" class="panel-content" style="padding:0;">
+      
+      <div id="node-details-panel" class="floating-details" style="top: 20px; left: 20px;">
+        <div class="panel-header">
+          <span>Node Details</span>
+          <button class="btn" style="height:24px;padding:0 6px;background:transparent;border:none;" onclick="closeDetails()">
+            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div id="node-detail-content" class="panel-content">
           <div style="padding:20px;color:var(--text-muted);text-align:center">Select a node</div>
         </div>
       </div>
+    </main>
+
+    <aside id="right-panel">
       <div id="llm-output-container">
         <div class="panel-header">
           <span>Agent Logs (Output Only)</span>
@@ -572,6 +655,27 @@ INDEX_HTML = """
       <div class="mb-4"><label class="block text-xs text-gray-400 mb-1">Dependencies (IDs)</label><input id="inject-deps" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div>
     </div>
     <div class="modal-footer"><button class="btn" onclick="closeModals()">Cancel</button><button class="btn btn-primary" onclick="submitInjection()">Inject</button></div>
+  </div>
+</div>
+
+<div id="mcp-modal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="panel-header" style="background:transparent;border:none;padding:24px 24px 0;">
+      <h2 style="font-size:16px;">Manage MCP Servers</h2>
+    </div>
+    <div class="modal-body">
+      <div class="mb-4">
+        <div class="text-xs text-gray-400 mb-2 uppercase font-bold">Current Servers</div>
+        <div id="mcp-list" class="bg-slate-800 border border-slate-600 rounded p-2 text-white text-xs" style="min-height:50px; max-height:150px; overflow-y:auto;">Loading...</div>
+      </div>
+      <hr class="border-slate-700 my-4">
+      <div class="mb-2 text-xs text-gray-400 uppercase font-bold">Add New Server</div>
+      <div class="mb-2"><label class="block text-xs text-gray-400 mb-1">Name</label><input id="mcp-name" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div>
+      <div class="mb-2"><label class="block text-xs text-gray-400 mb-1">Command</label><input id="mcp-cmd" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div>
+      <div class="mb-2"><label class="block text-xs text-gray-400 mb-1">Args (comma separated)</label><input id="mcp-args" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div>
+      <div class="mb-2"><label class="block text-xs text-gray-400 mb-1">Env (JSON)</label><textarea id="mcp-env" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-16" placeholder='{"KEY": "VALUE"}'></textarea></div>
+    </div>
+    <div class="modal-footer"><button class="btn" onclick="closeModals()">Close</button><button class="btn btn-primary" onclick="addMCPServer()">Add & Reload</button></div>
   </div>
 </div>
 
@@ -622,6 +726,7 @@ INDEX_HTML = """
     history.replaceState(null, '', `?op_id=${id}`);
     document.getElementById('llm-stream').innerHTML = '';
     document.getElementById('node-detail-content').innerHTML = '<div style="padding:20px;text-align:center;color:#64748b">Loading...</div>';
+    closeDetails();
     if(state.es) state.es.close(); subscribe(); render(); if(refresh) loadOps();
   }
 
@@ -662,7 +767,14 @@ INDEX_HTML = """
       const n = queue.shift(), children = adj[n.id] || [];
       children.forEach(childId => { const child = nodes.find(x => x.id === childId); if(child && !visited.has(child.id)) { child.level = (n.level||0) + 1; visited.add(child.id); queue.push(child); } });
     }
-    state.simulation = d3.forceSimulation(nodes).force("link", d3.forceLink(links).id(d => d.id).distance(80)).force("charge", d3.forceManyBody().strength(-300)).force("y", d3.forceY(d => (d.level||0) * 80).strength(1)).force("x", d3.forceX(state.svg.node().clientWidth/2).strength(0.05)).force("collide", d3.forceCollide().radius(30));
+    // Increased repulsion force and link distance
+    state.simulation = d3.forceSimulation(nodes)
+        .force("link", d3.forceLink(links).id(d => d.id).distance(120))
+        .force("charge", d3.forceManyBody().strength(-1000))
+        .force("y", d3.forceY(d => (d.level||0) * 80).strength(1))
+        .force("x", d3.forceX(state.svg.node().clientWidth/2).strength(0.05))
+        .force("collide", d3.forceCollide().radius(40));
+        
     const link = state.g.append("g").selectAll("line").data(links).join("line").attr("class", "d3-link").attr("marker-end", "url(#arrow)");
     const node = state.g.append("g").selectAll("g").data(nodes).join("g").attr("class", "d3-node").call(d3.drag().on("start",dragstarted).on("drag",dragged).on("end",dragended)).on("click", (e,d)=>showDetails(d));
     node.each(function(d){
@@ -683,7 +795,7 @@ INDEX_HTML = """
     
     // Horizontal Layout: Root on Left, Leaves on Right
     const rootData = data.roots[0]; 
-    const root = d3.hierarchy(rootData);
+    const root = d3.hierarchy(rootData); 
     const width = state.svg.node().clientWidth;
     const height = state.svg.node().clientHeight;
     
@@ -735,6 +847,11 @@ INDEX_HTML = """
     const c=document.getElementById('node-detail-content'); let h='<table class="detail-table">';
     Object.entries(d).forEach(([k,v])=>{ if(!['x','y','fx','fy','vx','vy','index','children'].includes(k)) h+=`<tr><td class="detail-key">${k}</td><td class="detail-val">${typeof v==='object'?JSON.stringify(v,null,2):v}</td></tr>`; });
     c.innerHTML=h+'</table>';
+    document.getElementById('node-details-panel').classList.add('show');
+  }
+  
+  function closeDetails() {
+    document.getElementById('node-details-panel').classList.remove('show');
   }
 
   function subscribe() {
@@ -790,7 +907,12 @@ INDEX_HTML = """
       } 
       // 针对 Graph Changed
       else if (eventType === 'graph.changed') {
-          html += `<div style="color:#94a3b8">Graph updated: ${data.reason || 'Unknown reason'}</div>`;
+          if (data.reason === 'confidence_update') {
+              html += `<div style="color:#fbbf24;font-weight:bold;">📈 Confidence Update</div>`;
+              html += `<div style="color:#94a3b8">${data.message || 'No details'}</div>`;
+          } else {
+              html += `<div style="color:#94a3b8">Graph updated: ${data.reason || 'Unknown reason'}</div>`;
+          }
       }
       // 针对 Intervention
       else if (eventType === 'intervention.required') {
@@ -964,7 +1086,7 @@ INDEX_HTML = """
         if(typeof s === 'object') s = JSON.stringify(s, null, 2);
         else s = String(s);
     }
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, m => {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/("(\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, m => {
       let c = 'json-number';
       if(/^"/.test(m)) c = /:$/.test(m) ? 'json-key' : 'json-string';
       else if(/true|false/.test(m)) c = 'json-boolean';
@@ -996,12 +1118,61 @@ INDEX_HTML = """
     l.innerHTML=h; e.value=JSON.stringify(r.data,null,2);
   }
   
-  function toggleModifyMode() { state.isModifyMode=!state.isModifyMode; const l=document.getElementById('approval-list'), ea=document.getElementById('approval-edit-area'), b=document.getElementById('btn-modify-mode'); if(state.isModifyMode){l.style.display='none';ea.style.display='block';b.innerText='Cancel';b.classList.add('active')}else{l.style.display='block';ea.style.display='none';b.innerText='Modify';b.classList.remove('active')} }
+  function toggleModifyMode() { state.isModifyMode=!state.isModifyMode; const l=document.getElementById('approval-list'), ea=document.getElementById('approval-edit-area'), b=document.getElementById('btn-modify-mode'); if(state.isModifyMode){l.style.display='none';ea.style.display='block';b.innerText='Cancel';b.classList.add('active')}else{l.style.display='block';ea.style.display='none';b.innerText='Modify';b.classList.remove('active')} } 
   async function submitDecision(a) { let p={action:a}; if(a==='APPROVE'&&state.isModifyMode) { try{p.modified_data=JSON.parse(document.getElementById('approval-json-editor').value);p.action='MODIFY'}catch(e){return alert('Invalid JSON')} } await api(`/api/ops/${state.op_id}/intervention/decision`,p); document.getElementById('approval-modal').classList.remove('show'); state.pendingReq=null; }
   
   function openInjectModal(){document.getElementById('inject-modal').classList.add('show')}
   function closeModals(){document.querySelectorAll('.modal-overlay').forEach(e=>e.classList.remove('show'))}
   async function submitInjection(){const d=document.getElementById('inject-desc').value, dp=document.getElementById('inject-deps').value; if(d) await api(`/api/ops/${state.op_id}/inject_task`,{description:d,dependencies:dp?dp.split(','):[]}); closeModals();}
+  
+  function openMCPModal(){
+    document.getElementById('mcp-modal').classList.add('show');
+    loadMCPConfig();
+  }
+  
+  async function loadMCPConfig(){
+    try {
+        const data = await api('/api/mcp/config');
+        const list = document.getElementById('mcp-list');
+        let h = '';
+        if(data.mcpServers) {
+            Object.entries(data.mcpServers).forEach(([k,v])=>{
+                h += `<div class="mb-1 border-b border-slate-700 pb-1">
+                        <div class="font-bold text-blue-400">${k}</div>
+                        <div class="text-gray-500">${v.command} ${(v.args||[]).join(' ')}</div>
+                      </div>`;
+            });
+        }
+        list.innerHTML = h || 'No servers configured.';
+    } catch(e){ console.error(e); }
+  }
+  
+  async function addMCPServer(){
+    const name = document.getElementById('mcp-name').value;
+    const cmd = document.getElementById('mcp-cmd').value;
+    const argsStr = document.getElementById('mcp-args').value;
+    const envStr = document.getElementById('mcp-env').value;
+    
+    if(!name || !cmd) return alert('Name and command required');
+    
+    let env = {};
+    try {
+        if(envStr) env = JSON.parse(envStr);
+    } catch(e){ return alert('Invalid JSON for Env'); }
+    
+    const args = argsStr ? argsStr.split(',').map(s=>s.trim()) : [];
+    
+    try {
+        await api('/api/mcp/add', {name, command: cmd, args, env});
+        alert('Server added & reloaded!');
+        loadMCPConfig();
+        // Clear inputs
+        document.getElementById('mcp-name').value='';
+        document.getElementById('mcp-cmd').value='';
+        document.getElementById('mcp-args').value='';
+        document.getElementById('mcp-env').value='';
+    } catch(e){ alert('Error: '+e); }
+  }
 </script>
 </body>
 </html>
@@ -1010,6 +1181,11 @@ INDEX_HTML = """
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return HTMLResponse(INDEX_HTML)
+
+
+@app.get("/favicon.ico")
+async def favicon():
+    return Response(status_code=204)
 
 
 def register_graph(op_id: str, graph_manager: GraphManager, *, log_dir: Optional[str] = None):
@@ -1029,9 +1205,3 @@ def run(host: str = "127.0.0.1", port: int = 8082):
 
 if __name__ == "__main__":
     run()
-
-
-
-@app.get("/favicon.ico")
-async def favicon():
-    return Response(status_code=204)

@@ -2,11 +2,15 @@
 import json
 import logging
 import time
+import asyncio
 import networkx as nx
 from networkx.readwrite import json_graph
 from rich.tree import Tree
 from typing import Dict, List, Any, Optional
 from dataclasses import is_dataclass, asdict
+
+from core.events import broker
+from core.console import console_proxy as console
 
 try:
     # 使用数据契约中的新因果链结构
@@ -77,7 +81,12 @@ class GraphManager:
         self.graph = nx.DiGraph()
         self.causal_graph = nx.DiGraph()
         self._execution_counter = 0
+        self.op_id = None
         self.initialize_graph(goal)
+
+    def set_op_id(self, op_id: str):
+        """Set the operation ID for event emission."""
+        self.op_id = op_id
 
     def initialize_graph(self, goal: str):
         """初始化图，添加代表整体任务的根节点."""
@@ -306,6 +315,34 @@ class GraphManager:
 
         self.causal_graph.nodes[hypothesis_id]["confidence"] = new_confidence
         node_status = self.causal_graph.nodes[hypothesis_id].get("status")
+        
+        message = f"Confidence for hypothesis '{hypothesis_id}' updated from {current_confidence:.2f} to {new_confidence:.2f} due to '{label}' edge (adjustment: {adjustment}). Status set to {node_status}."
+        logging.debug(message)
+        
+        # Console output
+        try:
+            console.print(f"[bold yellow]Confidence Update:[/bold yellow] {message}")
+        except Exception:
+            pass
+
+        # Event emission
+        if self.op_id:
+            try:
+                # Use create_task to run async emit in sync context if loop is running
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(broker.emit("graph.changed", {
+                        "reason": "confidence_update", 
+                        "message": message,
+                        "node_id": hypothesis_id,
+                        "new_confidence": new_confidence
+                    }, op_id=self.op_id))
+                except RuntimeError:
+                    # No running loop
+                    pass
+            except Exception:
+                pass
+        
         logging.debug(
             f"Updated confidence for hypothesis {hypothesis_id} from {current_confidence:.2f} to {new_confidence:.2f} based on '{label}' edge (adjustment: {adjustment}). Status set to {node_status}."
         )

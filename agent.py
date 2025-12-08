@@ -1055,6 +1055,8 @@ async def main():
         run_log.append({"event": "task_initialized", "task_id": task_id, "goal": goal, "timestamp": time.time()})
 
         graph_manager = GraphManager(task_id, goal)
+        # Set op_id for event emission
+        graph_manager.set_op_id(os.path.basename(log_dir))
         if register_graph:
             try:
                 register_graph(os.path.basename(log_dir), graph_manager, log_dir=log_dir)
