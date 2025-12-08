@@ -169,6 +169,19 @@ LuaN1ao achieves unified integration and scheduling of tools through the **Model
 - **Node Details**: Click nodes to view execution logs, artifacts, state transitions
 - **Progress Tracking**: Visualize parallel task execution and dependencies
 
+### Human-in-the-Loop (HITL) Mode
+
+LuaN1ao Agent supports a Human-in-the-Loop (HITL) mode, allowing experts to supervise and intervene in the decision-making process.
+
+- **Enable**: Set `HUMAN_IN_THE_LOOP=true` in `.env`.
+- **Approval**: The agent pauses after generating a plan (initial or dynamic), waiting for human approval via Web UI or CLI.
+- **Modification**: Experts can reject or directly modify the plan (JSON editing) before execution.
+- **Injection**: Supports real-time injection of new sub-tasks via the Web UI ("Active Intervention").
+
+**Interaction Methods**:
+- **Web UI**: Approval modal pops up automatically. Use "Modify" to edit plans or "Add Task" button to inject tasks.
+- **CLI**: Prompts with `HITL >`. Type `y` to approve, `n` to reject, or `m` to modify (opens system editor).
+
 ---
 
 ## <a id="roadmap"></a>🗓️ Roadmap
@@ -178,7 +191,7 @@ LuaN1ao achieves unified integration and scheduling of tools through the **Model
   - Automatic extraction of successful attack patterns into vector library
   - Intelligent recommendations based on historical experience
 
-- [ ] **Human-in-the-Loop Mode**
+- [x] **Human-in-the-Loop Mode**
   - Pre-high-risk operation confirmation mechanism
   - Runtime task graph editing interface (Graph Injection)
   - Expert intervention and strategy injection
