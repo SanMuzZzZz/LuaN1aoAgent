@@ -17,12 +17,14 @@ _sse_logger = logging.getLogger("web.sse")
 try:
     from core.events import broker
     from core.graph_manager import GraphManager
+    from core.intervention import intervention_manager
 except ModuleNotFoundError:
     import sys as _sys
     import os as _os
     _sys.path.append(_os.path.dirname(_os.path.dirname(__file__)))
     from core.events import broker
     from core.graph_manager import GraphManager
+    from core.intervention import intervention_manager
 
 
 app = FastAPI(title="LuaN1ao Web")
@@ -461,6 +463,75 @@ async def api_ops_run_log(op_id: str):
             return json.load(f)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# HITL (Human-in-the-Loop) API Endpoints
+# ============================================================================
+
+@app.get("/api/ops/{op_id}/intervention/pending")
+async def api_get_pending_intervention(op_id: str):
+    """获取指定任务挂起的审批请求"""
+    req = intervention_manager.get_pending_request(op_id)
+    return {"pending": req is not None, "request": req}
+
+
+@app.post("/api/ops/{op_id}/intervention/decision")
+async def api_submit_intervention_decision(op_id: str, payload: Dict[str, Any]):
+    """
+    提交人工决策
+    Payload: { "action": "APPROVE" | "REJECT" | "MODIFY", "modified_data": ... }
+    """
+    action = payload.get("action")
+    if action not in ["APPROVE", "REJECT", "MODIFY"]:
+        raise HTTPException(status_code=400, detail="Invalid action")
+    
+    modified_data = payload.get("modified_data")
+    
+    success = intervention_manager.submit_decision(op_id, action, modified_data)
+    if not success:
+        raise HTTPException(status_code=404, detail="No pending request found for this op_id")
+    
+    return {"ok": True}
+
+
+@app.post("/api/ops/{op_id}/inject_task")
+async def api_inject_task(op_id: str, payload: Dict[str, Any]):
+    """
+    主动干预：注入新的子任务节点
+    Payload: { "id": "task_name", "description": "...", "dependencies": [] }
+    """
+    entry = _get_entry(op_id)
+    gm: GraphManager = entry["gm"]
+    
+    node_id = payload.get("id") or f"user_task_{int(time.time())}"
+    description = payload.get("description")
+    if not description:
+        raise HTTPException(status_code=400, detail="Description is required")
+        
+    dependencies = payload.get("dependencies", [])
+    
+    try:
+        # 使用最高优先级 100 确保尽快执行
+        gm.add_subtask_node(
+            node_id=node_id,
+            description=description,
+            dependencies=dependencies,
+            priority=100,
+            reason="User injected task (Active Intervention)",
+            status="pending"
+        )
+        
+        # 通知前端图更新
+        try:
+            await broker.emit("graph.changed", {"reason": "user_injection"}, op_id=op_id)
+        except Exception:
+            pass
+            
+        return {"ok": True, "node_id": node_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 
 INDEX_HTML = """
@@ -1177,6 +1248,155 @@ INDEX_HTML = """
       width: 300px;
       height: 300px;
     }
+    
+    /* HITL Intervention Modal */
+    .modal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.7);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 10000;
+      backdrop-filter: blur(5px);
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.3s ease;
+    }
+    
+    .modal-overlay.show {
+      opacity: 1;
+      visibility: visible;
+    }
+    
+    .modal-content {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-primary);
+      border-radius: var(--radius-lg);
+      width: 800px;
+      max-width: 90vw;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: var(--shadow-lg);
+      transform: scale(0.9);
+      transition: transform 0.3s ease;
+    }
+    
+    .modal-overlay.show .modal-content {
+      transform: scale(1);
+    }
+    
+    .modal-header {
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border-primary);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(255, 255, 255, 0.02);
+    }
+    
+    .modal-header h2 {
+      margin: 0;
+      font-size: 18px;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    
+    .modal-body {
+      padding: 24px;
+      overflow-y: auto;
+      flex: 1;
+    }
+    
+    .modal-footer {
+      padding: 16px 24px;
+      border-top: 1px solid var(--border-primary);
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      background: rgba(255, 255, 255, 0.02);
+    }
+    
+    .ops-list {
+      background: var(--bg-primary);
+      border: 1px solid var(--border-primary);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+    
+    .op-item {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border-primary);
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    
+    .op-item:last-child {
+      border-bottom: none;
+    }
+    
+    .op-type {
+      font-weight: 600;
+      font-size: 12px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      min-width: 80px;
+      text-align: center;
+    }
+    
+    .op-type.ADD_NODE { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+    .op-type.UPDATE_NODE { background: rgba(59, 130, 246, 0.2); color: #3b82f6; }
+    .op-type.DELETE_NODE { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+    
+    .op-details {
+      flex: 1;
+      font-size: 14px;
+    }
+    
+    .op-node-id {
+      font-family: monospace;
+      color: var(--text-secondary);
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+    
+    .op-desc {
+      color: var(--text-primary);
+    }
+    
+    #inject-modal .modal-content {
+      width: 500px;
+    }
+    
+    .form-group {
+      margin-bottom: 16px;
+    }
+    
+    .form-group label {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--text-secondary);
+      font-size: 14px;
+    }
+    
+    .form-group input, .form-group textarea {
+      width: 100%;
+      padding: 8px 12px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border-primary);
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+      font-family: inherit;
+    }
+    
+    .form-group textarea {
+      min-height: 80px;
+      resize: vertical;
+    }
   </style>
   <link rel="stylesheet" href="https://unpkg.com/tippy.js@6/dist/tippy.css" />
   <script src="https://cdn.tailwindcss.com"></script>
@@ -1317,6 +1537,10 @@ INDEX_HTML = """
             <span style="display: inline-block; width: 16px; height: 16px;">⏹</span>
             终止执行
           </button>
+          <button class="btn" id="btn-inject" title="人工添加任务" onclick="openInjectModal()" style="background: var(--accent-primary); color: white; border-color: var(--accent-primary);">
+            <span style="display: inline-block; width: 16px; height: 16px;">➕</span>
+            加任务
+          </button>
         </div>
       </div>
       <div id="sidebar">
@@ -1369,6 +1593,65 @@ INDEX_HTML = """
       </div>
     </div>
   </div>
+    <!-- Approval Modal -->
+    <div id="approval-modal" class="modal-overlay">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>
+            <span style="background:var(--warning); color:black; padding:2px 8px; border-radius:4px; font-size:12px;">HITL</span>
+            待审批计划
+          </h2>
+          <div style="font-size:12px; color:var(--text-secondary);">Agent 需要您的确认才能继续</div>
+        </div>
+        <div class="modal-body">
+          <div style="margin-bottom: 16px; color: var(--text-secondary); font-size: 14px;">
+            Planner 建议执行以下图谱操作：
+          </div>
+          <div id="approval-list" class="ops-list">
+            <!-- Ops will be rendered here -->
+          </div>
+          <!-- Editable raw JSON area (hidden by default) -->
+          <div id="approval-edit-area" style="display:none; margin-top:16px;">
+             <div style="margin-bottom:8px; color:var(--text-secondary); font-size:14px;">直接编辑操作指令 (JSON):</div>
+             <textarea id="approval-json-editor" style="width:100%; height:300px; font-family:monospace; background:var(--bg-primary); color:var(--text-primary); border:1px solid var(--border-primary); padding:8px;"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" style="background: var(--error); border-color: var(--error); color: white;" onclick="submitDecision('REJECT')">拒绝 (Reject)</button>
+          <button class="btn" id="btn-modify-mode" onclick="toggleModifyMode()">修改 (Modify)</button>
+          <button class="btn" style="background: var(--success); border-color: var(--success); color: white;" onclick="submitDecision('APPROVE')">批准 (Approve)</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Inject Task Modal -->
+    <div id="inject-modal" class="modal-overlay">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>➕ 注入新任务 (Active Intervention)</h2>
+          <button class="btn" style="padding:4px 8px;" onclick="closeInjectModal()">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>任务ID (可选)</label>
+            <input id="inject-id" placeholder="例如: scan_admin_panel">
+          </div>
+          <div class="form-group">
+            <label>任务描述</label>
+            <textarea id="inject-desc" placeholder="请详细描述要执行的任务，例如：使用 dirsearch 扫描 /admin 路径"></textarea>
+          </div>
+          <div class="form-group">
+            <label>依赖任务ID (逗号分隔，可选)</label>
+            <input id="inject-deps" placeholder="例如: web_probe_80, port_scan_443">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" onclick="closeInjectModal()">取消</button>
+          <button class="btn" style="background: var(--accent-primary); color: white;" onclick="submitInjection()">提交任务</button>
+        </div>
+      </div>
+    </div>
+
   <script>
     const params = new URLSearchParams(location.search)
     let op_id = params.get('op_id') || ''
@@ -1438,6 +1721,196 @@ INDEX_HTML = """
     
     function mount(){
       initD3Graph();
+      
+      // Load tasks and initialize view
+      loadOps().then(()=>{
+        if(!op_id){ 
+            const first = document.querySelector('#ops li[data-op]'); 
+            if(first){ 
+                op_id = first.dataset.op; 
+                updateQuery(); 
+            }
+        }
+        render()
+        subscribe()
+      });
+
+      // Start polling for pending interventions
+      setInterval(checkPendingIntervention, 2000);
+      
+      // Bind other global events if needed
+      document.getElementById('btn-refresh').onclick = ()=> render(true)
+      
+      // Keyboard shortcuts
+      document.addEventListener('keydown', (e) => {
+        if (e.ctrlKey || e.metaKey) {
+          switch(e.key) {
+            case 'r':
+              e.preventDefault();
+              render();
+              showNotification('已刷新', 'success');
+              break;
+          }
+        }
+      });
+    }
+    
+    // --- HITL Logic ---
+    let currentPendingReq = null;
+    let isModifyMode = false;
+
+    async function checkPendingIntervention() {
+      if (!op_id) return;
+      try {
+        const res = await api(`/api/ops/${op_id}/intervention/pending`);
+        if (res.pending && res.request) {
+           if (!currentPendingReq || currentPendingReq.id !== res.request.id) {
+             currentPendingReq = res.request;
+             isModifyMode = false; // Reset mode
+             showApprovalModal(res.request);
+           }
+        } else {
+           if (currentPendingReq) {
+             closeApprovalModal();
+             currentPendingReq = null;
+           }
+        }
+      } catch (e) {
+        console.error("Failed to check intervention", e);
+      }
+    }
+
+    function showApprovalModal(req) {
+      const modal = document.getElementById('approval-modal');
+      const list = document.getElementById('approval-list');
+      const editArea = document.getElementById('approval-edit-area');
+      const jsonEditor = document.getElementById('approval-json-editor');
+      const btnModify = document.getElementById('btn-modify-mode');
+      
+      // Reset view
+      list.style.display = 'block';
+      editArea.style.display = 'none';
+      btnModify.innerText = '修改 (Modify)';
+      btnModify.classList.remove('active');
+      
+      // Populate list view
+      let html = '';
+      if (req.type === 'plan_approval') {
+        req.data.forEach(op => {
+          html += `
+            <div class="op-item">
+              <div class="op-type ${op.command}">${op.command}</div>
+              <div class="op-details">
+                <div class="op-node-id">${op.node_id || (op.node_data ? op.node_data.id : '-')}</div>
+                <div class="op-desc">
+                  ${op.command === 'ADD_NODE' ? (op.node_data.description || '') : ''}
+                  ${op.command === 'UPDATE_NODE' ? JSON.stringify(op.updates) : ''}
+                  ${op.command === 'DELETE_NODE' ? (op.reason || '') : ''}
+                </div>
+              </div>
+            </div>
+          `;
+        });
+        // Populate JSON editor with raw data
+        jsonEditor.value = JSON.stringify(req.data, null, 2);
+      }
+      list.innerHTML = html;
+      modal.classList.add('show');
+    }
+    
+    function toggleModifyMode() {
+        isModifyMode = !isModifyMode;
+        const list = document.getElementById('approval-list');
+        const editArea = document.getElementById('approval-edit-area');
+        const btnModify = document.getElementById('btn-modify-mode');
+        
+        if (isModifyMode) {
+            list.style.display = 'none';
+            editArea.style.display = 'block';
+            btnModify.innerText = '取消修改';
+            btnModify.classList.add('active');
+        } else {
+            list.style.display = 'block';
+            editArea.style.display = 'none';
+            btnModify.innerText = '修改 (Modify)';
+            btnModify.classList.remove('active');
+        }
+    }
+
+    function closeApprovalModal() {
+      document.getElementById('approval-modal').classList.remove('show');
+    }
+
+    async function submitDecision(action) {
+      if (!op_id) return;
+      
+      let payload = { action: action };
+      
+      // If action is APPROVE and we are in Modify Mode, change action to MODIFY and send new data
+      if (action === 'APPROVE' && isModifyMode) {
+          try {
+              const modifiedJson = document.getElementById('approval-json-editor').value;
+              const modifiedData = JSON.parse(modifiedJson);
+              payload.action = 'MODIFY';
+              payload.modified_data = modifiedData;
+          } catch (e) {
+              alert("JSON 格式错误，请检查输入！\\n" + e);
+              return;
+          }
+      }
+      
+      try {
+        await fetch(`/api/ops/${op_id}/intervention/decision`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload)
+        });
+        closeApprovalModal();
+        currentPendingReq = null; // Assume processed
+        showNotification(`已提交决策: ${payload.action}`, 'success');
+      } catch (e) {
+        showNotification(`提交失败: ${e}`, 'error');
+      }
+    }
+
+    // --- Inject Task Logic ---
+    function openInjectModal() {
+      document.getElementById('inject-modal').classList.add('show');
+    }
+    
+    function closeInjectModal() {
+      document.getElementById('inject-modal').classList.remove('show');
+      document.getElementById('inject-id').value = '';
+      document.getElementById('inject-desc').value = '';
+      document.getElementById('inject-deps').value = '';
+    }
+
+    async function submitInjection() {
+      if (!op_id) return;
+      const desc = document.getElementById('inject-desc').value.trim();
+      if (!desc) {
+        alert("请输入任务描述");
+        return;
+      }
+      
+      const payload = {
+        id: document.getElementById('inject-id').value.trim() || null,
+        description: desc,
+        dependencies: document.getElementById('inject-deps').value.split(',').map(s=>s.trim()).filter(s=>s)
+      };
+
+      try {
+        await fetch(`/api/ops/${op_id}/inject_task`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload)
+        });
+        closeInjectModal();
+        showNotification('任务已注入', 'success');
+        // Refresh graph logic usually handles via SSE, but we can force refresh if needed
+      } catch (e) {
+        showNotification(`注入失败: ${e}`, 'error');
+      }
     }
     
     function getNodeShape(type) {
@@ -2082,187 +2555,6 @@ INDEX_HTML = """
       console.log('Node depths calculated:', nodes.map(n => ({ id: n.id, depth: n.depth })));
     }
     
-    // 初始化 D3.js
-    function initD3Graph() {
-      const container = document.getElementById('canvas');
-      const width = container.clientWidth;
-      const height = container.clientHeight;
-      
-      // 创建SVG
-      svg = d3.select('#d3-graph')
-        .attr('width', width)
-        .attr('height', height);
-      
-      // 创建主组
-      g = svg.append('g');
-      
-      // 设置缩放
-      zoom = d3.zoom()
-        .scaleExtent([0.1, 10])
-        .on('zoom', (event) => {
-          g.attr('transform', event.transform);
-        });
-      
-      svg.call(zoom);
-      
-      // 创建力导向仿真（优化为从上到下的层次布局）
-      simulation = d3.forceSimulation()
-        .force('link', d3.forceLink().id(d => d.id).distance(120))
-        .force('charge', d3.forceManyBody().strength(-1200))
-        .force('center', d3.forceCenter(width / 2, height / 2))
-        .force('collision', d3.forceCollide().radius(40))
-        // 添加垂直方向的力，使节点按层次从上到下排列
-        .force('y', d3.forceY().y(d => {
-          // 根据节点深度计算 y 坐标
-          const depth = d.depth || 0;
-          return 80 + depth * 100; // 从顶部80px开始，每层间隔100px
-        }).strength(0.8))
-        // 添加水平方向的力，使同层节点分散开
-        .force('x', d3.forceX(width / 2).strength(0.05));
-    }
-    
-    // 初始化应用
-    document.addEventListener('DOMContentLoaded', () => {
-      initD3Graph();
-      
-      // 点击空白处取消节点高亮
-      svg.on('click', function(event) {
-        if (event.target === this || event.target.tagName === 'svg') {
-          g.selectAll('.d3-node').classed('highlighted', false);
-          g.selectAll('.d3-node').style('filter', null);
-        }
-      });
-      
-      loadOps().then(()=>{
-        if(!op_id){ const first = document.querySelector('#ops li[data-op]'); if(first){ op_id = first.dataset.op; updateQuery(); }}
-        render()
-        subscribe()
-      })
-      document.getElementById('btn-refresh').onclick = ()=> render(true)
-      const btnFit = document.getElementById('btn-fit'); if(btnFit) btnFit.onclick = ()=> { 
-        try{ 
-          if (svg && g) {
-            // D3.js 适配视图功能
-            const bounds = g.node().getBBox();
-            const scale = Math.min(svg.attr('width') / bounds.width, svg.attr('height') / bounds.height) * 0.8;
-            const translate = [svg.attr('width') / 2 - scale * (bounds.x + bounds.width / 2), 
-                           svg.attr('height') / 2 - scale * (bounds.y + bounds.height / 2)];
-            
-            svg.transition()
-              .duration(750)
-              .call(zoom.transform, d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale));
-          }
-        }catch(e){ console.warn('适配视图失败:', e); }
-      }
-      const btnLayout = document.getElementById('btn-layout'); if(btnLayout) btnLayout.onclick = ()=> { 
-        layoutAlgo = (layoutAlgo==='dagre')?'force':'dagre'; 
-        btnLayout.innerText = '布局: ' + (layoutAlgo==='dagre'?'Dagre':'Force'); 
-        layout(); 
-      }
-      
-      // 重置布局按钮
-      const btnResetLayout = document.getElementById('btn-reset-layout'); 
-      if(btnResetLayout) btnResetLayout.onclick = ()=> {
-        if (!simulation) return;
-        // 释放所有固定节点
-        simulation.nodes().forEach(node => {
-          node.fx = null;
-          node.fy = null;
-        });
-        // 重新计算布局
-        simulation.alpha(1).restart();
-        showNotification('布局已重置', 'success');
-      }
-      
-      document.getElementById('btn-abort').onclick = ()=> abortOp()
-      document.getElementById('btn-create').onclick = ()=> createTask()
-      
-      // 添加搜索和筛选功能（预留接口）
-      document.getElementById('btn-search').onclick = ()=> {
-        showNotification('搜索功能开发中...', 'info');
-      }
-      
-      document.getElementById('btn-filter').onclick = ()=> {
-        showNotification('筛选功能开发中...', 'info');
-      }
-      
-      // D3.js 缩放控制按钮
-      document.getElementById('btn-zoom-in').onclick = () => {
-        if (svg) {
-          svg.transition().duration(300).call(zoom.scaleBy, 1.5);
-        }
-      }
-      document.getElementById('btn-zoom-out').onclick = () => {
-        if (svg) {
-          svg.transition().duration(300).call(zoom.scaleBy, 0.67);
-        }
-      }
-      document.getElementById('btn-zoom-reset').onclick = () => {
-        if (svg) {
-          svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity);
-        }
-      }
-      
-      // 添加键盘快捷键
-      document.addEventListener('keydown', (e) => {
-        if (e.ctrlKey || e.metaKey) {
-          switch(e.key) {
-            case 'r':
-              e.preventDefault();
-              render();
-              showNotification('已刷新', 'success');
-              break;
-            case 'f':
-              e.preventDefault();
-              try { 
-                if (svg && g) {
-                  const bounds = g.node().getBBox();
-                  const scale = Math.min(svg.attr('width') / bounds.width, svg.attr('height') / bounds.height) * 0.8;
-                  const translate = [svg.attr('width') / 2 - scale * (bounds.x + bounds.width / 2), 
-                             svg.attr('height') / 2 - scale * (bounds.y + bounds.height / 2)];
-                  svg.transition().duration(750).call(zoom.transform, d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale));
-                }
-              } catch(e) {}
-              showNotification('已适配视图', 'success');
-              break;
-            case 'l':
-              e.preventDefault();
-              document.getElementById('btn-layout').click();
-              break;
-          }
-        }
-      });
-    })
-    
-    // 移动端侧边栏切换
-    const sidebarToggle = document.getElementById('sidebar-toggle');
-    const sidebar = document.getElementById('sidebar');
-    
-    if (sidebarToggle && sidebar) {
-      function toggleSidebar() {
-        sidebar.classList.toggle('mobile-show');
-        document.body.style.overflow = sidebar.classList.contains('mobile-show') ? 'hidden' : '';
-      }
-      
-      sidebarToggle.addEventListener('click', toggleSidebar);
-      
-      // 点击遮罩关闭侧边栏
-      document.addEventListener('click', (e) => {
-        if (sidebar.classList.contains('mobile-show') && 
-            !sidebar.contains(e.target) && 
-            e.target !== sidebarToggle) {
-          toggleSidebar();
-        }
-      });
-      
-      // 窗口大小改变时关闭移动端侧边栏
-      window.addEventListener('resize', () => {
-        if (window.innerWidth > 768) {
-          sidebar.classList.remove('mobile-show');
-          document.body.style.overflow = '';
-        }
-      });
-    }
     function render(){
       console.log('render() called, op_id:', op_id, 'view:', view);
       if(!op_id) {

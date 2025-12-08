@@ -49,6 +49,7 @@ from core.executor import run_executor_cycle
 from core.data_contracts import PlannerContext, ReflectorContext
 from tools import mcp_service
 from core.tool_manager import tool_manager
+from core.intervention import intervention_manager
 from conf.config import (
     PLANNER_HISTORY_WINDOW,
     REFLECTOR_HISTORY_WINDOW,
@@ -56,7 +57,8 @@ from conf.config import (
     KNOWLEDGE_SERVICE_PORT,
     KNOWLEDGE_SERVICE_URL,
     KNOWLEDGE_SERVICE_HOST,
-    OUTPUT_MODE # Add this line
+    OUTPUT_MODE,
+    HUMAN_IN_THE_LOOP
 )
 from core.events import broker
 try:
@@ -808,6 +810,73 @@ def get_next_executable_subtask_batch(graph: GraphManager) -> List[str]:
     return executable_tasks
 
 
+async def handle_cli_approval(op_id: str, plan_data: List[Dict[str, Any]]):
+    """
+    处理 CLI 端的人工审批。
+    与 Web 端审批并行运行，任何一方先提交决策即生效。
+    """
+    loop = asyncio.get_running_loop()
+    
+    # 1. 展示计划概要
+    console.print(Panel(f"待审批计划 ({len(plan_data)} ops):", title="[bold yellow]HITL CLI[/bold yellow]", style="yellow"))
+    for i, op in enumerate(plan_data):
+        cmd = op.get('command')
+        node_id = op.get('node_id') or op.get('node_data', {}).get('id')
+        desc = op.get('node_data', {}).get('description') or op.get('updates') or op.get('reason')
+        console.print(f"  {i+1}. [bold]{cmd}[/bold] {node_id}: {str(desc)[:100]}...")
+
+    console.print("\n请选择操作: [bold green]y[/bold green] (批准), [bold red]n[/bold red] (拒绝), [bold blue]m[/bold blue] (修改)")
+    
+    # 2. 阻塞等待输入 (运行在 executor 中以免阻塞主循环)
+    while True:
+        try:
+            choice = await loop.run_in_executor(None, input, "HITL > ")
+            choice = choice.strip().lower()
+            
+            if choice == 'y':
+                intervention_manager.submit_decision(op_id, "APPROVE")
+                console.print("✅ CLI: 已批准计划。")
+                break
+            elif choice == 'n':
+                intervention_manager.submit_decision(op_id, "REJECT")
+                console.print("❌ CLI: 已拒绝计划。")
+                break
+            elif choice == 'm':
+                # 修改模式：调用系统编辑器
+                import tempfile
+                import os
+                import subprocess
+                
+                editor = os.getenv('EDITOR', 'vim')
+                with tempfile.NamedTemporaryFile(mode='w+', suffix='.json', delete=False) as tf:
+                    json.dump(plan_data, tf, indent=2, ensure_ascii=False)
+                    tf_path = tf.name
+                
+                try:
+                    console.print(f"正在打开编辑器 ({editor})...")
+                    # 使用 subprocess.call 而不是 run_in_executor，因为编辑器需要 stdin/stdout
+                    # 但这会阻塞 loop... 这是一个权衡。为了简单的 CLI 体验，暂时允许阻塞直到编辑器关闭。
+                    # 注意：在此期间 Web UI 可能会无响应。
+                    # 更好的做法是提示用户 Web UI 可能更适合修改。
+                    subprocess.call([editor, tf_path])
+                    
+                    with open(tf_path, 'r') as tf:
+                        modified_data = json.load(tf)
+                    
+                    intervention_manager.submit_decision(op_id, "MODIFY", modified_data)
+                    console.print("✏️ CLI: 已提交修改后的计划。")
+                    os.unlink(tf_path)
+                    break
+                except Exception as e:
+                    console.print(f"[bold red]修改失败: {e}[/bold red]")
+                    console.print("请重试或使用 y/n。")
+            else:
+                console.print("无效输入。请输入 y, n 或 m。")
+        except asyncio.CancelledError:
+            # 任务被取消（说明 Web 端已处理）
+            console.print("\n[dim]Web 端已提交决策，CLI 审批取消。[/dim]")
+            break
+
 
 async def main():
     parser = argparse.ArgumentParser(description="LuaN1ao Agent")
@@ -1024,6 +1093,40 @@ async def main():
         except Exception:
             pass
 
+        # HITL: 初始计划审批
+        if HUMAN_IN_THE_LOOP:
+            op_id = os.path.basename(log_dir)
+            
+            # 通知前端有待审批请求
+            try:
+                await broker.emit("intervention.required", {"op_id": op_id, "type": "plan_approval"}, op_id=op_id)
+            except Exception:
+                pass
+            
+            # 启动 CLI 交互任务 (与 Web 端竞态)
+            cli_task = asyncio.create_task(handle_cli_approval(op_id, initial_ops))
+                
+            # 阻塞等待决策（任一端提交即可解除阻塞）
+            decision = await intervention_manager.request_approval(op_id, initial_ops)
+            
+            # 清理 CLI 任务
+            if not cli_task.done():
+                cli_task.cancel()
+                try:
+                    await cli_task
+                except asyncio.CancelledError:
+                    pass
+            
+            action = decision.get("action")
+            if action == "REJECT":
+                console.print("[HITL] 用户拒绝了初始计划。任务终止。", style="bold red")
+                return # 退出任务
+            elif action == "MODIFY":
+                initial_ops = decision.get("data", [])
+                console.print("[HITL] 用户修改了初始计划，应用修改后的操作。", style="bold green")
+            else:
+                console.print("[HITL] 用户批准了初始计划。", style="bold green")
+
         verified_ops = verify_and_handle_orphans(initial_ops, graph_manager, console)
         process_graph_commands(verified_ops, graph_manager)
 
@@ -1104,6 +1207,37 @@ async def main():
                 global_mission_briefing = plan_data.get('global_mission_briefing', global_mission_briefing)
 
                 if dynamic_ops:
+                    # HITL: 动态计划审批
+                    if HUMAN_IN_THE_LOOP:
+                        op_id = os.path.basename(log_dir)
+                        
+                        try:
+                            await broker.emit("intervention.required", {"op_id": op_id, "type": "plan_approval"}, op_id=op_id)
+                        except Exception:
+                            pass
+                            
+                        # 启动 CLI 交互任务
+                        cli_task = asyncio.create_task(handle_cli_approval(op_id, dynamic_ops))
+                        
+                        decision = await intervention_manager.request_approval(op_id, dynamic_ops)
+                        
+                        if not cli_task.done():
+                            cli_task.cancel()
+                            try:
+                                await cli_task
+                            except asyncio.CancelledError:
+                                pass
+                        
+                        action = decision.get("action")
+                        if action == "REJECT":
+                            console.print("[HITL] 用户拒绝了动态计划。跳过本次更新（可能导致停滞）。", style="bold red")
+                            dynamic_ops = [] # 清空操作，继续循环
+                        elif action == "MODIFY":
+                            dynamic_ops = decision.get("data", [])
+                            console.print("[HITL] 用户修改了动态计划。", style="bold green")
+                        else:
+                            console.print("[HITL] 用户批准了动态计划。", style="bold green")
+
                     if effective_output_mode in ["default", "debug"]:
                         console.print(Panel("Planner 基于情报做出规划决策，开始更新...", style="yellow"))
                     verified_ops = verify_and_handle_orphans(dynamic_ops, graph_manager, console)

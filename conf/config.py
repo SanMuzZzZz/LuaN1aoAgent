@@ -174,3 +174,11 @@ KNOWLEDGE_SERVICE_HOST = os.getenv("KNOWLEDGE_SERVICE_HOST", "127.0.0.1")
 
 # 知识服务 URL
 KNOWLEDGE_SERVICE_URL = os.getenv("KNOWLEDGE_SERVICE_URL", f"http://{KNOWLEDGE_SERVICE_HOST}:{KNOWLEDGE_SERVICE_PORT}")
+
+# ============================================================================
+# 人工协同 (HITL) 配置
+# ============================================================================
+
+# 是否开启人工介入模式
+# 开启后，Agent在生成规划后会暂停，等待Web UI或CLI的人工审批
+HUMAN_IN_THE_LOOP = os.getenv("HUMAN_IN_THE_LOOP", "false").lower() == "true"
