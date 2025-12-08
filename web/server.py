@@ -1,14 +1,18 @@
 import asyncio
 import json
+import logging
 import os
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
 from fastapi.responses import Response
+
+# 配置 SSE 日志
+_sse_logger = logging.getLogger("web.sse")
 
 try:
     from core.events import broker
@@ -292,14 +296,30 @@ async def api_events(request: Request, op_id: str):
             if op_id in REGISTRY:
                 yield {"event": "graph.ready", "id": str(time.time()), "data": json.dumps({"op_id": op_id})}
 
-                async for item in broker.subscribe(op_id):
+                # 使用 iterator 手动控制，以便加入超时心跳
+                iterator = broker.subscribe(op_id).__aiter__()
+                while True:
                     if await request.is_disconnected():
+                        _sse_logger.debug(f"Client disconnected during event stream for op_id='{op_id}'")
                         break
-                    yield {
-                        "event": item["event"],
-                        "id": str(item.get("ts")),
-                        "data": json.dumps(item)
-                    }
+                    
+                    try:
+                        # 设置超时，如果在指定时间内没有新事件，则发送 ping
+                        item = await asyncio.wait_for(iterator.__anext__(), timeout=15.0)
+                        
+                        _sse_logger.debug(f"Sending event to client: event='{item['event']}' op_id='{op_id}'")
+                        yield {
+                            "event": item["event"],
+                            "id": str(item.get("ts")),
+                            "data": json.dumps(item)
+                        }
+                    except asyncio.TimeoutError:
+                        # 发送心跳包保持连接
+                        yield {"event": "ping", "id": str(time.time()), "data": "{}"}
+                    except StopAsyncIteration:
+                        break
+            else:
+                _sse_logger.warning(f"op_id='{op_id}' not found in REGISTRY after timeout")
         except asyncio.CancelledError:
             # 正常的任务取消，不需要记录错误
             # 静默处理，避免在stderr中显示
@@ -314,10 +334,30 @@ async def api_events(request: Request, op_id: str):
             except (asyncio.CancelledError, Exception):
                 pass
         finally:
-            # 清理资源
             pass
 
     return EventSourceResponse(event_generator())
+
+
+@app.get("/api/ops/{op_id}/llm-events")
+async def api_llm_events(op_id: str) -> Dict[str, Any]:
+    """
+    获取指定操作的缓存 LLM 事件。
+    
+    这个 API 端点允许前端获取在 SSE 连接建立之前就已经发生的 LLM 事件。
+    
+    Args:
+        op_id: 操作ID
+        
+    Returns:
+        包含缓存事件列表的字典
+    """
+    events = broker.get_buffered_events(op_id)
+    return {
+        "op_id": op_id,
+        "events": events,
+        "count": len(events)
+    }
 
 
 @app.get("/api/ops")
@@ -743,7 +783,7 @@ INDEX_HTML = """
     .detail-value{
       flex: 1;
       color: var(--text-primary);
-      word-break: break-all;
+      overflow-wrap: anywhere;
       font-size: 13px;
       line-height: 1.5;
     }
@@ -813,10 +853,20 @@ INDEX_HTML = """
       opacity: 0.7;
     }
     
+    /* JSON Syntax Highlighting */
+    .json-key { color: var(--accent-secondary); font-weight: 600; } /* Brighter blue for keys */
+    .json-string { color: var(--success); } /* Green for strings */
+    .json-number { color: var(--warning); } /* Yellow/Orange for numbers */
+    .json-boolean { color: var(--error); } /* Red for booleans */
+    .json-null { color: var(--text-muted); } /* Muted gray for null */
+    
     .typing-indicator{
       display: inline-flex;
       align-items: center;
       gap: 4px;
+      padding: 4px 8px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 12px;
     }
     
     .typing-indicator span{
@@ -1773,7 +1823,6 @@ INDEX_HTML = """
         { label: '类型', value: nodeData.type || nodeData.node_type },
         { label: '状态', value: nodeData.status },
         { label: '标题', value: nodeData.title },
-        { label: '标签', value: nodeData.label },
         { label: '描述', value: nodeData.description },
         { label: '思考', value: nodeData.thought },
         { label: '目标', value: nodeData.goal },
@@ -1806,6 +1855,27 @@ INDEX_HTML = """
         { label: '创建时间', value: nodeData.created_at },
         { label: '更新时间', value: nodeData.updated_at }
       ];
+      
+      // 智能处理 '标签' 字段：如果它重复了其他字段的内容，则不显示
+      const labelValue = nodeData.label;
+      if (labelValue) {
+        const duplicates = [nodeData.title, nodeData.description, nodeData.thought, nodeData.goal, nodeData.id, nodeData.type];
+        // Check for duplicates with trimming and null/undefined handling
+        if (!duplicates.some(val => val != null && String(val).trim() === String(labelValue).trim())) {
+           // Insert '标签' field after '标题' if it exists, otherwise after 'ID', otherwise at the end
+           const titleIndex = fields.findIndex(f => f.label === '标题');
+           if (titleIndex !== -1) {
+              fields.splice(titleIndex + 1, 0, { label: '标签', value: labelValue });
+           } else {
+              const idIndex = fields.findIndex(f => f.label === 'ID');
+              if (idIndex !== -1) {
+                 fields.splice(idIndex + 1, 0, { label: '标签', value: labelValue });
+              } else {
+                 fields.push({ label: '标签', value: labelValue }); // Fallback to end
+              }
+           }
+        }
+      }
       
       // 添加任何其他未列出的字段
       Object.keys(nodeData).forEach(key => {
@@ -1866,11 +1936,47 @@ INDEX_HTML = """
       div.textContent = text;
       return div.innerHTML;
     }
+
+    // JSON格式化并语法高亮函数
+    function formatJsonWithSyntaxHighlighting(text) {
+        try {
+            const obj = JSON.parse(text);
+            let jsonStr = JSON.stringify(obj, null, 2); // Pretty print and indent
+
+            // Basic HTML escaping first to prevent XSS and ensure proper rendering
+            jsonStr = jsonStr.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+            // Apply syntax highlighting using a single regex to avoid nested replacements
+            return '<pre><code>' + jsonStr.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+                var cls = 'json-number';
+                if (/^"/.test(match)) {
+                    if (/:$/.test(match)) {
+                        cls = 'json-key';
+                    } else {
+                        cls = 'json-string';
+                    }
+                } else if (/true|false/.test(match)) {
+                    cls = 'json-boolean';
+                } else if (/null/.test(match)) {
+                    cls = 'json-null';
+                }
+                return '<span class="' + cls + '">' + match + '</span>';
+            }) + '</code></pre>';
+        } catch (e) {
+            // Not valid JSON, return as plain text (escaped)
+            return escapeHtml(text);
+        }
+    }
     
     // LLM输出流式显示
     let llmMessages = [];
     
     function addLLMMessage(role, content, timestamp) {
+      // Only add assistant messages for LLM output panel
+      if (role !== 'assistant') {
+        return;
+      }
+      
       const message = {
         role: role,
         content: content,
@@ -1880,30 +1986,36 @@ INDEX_HTML = """
       llmMessages.push(message);
       renderLLMOutput();
       
-      // 自动滚动到底部
+      // Auto-scroll to bottom
       const llmOutput = document.getElementById('llm-output');
-      setTimeout(() => {
-        llmOutput.scrollTop = llmOutput.scrollHeight;
-      }, 100);
+      if (llmOutput) {
+        setTimeout(() => {
+          llmOutput.scrollTop = llmOutput.scrollHeight;
+        }, 100);
+      }
     }
     
     function renderLLMOutput() {
       const llmStream = document.getElementById('llm-stream');
+      if (!llmStream) {
+        return;
+      }
       
       let html = '';
       llmMessages.forEach(msg => {
-        const roleClass = msg.role === 'user' ? 'user' : 'assistant';
-        const roleLabel = msg.role === 'user' ? '👤 User' : '🤖 Assistant';
-        
-        html += `
-          <div class="llm-message ${roleClass}">
-            <div class="message-header">
-              <span class="message-role">${roleLabel}</span>
-              <span class="message-time">${msg.timestamp}</span>
+        // Only display assistant messages
+        if (msg.role === 'assistant') {
+          const formattedContent = formatJsonWithSyntaxHighlighting(msg.content); // Use the new formatter
+          html += `
+            <div class="llm-message assistant">
+              <div class="message-header">
+                <span class="message-role">🤖 LLM Output</span>
+                <span class="message-time">${msg.timestamp}</span>
+              </div>
+              <div class="message-content">${formattedContent}</div>
             </div>
-            <div class="message-content">${escapeHtml(msg.content)}</div>
-          </div>
-        `;
+          `;
+        }
       });
       
       llmStream.innerHTML = html;
@@ -2447,12 +2559,42 @@ INDEX_HTML = """
       
       console.log('Tree layout completed');
     }
+    
+    // 处理单个 LLM 事件
+    function handleLLMEvent(msg) {
+      if (msg.event === 'llm.request' && msg.payload) {
+        showTypingIndicator(true);
+      }
+      
+      if (msg.event === 'llm.response' && msg.payload) {
+        showTypingIndicator(false);
+        if (msg.payload.content) {
+          addLLMMessage('assistant', msg.payload.content, msg.payload.timestamp);
+        }
+      }
+    }
+    
+    // 获取并显示缓存的 LLM 事件
+    async function loadCachedLLMEvents() {
+      try {
+        const response = await fetch('/api/ops/' + encodeURIComponent(op_id) + '/llm-events');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.events && data.events.length > 0) {
+            data.events.forEach(handleLLMEvent);
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to load cached LLM events:', e);
+      }
+    }
+    
     function subscribe(){
       if(es) es.close()
       es = new EventSource('/api/events?op_id='+encodeURIComponent(op_id))
       
       es.onopen = () => {
-        console.log('SSE connection established')
+        loadCachedLLMEvents()
       }
       
       es.onmessage = (ev)=>{ 
@@ -2461,37 +2603,16 @@ INDEX_HTML = """
           
           // 处理图表更新事件
           if(['graph.changed','execution.step.completed','execution.step.started','planning.initial.completed','planning.dynamic.completed','graph.ready'].includes(msg.event)){ 
-            render() 
+            render();
           }
           
-          // 处理LLM输出事件
-          if (msg.event === 'llm.request' && msg.payload) {
-            // LLM请求开始
-            if (msg.payload.messages && Array.isArray(msg.payload.messages)) {
-              const lastMessage = msg.payload.messages[msg.payload.messages.length - 1];
-              if (lastMessage) {
-                addLLMMessage(lastMessage.role || 'user', lastMessage.content || '', msg.payload.timestamp);
-              }
-            }
-            showTypingIndicator(true);
-          }
-          
-          if (msg.event === 'llm.response' && msg.payload) {
-            // LLM响应
-            showTypingIndicator(false);
-            if (msg.payload.content) {
-              addLLMMessage('assistant', msg.payload.content, msg.payload.timestamp);
-            }
-          }
-          
-          if (msg.event === 'llm.stream.chunk' && msg.payload && msg.payload.chunk) {
-            // 流式输出（如果支持）
-            // 可以实现逐字显示效果
-            showTypingIndicator(true);
+          // 处理 LLM 输出事件
+          if (msg.event === 'llm.request' || msg.event === 'llm.response') {
+            handleLLMEvent(msg);
           }
           
         } catch(e) {
-          console.warn('Failed to parse SSE message:', e)
+          console.error('Failed to parse SSE message:', e);
         } 
       }
       
