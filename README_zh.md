@@ -2,7 +2,7 @@
   <img src="imgs/logo.png" alt="LuaN1ao Logo" width="200" />
 </p>
 
-<h1 align="center">鸾鸟</h1>
+<h1 align="center">鸾鸟Agent</h1>
 
 <h2 align="center">
 
@@ -56,7 +56,7 @@
 
 <p align="center">
   <img src="imgs/console.png" alt="控制台界面" width="45%" />
-  <img src="imgs/graph.png" alt="图谱可视化" width="45%" />
+  <img src="imgs/web.png" alt="图谱可视化" width="45%" />
 </p>
 
 > 💡 _更多演示内容即将推出！_

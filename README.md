@@ -2,7 +2,7 @@
   <img src="imgs/logo.png" alt="LuaN1ao Logo" width="200" />
 </p>
 
-<h1 align="center">LuaN1ao</h1>
+<h1 align="center">LuaN1aoAgent</h1>
 
 <h3 align="center">
 
@@ -55,7 +55,7 @@ From information gathering to vulnerability exploitation, LuaN1ao elevates penet
 
 <p align="center">
   <img src="imgs/console.png" alt="Console Interface" width="45%" />
-  <img src="imgs/graph.png" alt="Graph Visualization" width="45%" />
+  <img src="imgs/web.png" alt="Graph Visualization" width="45%" />
 </p>
 
 > 💡 _More demos coming soon!_
