@@ -305,11 +305,15 @@ def _update_previous_steps_status(
     if last_step_ids:
         for step_id in last_step_ids:
             status = previous_steps_status.get(step_id)
-            if status in ["executed", "failed"]:
+            # Normalize 'executed' to 'completed' for frontend compatibility
+            if status == "executed":
+                status = "completed"
+            
+            if status in ["completed", "failed"]:
                 graph_manager.update_node(step_id, {"status": status})
             else:
-                graph_manager.update_node(step_id, {"status": "error_missing_status"})
-                _get_console().print(f"⚠️ LLM未提供上一步骤 {step_id} 的状态判断。", style="yellow")
+                # If LLM returns something else or nothing, keep the status set by tool execution (usually 'completed' or 'failed')
+                pass
 
 
 def _check_failure_patterns_and_trigger_reflection(
@@ -403,6 +407,7 @@ async def _build_executor_prompt(
 
     manager = PromptManager()
     subtask = {
+        "id": subtask_id,
         "description": subtask_data["description"],
         "completion_criteria": prompt_context.get("subtask", {}).get("completion_criteria", "N/A") if prompt_context else "N/A",
     }
@@ -705,10 +710,12 @@ async def run_executor_cycle(
             for i, result in enumerate(tool_results):
                 step_id = last_step_ids[i]
                 tool_name = current_step_ops[i].get("action", {}).get("tool", "unknown_tool")
+                step_status = "completed"
                 
                 # Handle errors
                 if isinstance(result, Exception):
                     result_str = f"Error executing tool: {result}"
+                    step_status = "failed"
                     if console_output_path:
                         try:
                             with open(console_output_path, "a", encoding="utf-8") as f:
@@ -726,7 +733,7 @@ async def run_executor_cycle(
                                 has_correctable_error = True
                                 feedback = f"- Step {step_id} (Tool: {tool_name}) failed: {data.get('message')} -> {data.get('fix_suggestion')}"
                                 correction_feedback.append(feedback)
-                                graph_manager.update_node(step_id, {"status": "failed"})
+                                step_status = "failed"
                     except:
                         pass
 
@@ -753,6 +760,7 @@ async def run_executor_cycle(
                         "observation": observations[-1],
                         "observation_truncated": was_truncated,
                         "observation_original_length": original_length,
+                        "status": step_status,
                     },
                 )
                 
@@ -792,7 +800,7 @@ async def run_executor_cycle(
 
         if is_final_step:
             _get_console().print(Panel(f"LLM声明子任务 {subtask_id} 已完成。", style="green"))
-            graph_manager.update_node(subtask_id, {"status": "completed_by_llm"})
+            graph_manager.update_node(subtask_id, {"status": "completed"})
             return (subtask_id, "completed", cycle_metrics)
 
         # --- 动态终止逻辑 ---
@@ -888,7 +896,7 @@ async def run_executor_cycle(
     _get_console().print(Panel(f"达到最大执行步数 {executed_steps_count}，子任务结束。", style="yellow"))
     for step_id in last_step_ids:
         if graph_manager.graph.has_node(step_id):
-            graph_manager.update_node(step_id, {"status": "completed_max_steps"})
+            graph_manager.update_node(step_id, {"status": "completed"})
     graph_manager.update_subtask_conversation_history(subtask_id, messages)
     cycle_metrics["execution_steps"] = executed_steps_count
     return (subtask_id, "completed", cycle_metrics)

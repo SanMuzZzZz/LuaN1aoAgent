@@ -10,7 +10,7 @@
     {
       "command": "EXECUTE_NOW",
       "node_id": "step_1a",
-      "parent_id": "subtask_1",
+      "parent_id": "{{ subtask_id }}",
       "action": {
         "tool": "要执行的工具，例如 'http_request', 'shell_exec', 'python_exec', 'expert_analysis'。",
         "params": {

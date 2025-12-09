@@ -128,6 +128,7 @@ class PromptManager:
         input_variables = {
             "main_goal": main_goal,
             "global_mission_briefing": global_mission_briefing,
+            "subtask_id": subtask.get("id", "N/A"),
             "subtask_goal": subtask.get("description", "N/A"),
             "completion_criteria": subtask.get("completion_criteria", "N/A"),
             "key_facts": key_facts_text,

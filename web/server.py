@@ -697,7 +697,7 @@ INDEX_HTML = r"""
 </div>
 
 <script>
-  const nodeColors = { 'default': '#3b82f6', 'completed': '#10b981', 'failed': '#ef4444', 'pending': '#64748b', 'in_progress': '#3b82f6', 'ConfirmedVulnerability': '#f59e0b', 'Vulnerability': '#a855f7', 'Evidence': '#06b6d4', 'Hypothesis': '#84cc16', 'KeyFact': '#fbbf24', 'Flag': '#ef4444' };
+  const nodeColors = { 'default': '#3b82f6', 'completed': '#10b981', 'failed': '#ef4444', 'pending': '#64748b', 'in_progress': '#3b82f6', 'aborted': '#94a3b8', 'aborted_by_halt_signal': '#94a3b8', 'stalled_no_plan': '#f59e0b', 'stalled_orphan': '#f59e0b', 'completed_error': '#ef4444', 'ConfirmedVulnerability': '#f59e0b', 'Vulnerability': '#a855f7', 'Evidence': '#06b6d4', 'Hypothesis': '#84cc16', 'KeyFact': '#fbbf24', 'Flag': '#ef4444' };
   let state = { op_id: new URLSearchParams(location.search).get('op_id') || '', view: 'exec', simulation: null, svg: null, g: null, zoom: null, es: null, processedEvents: new Set(), pendingReq: null, isModifyMode: false };
   const api = (p, b) => fetch(p + (p.includes('?')?'&':'?') + `op_id=${state.op_id}`, b ? {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}:{}).then(r=>r.json());
 
@@ -779,11 +779,27 @@ INDEX_HTML = r"""
     const node = state.g.append("g").selectAll("g").data(nodes).join("g").attr("class", "d3-node").call(d3.drag().on("start",dragstarted).on("drag",dragged).on("end",dragended)).on("click", (e,d)=>showDetails(d));
     node.each(function(d){
         const el = d3.select(this), c = nodeColors[d.status]||nodeColors[d.type]||'#64748b';
-        if(['ConfirmedVulnerability','Flag'].includes(d.type)) el.append("polygon").attr("points","-14,0 0,-14 14,0 0,14").attr("fill",c);
-        else if(['Evidence','Hypothesis'].includes(d.type)) el.append("rect").attr("x",-12).attr("y",-12).attr("width",24).attr("height",24).attr("rx",4).attr("fill",c);
-        else el.append("circle").attr("r",10).attr("fill",c);
+        
+        if (d.type === 'task') {
+            // Task: Large Star
+            el.append("path").attr("d", "M0,-18 L10,-6 L23,-6 L13,4 L16,17 L0,9 L-16,17 L-13,4 L-23,-6 L-10,-6 Z").attr("fill", c).attr("stroke", "#fff").attr("stroke-width", 2);
+        } else if (d.type === 'subtask') {
+            // Subtask: Hexagon
+            el.append("path").attr("d", "M0,-16 L14,-8 L14,8 L0,16 L-14,8 L-14,-8 Z").attr("fill", c).attr("stroke", "#fff").attr("stroke-width", 1.5);
+        } else if (d.type === 'execution_step') {
+            // Execution Step: Small Circle
+            el.append("circle").attr("r", 7).attr("fill", c);
+        } else if(['ConfirmedVulnerability','Flag'].includes(d.type)) {
+            el.append("polygon").attr("points","-14,0 0,-14 14,0 0,14").attr("fill",c);
+        } else if(['Evidence','Hypothesis'].includes(d.type)) {
+            el.append("rect").attr("x",-12).attr("y",-12).attr("width",24).attr("height",24).attr("rx",4).attr("fill",c);
+        } else {
+            el.append("circle").attr("r", 10).attr("fill",c);
+        }
+        
         let i=''; if(d.status==='completed') i='✓'; else if(d.status==='failed') i='✕';
-        if(i) el.append("text").attr("dy",3).attr("text-anchor","middle").attr("fill","white").attr("font-size",9).text(i);
+        let dy = 3; if(d.type==='task') dy=5; if(d.type==='subtask') dy=4;
+        if(i) el.append("text").attr("dy",dy).attr("text-anchor","middle").attr("fill","white").attr("font-size", d.type==='execution_step'?8:10).text(i);
         tippy(this, { content: `<b>${d.type}</b><br>${d.label||d.id}`, allowHTML:true });
     });
     state.simulation.on("tick", () => { link.attr("x1",d=>d.source.x).attr("y1",d=>d.source.y).attr("x2",d=>d.target.x).attr("y2",d=>d.target.y); node.attr("transform",d=>`translate(${d.x},${d.y})`); });
@@ -820,11 +836,21 @@ INDEX_HTML = r"""
         else if(d.data.status === 'in_progress') icon = '⚡';
         else icon = '•';
 
-        if (!d.parent) el.append("polygon").attr("points", "-15,-26 15,-26 30,0 15,26 -15,26 -30,0").attr("fill", color).attr("stroke", "#f1f5f9").attr("stroke-width", 2);
-        else if (d.children) el.append("circle").attr("r", 14).attr("fill", color).attr("stroke", "#1e293b").attr("stroke-width", 2);
-        else el.append("rect").attr("x", -12).attr("y", -12).attr("width", 24).attr("height", 24).attr("rx", 6).attr("fill", color).attr("stroke", "#1e293b").attr("stroke-width", 2);
+        if (d.data.type === 'task') {
+             el.append("polygon").attr("points", "-18,-18 18,-18 24,0 18,18 -18,18 -24,0").attr("fill", color).attr("stroke", "#f1f5f9").attr("stroke-width", 2);
+        } else if (d.data.type === 'subtask') {
+             // Subtask: Hexagon
+             el.append("polygon").attr("points", "-16,-9 0,-18 16,-9 16,9 0,18 -16,9").attr("fill", color).attr("stroke", "#f1f5f9").attr("stroke-width", 1.5);
+        } else if (d.data.type === 'execution_step') {
+             // Step: Small Circle
+             el.append("circle").attr("r", 8).attr("fill", color).attr("stroke", "#1e293b").attr("stroke-width", 1);
+        } else {
+             // Fallback
+             el.append("rect").attr("x", -12).attr("y", -12).attr("width", 24).attr("height", 24).attr("rx", 6).attr("fill", color).attr("stroke", "#1e293b").attr("stroke-width", 2);
+        }
         
-        el.append("text").attr("dy", 5).attr("text-anchor", "middle").attr("fill", "white").attr("font-size", 14).attr("font-weight", "bold").style("pointer-events", "none").text(icon);
+        let fs = d.data.type === 'execution_step' ? 10 : 12;
+        el.append("text").attr("dy", 4).attr("text-anchor", "middle").attr("fill", "white").attr("font-size", fs).attr("font-weight", "bold").style("pointer-events", "none").text(icon);
         tippy(this, { content: `<b>${d.data.label}</b><br><span style='color:#ccc;font-size:10px'>${d.data.id}</span>`, allowHTML:true });
     });
 

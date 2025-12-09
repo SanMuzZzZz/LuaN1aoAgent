@@ -1312,6 +1312,10 @@ async def main():
                                      title="最终决策", style="bold red"))
                  break
 
+            # Mark subtasks as in_progress visually
+            for subtask_id in subtask_batch:
+                graph_manager.update_node(subtask_id, {"status": "in_progress"})
+
             tasks = [
                 asyncio.create_task(run_executor_cycle(goal, subtask_id, llm, graph_manager,
                     global_mission_briefing, log_dir=log_dir,
