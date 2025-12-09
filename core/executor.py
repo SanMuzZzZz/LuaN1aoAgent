@@ -625,6 +625,11 @@ async def run_executor_cycle(
                 _get_console().print(f"⚠️ 跳过无效EXECUTE_NOW操作（缺少node_id）: {op}", style="yellow")
                 continue
             
+            # Ensure step_id is globally unique by prepending subtask_id
+            # This is crucial to prevent node_id collisions across different subtasks
+            original_step_id = step_id
+            step_id = f"{subtask_id}_{original_step_id}"
+
             current_cycle_step_ids.append(step_id)
             
             parent_id = op.get("parent_id") or potential_parent

@@ -673,7 +673,10 @@ class GraphManager:
         )
         self._ensure_node_defaults(subtask_id)
 
-        self.graph.add_edge(self.task_id, subtask_id, type="decomposition")
+        # Only connect to root task if there are no other dependencies
+        # This prevents flattening the graph structure when dependencies exist
+        if not dependencies:
+            self.graph.add_edge(self.task_id, subtask_id, type="decomposition")
 
         for dep_id in dependencies:
             if self.graph.has_node(dep_id):

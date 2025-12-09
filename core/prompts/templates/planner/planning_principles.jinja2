@@ -4,7 +4,10 @@
 - **依赖管理**: 每个新任务必须正确填充 `dependencies`。禁止依赖已 `deprecated` 或 `failed` 的任务。
 - **状态不可变**: 对 `failed`/`incomplete` 任务，必须新建修正任务并 `deprecate` 旧任务。禁止重新排队终结状态的任务。
 - **状态检查**: 规划前必须检查现有节点状态，避免重复规划已完成或失败的路径。
-- **尊重成功**: 严禁将 Reflector 标记为 `completed` 的任务改为 `deprecated`。`completed` 是历史里程碑，必须保留。
+3. **[CRITICAL] 尊重成功 (Respect Success)**:
+    - **严禁**将 Reflector 标记为 `completed` 的任务改为 `deprecated`。
+    - `completed` 代表已成为不可变的历史事实。将其废弃会切断因果链，破坏整个推理基础。
+    - 如果你觉得某个已完成的任务不够好，**创建新的任务**来补充，绝对不要修改或废弃旧的成功任务。
 
 ### 2. 失败处理与僵局打破 (Failure Handling & Deadlock Breaking)
 - **根本原因分析**: 当 Reflector 报告 `methodology_issues` 时，针对策略层面进行修正，而非仅重试战术。

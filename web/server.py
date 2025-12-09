@@ -758,22 +758,60 @@ INDEX_HTML = r"""
     state.g.selectAll("*").remove();
     const nodes = data.nodes.map(d => ({...d})), links = (data.edges||[]).map(d => ({...d}));
     const adj = {}, inDegree = {};
-    nodes.forEach(n => { adj[n.id] = []; inDegree[n.id] = 0; n.level = 0; });
+    
+    nodes.forEach(n => { 
+        adj[n.id] = []; 
+        inDegree[n.id] = 0; 
+        n.level = 0;
+        // Initialize grouping
+        if(n.type === 'subtask') n.group = n.id;
+        else if(n.type === 'task') n.group = 'root';
+    });
+    
     links.forEach(l => { const s = l.source.id||l.source, t = l.target.id||l.target; if(adj[s]) adj[s].push(t); if(inDegree[t] !== undefined) inDegree[t]++; });
+    
     const queue = nodes.filter(n => inDegree[n.id] === 0);
     if(queue.length === 0 && nodes.length > 0) queue.push(nodes[0]);
+    
     const visited = new Set(queue.map(n => n.id));
     while(queue.length > 0) {
       const n = queue.shift(), children = adj[n.id] || [];
-      children.forEach(childId => { const child = nodes.find(x => x.id === childId); if(child && !visited.has(child.id)) { child.level = (n.level||0) + 1; visited.add(child.id); queue.push(child); } });
+      children.forEach(childId => { 
+          const child = nodes.find(x => x.id === childId); 
+          if(child) {
+              // Propagate group from parent to execution steps
+              if (n.group && !child.group && child.type === 'execution_step') {
+                  child.group = n.group;
+              }
+              
+              if(!visited.has(child.id)) { 
+                  child.level = (n.level||0) + 1; 
+                  visited.add(child.id); 
+                  queue.push(child); 
+              } 
+          }
+      });
     }
+    
+    // Setup horizontal separation for groups
+    const width = state.svg.node().clientWidth;
+    // Extract unique groups excluding root
+    const groups = [...new Set(nodes.map(n => n.group).filter(g => g && g !== 'root'))].sort();
+    const scaleX = d3.scalePoint().domain(groups).range([width * 0.1, width * 0.9]).padding(0.5);
+
     // Increased repulsion force and link distance
     state.simulation = d3.forceSimulation(nodes)
-        .force("link", d3.forceLink(links).id(d => d.id).distance(120))
-        .force("charge", d3.forceManyBody().strength(-1000))
-        .force("y", d3.forceY(d => (d.level||0) * 80).strength(1))
-        .force("x", d3.forceX(state.svg.node().clientWidth/2).strength(0.05))
-        .force("collide", d3.forceCollide().radius(40));
+        .force("link", d3.forceLink(links).id(d => d.id).distance(80))
+        .force("charge", d3.forceManyBody().strength(-600))
+        .force("y", d3.forceY(d => {
+            if(d.type === 'task') return 50;
+            return ((d.level||0) + 1) * 120;
+        }).strength(1.5))
+        .force("x", d3.forceX(d => {
+            if(d.type === 'task' || d.group === 'root' || !d.group) return width/2;
+            return scaleX(d.group);
+        }).strength(0.5)) // Strong separation
+        .force("collide", d3.forceCollide().radius(30));
         
     const link = state.g.append("g").selectAll("line").data(links).join("line").attr("class", "d3-link").attr("marker-end", "url(#arrow)");
     const node = state.g.append("g").selectAll("g").data(nodes).join("g").attr("class", "d3-node").call(d3.drag().on("start",dragstarted).on("drag",dragged).on("end",dragended)).on("click", (e,d)=>showDetails(d));
@@ -781,13 +819,10 @@ INDEX_HTML = r"""
         const el = d3.select(this), c = nodeColors[d.status]||nodeColors[d.type]||'#64748b';
         
         if (d.type === 'task') {
-            // Task: Large Star
             el.append("path").attr("d", "M0,-18 L10,-6 L23,-6 L13,4 L16,17 L0,9 L-16,17 L-13,4 L-23,-6 L-10,-6 Z").attr("fill", c).attr("stroke", "#fff").attr("stroke-width", 2);
         } else if (d.type === 'subtask') {
-            // Subtask: Hexagon
             el.append("path").attr("d", "M0,-16 L14,-8 L14,8 L0,16 L-14,8 L-14,-8 Z").attr("fill", c).attr("stroke", "#fff").attr("stroke-width", 1.5);
         } else if (d.type === 'execution_step') {
-            // Execution Step: Small Circle
             el.append("circle").attr("r", 7).attr("fill", c);
         } else if(['ConfirmedVulnerability','Flag'].includes(d.type)) {
             el.append("polygon").attr("points","-14,0 0,-14 14,0 0,14").attr("fill",c);

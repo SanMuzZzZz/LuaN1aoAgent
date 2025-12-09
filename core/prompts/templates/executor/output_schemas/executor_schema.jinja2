@@ -10,7 +10,7 @@
     {
       "command": "EXECUTE_NOW",
       "node_id": "step_1a",
-      "parent_id": "{{ subtask_id }}",
+      "parent_id": "若是首步或新分支填 '{{ subtask_id }}'；若是基于前序步骤(如 step_0)的后续操作，必须填该前序步骤的 node_id。",
       "action": {
         "tool": "要执行的工具，例如 'http_request', 'shell_exec', 'python_exec', 'expert_analysis'。",
         "params": {

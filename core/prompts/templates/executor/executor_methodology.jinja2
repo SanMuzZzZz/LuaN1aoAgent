@@ -84,3 +84,42 @@
 - [ ] **错误**: 是否出现 SQL/代码/模板 错误信息？
 - [ ] **回显**: Payload 是否原样返回？是否被转义？
 - [ ] **Header**: Set-Cookie, Location 是否变化？
+
+### 树状探索与并发执行 (Tree-Based Exploration & Concurrency)
+
+为了最大化探索效率，你必须构建树状而非线性的执行图。这要求你精准管理 `parent_id`。
+
+#### 示例：构建多分支探索树
+
+假设当前子任务 ID 为 `task_123`，且已有一个前序步骤 `step_login_ok` (成功登录)。
+
+```json
+"execution_operations": [
+  {
+    "description": "分支 A：基于登录态，测试 /admin 的 SQL 注入",
+    "node_id": "step_admin_sqli",
+    "parent_id": "step_login_ok",  // 挂载到登录成功节点
+    "command": "EXECUTE_NOW",
+    "action": { "tool": "sqlmap_scan", "params": {"url": "http://target/admin", "cookie": "..."} }
+  },
+  {
+    "description": "分支 B：基于登录态，测试 /profile 的 XSS",
+    "node_id": "step_profile_xss",
+    "parent_id": "step_login_ok",  // 并行挂载到同一个父节点
+    "command": "EXECUTE_NOW",
+    "action": { "tool": "http_request", "params": {"url": "http://target/profile", "method": "POST", "data": {"bio": "<script>..."}} }
+  },
+  {
+    "description": "分支 C：独立探索，尝试未授权访问 API",
+    "node_id": "step_api_unauth",
+    "parent_id": "task_123",       // 挂载到子任务根节点，开启全新独立分支
+    "command": "EXECUTE_NOW",
+    "action": { "tool": "dirsearch_scan", "params": {"url": "http://target/api"} }
+  }
+]
+```
+
+**关键规则**:
+1.  **并行执行**: 通过将多个操作的 `parent_id` 设为同一个 ID，你可以并发测试多个方向。
+2.  **深入挖掘**: 当某个步骤发现线索时，后续操作的 `parent_id` 必须设为该步骤的 ID，以形成深度推理链。
+3.  **避免扁平化**: 不要把所有操作都挂载在 `subtask_id` 下，除非它们确实都是独立的起始尝试。
