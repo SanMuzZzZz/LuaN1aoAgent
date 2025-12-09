@@ -83,12 +83,12 @@ function drawForceGraph(data) {
   const dagreGraph = new dagre.graphlib.Graph();
   dagreGraph.setGraph({ 
       rankdir: 'TB',  // Top-to-Bottom 布局 (更像攻击图/树)
-      align: 'UL',    // 上对齐，左对齐（更紧凑）
-      nodesep: 30,    // 同层节点水平间距（减小以避免横向过长）
+      align: undefined,    // 不设置对齐方式，让算法自动平衡
+      nodesep: 40,    // 同层节点水平间距（适当增加以改善可读性）
       ranksep: 80,    // 层级间垂直间距（增大以拉长纵向）
-      marginx: 30, 
-      marginy: 30,
-      ranker: 'tight-tree'  // 使用紧凑树布局算法
+      marginx: 40, 
+      marginy: 40,
+      ranker: 'network-simplex'  // 使用网络单纯形算法，更好地平衡布局
   });
 
   // 添加节点 (设置固定尺寸)
@@ -235,20 +235,41 @@ function drawForceGraph(data) {
       .attr("fill", "#fff")
       .style("font-weight", "bold")
       .style("font-size", "11px")
-      .text(d => {
+      .each(function(d) {
           const n = dagreGraph.node(d);
           let label = n.label || n.id;
           
-          // 如果是动作节点，且ID格式为 <subtask>_<action>，只显示后面的动作名
+          // 如果是动作节点，提取真正的动作名称
           if (n.type === 'action' && label.includes('_')) {
-              const parts = label.split('_');
-              // 如果第一部分看起来像子任务ID（如 initial_reconnaissance, systematic_order），取后面的部分
-              if (parts.length >= 2) {
-                  label = parts.slice(1).join('_');  // 保留所有下划线后的部分
+              // 格式通常为: <subtask>_step_<action> 或 <subtask>_<action>
+              // 例如: basic_app_recon_step_homepage -> homepage
+              //       initial_reconnaissance_step_1a -> step_1a
+              
+              // 先尝试匹配 _step_ 模式
+              const stepMatch = label.match(/_step_(.+)$/);
+              if (stepMatch) {
+                  label = stepMatch[1];  // 取 step_ 后面的部分
+              } else {
+                  // 如果没有 _step_，则取最后一个下划线后的部分
+                  const parts = label.split('_');
+                  if (parts.length >= 2) {
+                      label = parts[parts.length - 1];  // 只取最后一个部分
+                  }
               }
           }
           
-          return label.length > 22 ? label.substring(0, 20) + "..." : label;
+          // 智能截断：考虑中英文字符宽度
+          const textElement = d3.select(this);
+          textElement.text(label);
+          
+          // 检查文本宽度，如果超过节点宽度则逐步截断
+          const maxWidth = 160; // 节点宽180px，留20px边距
+          let currentText = label;
+          
+          while (textElement.node().getComputedTextLength() > maxWidth && currentText.length > 3) {
+              currentText = currentText.substring(0, currentText.length - 1);
+              textElement.text(currentText + '...');
+          }
       });
       
   // 节点副标题 (例如耗时或工具名)
@@ -303,6 +324,53 @@ function drawForceGraph(data) {
   state.svg.call(state.zoom.transform, d3.zoomIdentity
       .translate(x, y)
       .scale(autoScale));
+  
+  // 高亮当前执行路径
+  highlightActivePath(dagreGraph, data.nodes, nodes, links);
+}
+
+function highlightActivePath(dagreGraph, dataNodes, nodeSelection, linkSelection) {
+  // 找到所有正在执行的节点（in_progress 或 running 状态）
+  const activeNodes = dataNodes.filter(n => n.status === 'in_progress' || n.status === 'running');
+  
+  if (activeNodes.length === 0) return;
+  
+  // 找到最新的执行节点（假设有 created_at 或 sequence 字段，否则取第一个）
+  let currentNode = activeNodes[0];
+  if (activeNodes.length > 1) {
+    // 优先选择有最大 sequence 的节点
+    currentNode = activeNodes.reduce((latest, node) => {
+      const latestSeq = latest.sequence || 0;
+      const nodeSeq = node.sequence || 0;
+      return nodeSeq > latestSeq ? node : latest;
+    }, activeNodes[0]);
+  }
+  
+  // 递归找到从当前节点到根节点的路径
+  const pathToRoot = new Set();
+  const edgesInPath = new Set();
+  
+  function findPathToRoot(nodeId) {
+    pathToRoot.add(nodeId);
+    const predecessors = dagreGraph.predecessors(nodeId);
+    if (predecessors && predecessors.length > 0) {
+      predecessors.forEach(pred => {
+        edgesInPath.add(`${pred}->${nodeId}`);
+        findPathToRoot(pred);
+      });
+    }
+  }
+  
+  findPathToRoot(currentNode.id);
+  
+  // 高亮路径上的节点
+  nodeSelection.classed("path-highlight", d => pathToRoot.has(d));
+  
+  // 高亮路径上的边
+  linkSelection.classed("path-highlight", d => {
+    const edgeKey = `${d.v}->${d.w}`;
+    return edgesInPath.has(edgeKey);
+  });
 }
 
 function dragstarted(e,d) { if(!e.active) state.simulation.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; }
