@@ -77,15 +77,51 @@ async def api_graph_execution(op_id: str):
     for nid, data in gm.graph.nodes(data=True):
         if data.get("is_staged_causal") or data.get("type") == "staged_causal":
             continue
+        
+        # 确定节点类型：subtask(子任务) 或 execution_step(执行步骤/动作)
+        node_type = data.get("type", "unknown")
+        is_subtask = node_type in ["task", "subtask"] or nid.startswith("subtask_") or "description" in data
+        is_action = node_type in ["execution_step", "action", "tool_use"] or "tool_name" in data or "action" in data
+        
+        # 统一节点类型标识
+        if is_subtask and not is_action:
+            unified_type = "task"
+        elif is_action or "tool_name" in data:
+            unified_type = "action"
+        else:
+            unified_type = node_type or "unknown"
+        
+        # 提取工具执行信息（如果存在）
+        tool_info = {}
+        if "tool_name" in data:
+            tool_info["tool_name"] = data["tool_name"]
+        if "action" in data and isinstance(data["action"], dict):
+            tool_info["tool_name"] = data["action"].get("tool", data["action"].get("tool_name"))
+            tool_info["tool_args"] = data["action"].get("params", data["action"].get("args"))
+        if "result" in data:
+            tool_info["result"] = data["result"]
+        if "observation" in data:
+            tool_info["observation"] = data["observation"]
+        
         label = data.get("description") or data.get("thought") or data.get("goal") or nid
-        nodes.append({
+        
+        node_data = {
             "id": nid,
-            "type": data.get("type"),
+            "type": unified_type,  # 统一的类型标识
+            "original_type": node_type,  # 原始类型（调试用）
             "status": data.get("status"),
+            "label": label,
             "description": data.get("description"),
             "thought": data.get("thought"),
             "goal": data.get("goal"),
-        })
+        }
+        
+        # 合并工具执行信息
+        if tool_info:
+            node_data.update(tool_info)
+        
+        nodes.append(node_data)
+    
     node_ids = set(n["id"] for n in nodes)
     for u, v, ed in gm.graph.edges(data=True):
         if u in node_ids and v in node_ids:

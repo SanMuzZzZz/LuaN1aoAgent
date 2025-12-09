@@ -164,34 +164,38 @@ function drawForceGraph(data) {
           return (n.status === 'running' || n.status === 'in_progress') ? 2 : 1.5;
       });
 
-  // 节点类型标签 (左上角小标签)
+  // 节点类型标签 (左上角小标签) - 增强可见性
   nodes.append("rect")
-      .attr("width", 40)
-      .attr("height", 16)
+      .attr("width", 50)
+      .attr("height", 18)
       .attr("x", -nodeWidth / 2)
-      .attr("y", -nodeHeight / 2 - 8)
+      .attr("y", -nodeHeight / 2 - 9)
       .attr("rx", 4)
       .attr("ry", 4)
       .style("fill", d => {
           const n = dagreGraph.node(d);
-          if (n.type === 'task') return '#8b5cf6';
-          if (n.type === 'action' || n.type === 'tool_use') return '#f59e0b';
+          if (n.type === 'task') return '#8b5cf6';  // 紫色 - 子任务
+          if (n.type === 'action') return '#f59e0b';  // 橙色 - 动作节点
           return '#64748b';
-      });
+      })
+      .style("stroke", "#fff")
+      .style("stroke-width", "1px");
       
   nodes.append("text")
-      .attr("x", -nodeWidth / 2 + 20)
-      .attr("y", -nodeHeight / 2 + 2)
+      .attr("x", -nodeWidth / 2 + 25)
+      .attr("y", -nodeHeight / 2 + 3)
       .attr("text-anchor", "middle")
       .attr("fill", "#fff")
-      .style("font-size", "9px")
+      .style("font-size", "10px")
       .style("font-weight", "bold")
       .text(d => {
           const n = dagreGraph.node(d);
-          return (n.type === 'task' ? 'TASK' : (n.type === 'action' ? 'ACT' : 'NODE'));
+          if (n.type === 'task') return '子任务';
+          if (n.type === 'action') return '动作';
+          return 'NODE';
       });
 
-  // 节点文字 (ID 或 Label)
+  // 节点文字 (使用节点名称/描述)
   nodes.append("text")
       .attr("text-anchor", "middle")
       .attr("dy", "0.3em")
@@ -200,7 +204,8 @@ function drawForceGraph(data) {
       .style("font-size", "11px")
       .text(d => {
           const n = dagreGraph.node(d);
-          const label = n.label || n.id;
+          // 优先使用 description，然后 label，最后 id
+          const label = n.description || n.label || n.id;
           return label.length > 22 ? label.substring(0, 20) + "..." : label;
       });
       
@@ -269,10 +274,17 @@ function showDetails(d) {
   const c=document.getElementById('node-detail-content'); 
   let h = '';
   
-  // Header with Type and ID
+  // Header with Type and ID - 增强类型显示
+  const typeLabel = d.type === 'task' ? '子任务 (Subtask)' : 
+                    d.type === 'action' ? '动作节点 (Action)' : 
+                    (d.type || 'NODE');
+  const typeColor = d.type === 'task' ? '#8b5cf6' : 
+                    d.type === 'action' ? '#f59e0b' : 
+                    '#64748b';
+  
   h += `<div style="margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border-color)">
-          <div style="font-size:10px;text-transform:uppercase;color:var(--text-muted);font-weight:bold">${d.type || 'NODE'}</div>
-          <div style="font-size:14px;font-weight:bold;word-break:break-all">${d.label || d.id}</div>
+          <div style="font-size:10px;text-transform:uppercase;color:${typeColor};font-weight:bold;display:inline-block;background:${typeColor}22;padding:2px 6px;border-radius:3px;">${typeLabel}</div>
+          <div style="font-size:14px;font-weight:bold;word-break:break-all;margin-top:6px;">${d.label || d.description || d.id}</div>
           <div style="font-size:10px;color:var(--text-muted);margin-top:4px">ID: ${d.id}</div>
         </div>`;
 
@@ -280,26 +292,48 @@ function showDetails(d) {
   const statusColor = nodeColors[d.status] || '#64748b';
   h += `<div style="margin-bottom:16px"><span style="background:${statusColor};color:white;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:bold;text-transform:uppercase">${d.status || 'UNKNOWN'}</span></div>`;
 
-  // Tool Execution Details (if available)
-  if (d.tool_name) {
-      h += `<div class="detail-section">
-              <div class="detail-header">Tool Execution</div>
-              <div class="detail-row"><span class="detail-key">Tool:</span> <span class="detail-val" style="color:var(--accent-primary)">${d.tool_name}</span></div>`;
-      if (d.tool_args) {
-          h += `<div class="detail-row"><span class="detail-key">Args:</span></div>
-                <div class="code-block">${hlJson(d.tool_args)}</div>`;
+  // Tool Execution Details (if available) - 增强显示
+  if (d.tool_name || d.action) {
+      h += `<div class="detail-section" style="border:1px solid #f59e0b;border-radius:6px;padding:12px;margin-bottom:12px;background:rgba(245,158,11,0.05);">
+              <div class="detail-header" style="color:#f59e0b;margin-bottom:8px;">🔧 工具执行详情</div>`;
+      
+      const toolName = d.tool_name || (d.action && d.action.tool);
+      if (toolName) {
+          h += `<div class="detail-row" style="margin-bottom:8px;">
+                  <span class="detail-key">工具名称:</span> 
+                  <span class="detail-val" style="color:#f59e0b;font-weight:bold;font-family:monospace;">${toolName}</span>
+                </div>`;
       }
+      
+      const toolArgs = d.tool_args || (d.action && d.action.params);
+      if (toolArgs) {
+          h += `<div class="detail-row" style="margin-bottom:4px;">
+                  <span class="detail-key">参数 (Args):</span>
+                </div>
+                <div class="code-block" style="max-height:200px;overflow-y:auto;margin-bottom:8px;">${hlJson(toolArgs)}</div>`;
+      }
+      
       if (d.result) {
-          h += `<div class="detail-row"><span class="detail-key">Result:</span></div>
-                <div class="code-block">${hlJson(d.result)}</div>`;
+          h += `<div class="detail-row" style="margin-bottom:4px;">
+                  <span class="detail-key">执行结果 (Result):</span>
+                </div>
+                <div class="code-block" style="max-height:300px;overflow-y:auto;">${hlJson(d.result)}</div>`;
       }
+      
+      if (d.observation) {
+          h += `<div class="detail-row" style="margin-bottom:4px;margin-top:8px;">
+                  <span class="detail-key">观察结果 (Observation):</span>
+                </div>
+                <div style="color:#94a3b8;font-size:12px;line-height:1.5;white-space:pre-wrap;">${d.observation}</div>`;
+      }
+      
       h += `</div>`;
   }
 
   // Other Properties
-  h += `<div class="detail-section"><div class="detail-header">Properties</div><table class="detail-table">`;
+  h += `<div class="detail-section"><div class="detail-header">其他属性</div><table class="detail-table">`;
   Object.entries(d).forEach(([k,v])=>{ 
-      if(!['x','y','fx','fy','vx','vy','index','children','width','height','tool_name','tool_args','result','label','id','type','status'].includes(k)) {
+      if(!['x','y','fx','fy','vx','vy','index','children','width','height','tool_name','tool_args','result','observation','action','label','id','type','status','description','original_type'].includes(k)) {
           h+=`<tr><td class="detail-key">${k}</td><td class="detail-val">${typeof v==='object'?JSON.stringify(v,null,2):v}</td></tr>`; 
       }
   });

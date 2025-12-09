@@ -104,9 +104,40 @@ input:focus, textarea:focus { border-color: var(--accent-primary); }
 .panel-header { padding: 0 16px; height: 40px; background: rgba(15, 23, 42, 0.5); border-bottom: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
 .panel-content { flex: 1; overflow-y: auto; position: relative; }
 
-.detail-table td { padding: 6px 12px; border-bottom: 1px solid #334155; vertical-align: top; font-size: 12px; }
-.detail-key { width: 90px; color: var(--text-muted); text-align: right; }
+/* 节点详情面板内容区域 - 增加内边距 */
+#node-detail-content { padding: 16px; }
+
+/* 详情区块样式 */
+.detail-section { margin-bottom: 16px; }
+.detail-header { 
+  font-size: 11px; 
+  font-weight: 700; 
+  text-transform: uppercase; 
+  letter-spacing: 0.5px; 
+  color: var(--accent-primary); 
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(59, 130, 246, 0.2);
+}
+.detail-row { margin-bottom: 8px; }
+
+.detail-table { width: 100%; border-collapse: collapse; }
+.detail-table td { padding: 8px 12px; border-bottom: 1px solid #334155; vertical-align: top; font-size: 12px; }
+.detail-key { color: var(--text-muted); font-weight: 500; }
 .detail-val { color: #e2e8f0; font-family: var(--font-code); word-break: break-all; white-space: pre-wrap; }
+
+/* 代码块样式 */
+.code-block { 
+  background: #0b1120; 
+  border: 1px solid #1e293b; 
+  padding: 10px; 
+  border-radius: 6px; 
+  font-family: var(--font-code); 
+  font-size: 11px; 
+  color: #a5d6ff; 
+  white-space: pre-wrap; 
+  overflow-x: auto;
+}
 
 #llm-output-container { background: #0d1117; flex: 1; display: flex; flex-direction: column; overflow: hidden; height: 100%; }
 .llm-msg { padding: 12px 16px; border-bottom: 1px solid #21262d; font-family: var(--font-ui); font-size: 13px; line-height: 1.5; }
