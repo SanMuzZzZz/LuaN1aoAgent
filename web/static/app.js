@@ -370,62 +370,151 @@ function highlightActivePath(dagreGraph, dataNodes, nodeSelection, linkSelection
   console.log('All nodes:', dataNodes.map(n => ({id: n.id, type: n.type, status: n.status})));
   console.log('All edges in graph:', dagreGraph.edges().map(e => `${e.v} -> ${e.w}`));
   
-  // 策略：始终高亮到最新的执行节点（不管状态）
-  // 1. 找到所有正在执行的节点（in_progress 或 running）
-  // 2. 如果有正在执行的动作节点，选择它
-  // 3. 否则找到所有动作节点中最新的（按图的拓扑顺序或节点ID）
+  // 新策略：始终高亮到最新的执行节点，不管是否有活跃节点
+  // 1. 优先：正在执行的动作节点
+  // 2. 其次：如果有活跃任务，找它路径上最后执行的动作节点
+  // 3. 最后：找所有已完成/失败的动作节点中的叶子节点
   
   const activeNodes = dataNodes.filter(n => n.status === 'in_progress' || n.status === 'running');
   const allActionNodes = dataNodes.filter(n => n.type === 'action');
   const activeActionNodes = activeNodes.filter(n => n.type === 'action');
   const activeTaskNodes = activeNodes.filter(n => n.type === 'task');
+  const activeRootNodes = activeNodes.filter(n => n.type === 'root');
   
-  let currentNode;
+  // 收集所有需要高亮的"叶子节点"（执行的最前沿）
+  let leafNodes = [];
   
   if (activeActionNodes.length > 0) {
-    // 优先选择正在运行的动作节点（选择最新的）
-    currentNode = activeActionNodes[activeActionNodes.length - 1]; // 选择最后一个
-    console.log('Using active action node:', currentNode.id);
-  } else if (activeTaskNodes.length > 0 && allActionNodes.length > 0) {
-    // 当任务在执行但没有动作节点在运行时，找到最后一个动作节点（不管状态）
-    // 按图的拓扑顺序：找到所有动作节点中最深的那个
-    
-    // 计算每个动作节点到根的距离
-    const actionNodesWithDepth = allActionNodes.map(node => {
-      let depth = 0;
-      let current = node.id;
-      const visited = new Set();
+    // 有正在运行的动作节点，高亮所有这些节点的路径
+    leafNodes = activeActionNodes;
+    console.log('Found active action nodes:', leafNodes.map(n => n.id));
+  } else if (activeTaskNodes.length > 0) {
+    // 任务在执行但没有动作节点在运行
+    // 策略：找到从根节点到当前任务路径上的所有动作节点中最新的
+    activeTaskNodes.forEach(task => {
+      console.log('Processing active task:', task.id);
       
-      while (current && !visited.has(current)) {
-        visited.add(current);
-        const preds = dagreGraph.predecessors(current);
+      // 递归收集从根到当前任务的路径上的所有节点
+      const pathFromRoot = new Set();
+      
+      function traceToRoot(nodeId) {
+        if (pathFromRoot.has(nodeId)) return;
+        pathFromRoot.add(nodeId);
+        
+        const preds = dagreGraph.predecessors(nodeId);
         if (preds && preds.length > 0) {
-          current = preds[0];
-          depth++;
-        } else {
-          break;
+          preds.forEach(pred => traceToRoot(pred));
         }
       }
       
-      return { node, depth, id: node.id };
+      traceToRoot(task.id);
+      console.log('  Path from root to task:', Array.from(pathFromRoot));
+      
+      // 在这条路径上找到所有动作节点
+      const actionsInPath = allActionNodes.filter(action => pathFromRoot.has(action.id));
+      console.log('  Actions in path:', actionsInPath.map(a => ({id: a.id, status: a.status})));
+      
+      if (actionsInPath.length > 0) {
+        // 找到所有非 pending 状态的动作节点（已执行的）
+        const executedActions = actionsInPath.filter(n => 
+          n.status === 'completed' || n.status === 'failed'
+        );
+        
+        console.log('  Executed actions:', executedActions.map(a => a.id));
+        
+        if (executedActions.length > 0) {
+          // 在已执行的动作中找到"叶子节点"（没有后继，或后继不在已执行列表中）
+          const executedIds = new Set(executedActions.map(a => a.id));
+          const leaves = executedActions.filter(action => {
+            const successors = dagreGraph.successors(action.id);
+            // 没有后继，或者后继都不在已执行的动作中
+            return !successors || successors.length === 0 || 
+                   !successors.some(succ => executedIds.has(succ));
+          });
+          
+          console.log('  Leaf executed actions:', leaves.map(l => l.id));
+          
+          if (leaves.length > 0) {
+            leafNodes.push(...leaves);
+          } else {
+            // 如果找不到叶子，用最后一个已执行的
+            leafNodes.push(executedActions[executedActions.length - 1]);
+          }
+        } else {
+          // 路径上没有已执行的动作，高亮任务本身
+          console.log('  No executed actions, using task itself');
+          leafNodes.push(task);
+        }
+      } else {
+        // 路径上没有动作节点，高亮任务本身
+        console.log('  No actions in path, using task itself');
+        leafNodes.push(task);
+      }
     });
     
-    // 选择深度最大的节点（最远离根节点的）
-    currentNode = actionNodesWithDepth.reduce((latest, item) => {
-      return item.depth > latest.depth ? item : latest;
-    }).node;
+    console.log('Task in progress, final leaf nodes:', leafNodes.map(n => n.id));
+  } else if (activeRootNodes.length > 0) {
+    // 只有根节点在运行，但没有活跃的任务或动作节点
+    // 找到所有已完成/失败的动作节点中的叶子节点
+    const executedActions = allActionNodes.filter(n => 
+      n.status === 'completed' || n.status === 'failed'
+    );
     
-    console.log('Task in progress, using deepest action node:', currentNode.id);
-  } else if (activeNodes.length > 0) {
-    // 如果只有根节点或任务节点在运行
-    currentNode = activeNodes[0];
-    console.log('Using active node:', currentNode.id);
+    console.log('Root active, executed actions:', executedActions.map(a => ({id: a.id, status: a.status})));
+    
+    if (executedActions.length > 0) {
+      // 找到叶子节点（没有后继，或后继不在已执行列表中）
+      const executedIds = new Set(executedActions.map(a => a.id));
+      const leaves = executedActions.filter(action => {
+        const successors = dagreGraph.successors(action.id);
+        return !successors || successors.length === 0 || 
+               !successors.some(succ => executedIds.has(succ));
+      });
+      
+      console.log('Leaf executed actions:', leaves.map(l => l.id));
+      
+      if (leaves.length > 0) {
+        leafNodes.push(...leaves);
+      } else {
+        // 找不到叶子，用所有已执行的
+        leafNodes.push(...executedActions);
+      }
+    } else {
+      // 没有已执行的动作，高亮根节点
+      leafNodes = activeRootNodes;
+    }
+    
+    console.log('Root only, final leaf nodes:', leafNodes.map(n => n.id));
   } else {
-    // 没有活跃节点
+    // 完全没有活跃节点 - 这种情况下也要显示最后的执行状态
+    console.log('No active nodes at all, finding latest executed actions');
+    
+    const executedActions = allActionNodes.filter(n => 
+      n.status === 'completed' || n.status === 'failed'
+    );
+    
+    if (executedActions.length > 0) {
+      const executedIds = new Set(executedActions.map(a => a.id));
+      const leaves = executedActions.filter(action => {
+        const successors = dagreGraph.successors(action.id);
+        return !successors || successors.length === 0 || 
+               !successors.some(succ => executedIds.has(succ));
+      });
+      
+      if (leaves.length > 0) {
+        leafNodes.push(...leaves);
+      }
+    }
+    
+    console.log('No active nodes, using executed leaves:', leafNodes.map(n => n.id));
+  }
+  
+  if (leafNodes.length === 0) {
+    console.log('No leaf nodes to highlight');
     return;
   }
   
-  // 递归找到从当前节点到根节点的路径
+  // 从所有叶子节点追溯到根节点（支持多条并行路径）
   const pathToRoot = new Set();
   const edgesInPath = new Set();
   
@@ -435,8 +524,6 @@ function highlightActivePath(dagreGraph, dataNodes, nodeSelection, linkSelection
     pathToRoot.add(nodeId);
     const predecessors = dagreGraph.predecessors(nodeId);
     
-    console.log(`Node ${nodeId} has predecessors:`, predecessors);
-    
     if (predecessors && predecessors.length > 0) {
       predecessors.forEach(pred => {
         edgesInPath.add(`${pred}->${nodeId}`);
@@ -445,9 +532,14 @@ function highlightActivePath(dagreGraph, dataNodes, nodeSelection, linkSelection
     }
   }
   
-  console.log('Starting from node:', currentNode.id, 'type:', currentNode.type);
-  findPathToRoot(currentNode.id);
-  console.log('Path to root:', Array.from(pathToRoot));
+  // 对每个叶子节点追溯路径
+  console.log('Tracing paths from leaf nodes:', leafNodes.map(n => n.id));
+  leafNodes.forEach(leaf => {
+    findPathToRoot(leaf.id);
+  });
+  
+  console.log('Highlighted paths include', pathToRoot.size, 'nodes and', edgesInPath.size, 'edges');
+  console.log('Path nodes:', Array.from(pathToRoot));
   
   // 高亮路径上的节点
   nodeSelection.classed("path-highlight", d => pathToRoot.has(d));
@@ -472,11 +564,11 @@ function updateLegend() {
     if (state.view === 'exec') {
         // 攻击图 - 显示执行状态
         const execLegend = {
-            'completed': { color: '#10b981', label: '已完成' },
-            'failed': { color: '#ef4444', label: '失败' },
-            'in_progress': { color: '#3b82f6', label: '执行中' },
-            'pending': { color: '#64748b', label: '待执行' },
-            'deprecated': { color: '#94a3b8', label: '已废弃' }
+            'completed': { color: '#10b981', label: t('status.completed') },
+            'failed': { color: '#ef4444', label: t('status.failed') },
+            'in_progress': { color: '#3b82f6', label: t('status.in_progress') },
+            'pending': { color: '#64748b', label: t('status.pending') },
+            'deprecated': { color: '#94a3b8', label: t('status.deprecated') }
         };
         Object.entries(execLegend).forEach(([k, v]) => {
             h += `<div class="legend-item">
@@ -485,13 +577,13 @@ function updateLegend() {
                   </div>`;
         });
     } else if (state.view === 'causal') {
-        // 因果图 - 显示节点类型
+        // 因果图 - 显示节点类型（这些标签保持原样，因为是专业术语）
         const causalLegend = {
-            'ConfirmedVulnerability': { color: '#f59e0b', label: '确认漏洞' },
-            'Vulnerability': { color: '#a855f7', label: '疑似漏洞' },
-            'Evidence': { color: '#06b6d4', label: '证据' },
-            'Hypothesis': { color: '#84cc16', label: '假设' },
-            'KeyFact': { color: '#fbbf24', label: '关键事实' },
+            'ConfirmedVulnerability': { color: '#f59e0b', label: currentLang === 'zh' ? '确认漏洞' : 'Confirmed Vuln' },
+            'Vulnerability': { color: '#a855f7', label: currentLang === 'zh' ? '疑似漏洞' : 'Vulnerability' },
+            'Evidence': { color: '#06b6d4', label: currentLang === 'zh' ? '证据' : 'Evidence' },
+            'Hypothesis': { color: '#84cc16', label: currentLang === 'zh' ? '假设' : 'Hypothesis' },
+            'KeyFact': { color: '#fbbf24', label: currentLang === 'zh' ? '关键事实' : 'Key Fact' },
             'Flag': { color: '#ef4444', label: 'Flag' }
         };
         Object.entries(causalLegend).forEach(([k, v]) => {
@@ -510,9 +602,9 @@ function showDetails(d) {
   let h = '';
   
   // Header with Type and ID - 增强类型显示
-  const typeLabel = d.type === 'root' ? '主任务 (Root Task)' : 
-                    d.type === 'task' ? '子任务 (Subtask)' : 
-                    d.type === 'action' ? '动作节点 (Action)' : 
+  const typeLabel = d.type === 'root' ? t('type.root') : 
+                    d.type === 'task' ? t('type.task') : 
+                    d.type === 'action' ? t('type.action') : 
                     (d.type || 'NODE');
   const typeColor = d.type === 'root' ? '#3b82f6' : 
                     d.type === 'task' ? '#8b5cf6' : 
@@ -527,17 +619,18 @@ function showDetails(d) {
 
   // Status Badge
   const statusColor = nodeColors[d.status] || '#64748b';
-  h += `<div style="margin-bottom:16px"><span style="background:${statusColor};color:white;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:bold;text-transform:uppercase">${d.status || 'UNKNOWN'}</span></div>`;
+  const statusText = d.status ? t('status.' + d.status) || d.status : 'UNKNOWN';
+  h += `<div style="margin-bottom:16px"><span style="background:${statusColor};color:white;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:bold;text-transform:uppercase">${statusText}</span></div>`;
 
   // Tool Execution Details (if available) - 增强显示
   if (d.tool_name || d.action) {
       h += `<div class="detail-section" style="border:1px solid #f59e0b;border-radius:6px;padding:12px;margin-bottom:12px;background:rgba(245,158,11,0.05);">
-              <div class="detail-header" style="color:#f59e0b;margin-bottom:8px;">🔧 工具执行详情</div>`;
+              <div class="detail-header" style="color:#f59e0b;margin-bottom:8px;">🔧 ${t('panel.tool')}</div>`;
       
       const toolName = d.tool_name || (d.action && d.action.tool);
       if (toolName) {
           h += `<div class="detail-row" style="margin-bottom:8px;">
-                  <span class="detail-key">工具名称:</span> 
+                  <span class="detail-key">${t('panel.tool')}:</span> 
                   <span class="detail-val" style="color:#f59e0b;font-weight:bold;font-family:monospace;">${toolName}</span>
                 </div>`;
       }
@@ -545,21 +638,21 @@ function showDetails(d) {
       const toolArgs = d.tool_args || (d.action && d.action.params);
       if (toolArgs) {
           h += `<div class="detail-row" style="margin-bottom:4px;">
-                  <span class="detail-key">参数 (Args):</span>
+                  <span class="detail-key">${t('panel.args')}:</span>
                 </div>
                 <div class="code-block" style="max-height:200px;overflow-y:auto;margin-bottom:8px;">${hlJson(toolArgs)}</div>`;
       }
       
       if (d.result) {
           h += `<div class="detail-row" style="margin-bottom:4px;">
-                  <span class="detail-key">执行结果 (Result):</span>
+                  <span class="detail-key">${t('panel.result')}:</span>
                 </div>
                 <div class="code-block" style="max-height:300px;overflow-y:auto;">${hlJson(d.result)}</div>`;
       }
       
       if (d.observation) {
           h += `<div class="detail-row" style="margin-bottom:4px;margin-top:8px;">
-                  <span class="detail-key">观察结果 (Observation):</span>
+                  <span class="detail-key">${t('panel.observation')}:</span>
                 </div>
                 <div class="code-block" style="max-height:300px;overflow-y:auto;">${typeof d.observation === 'object' ? hlJson(d.observation) : d.observation}</div>`;
       }
@@ -568,7 +661,7 @@ function showDetails(d) {
   }
 
   // Other Properties
-  h += `<div class="detail-section"><div class="detail-header">其他属性</div><table class="detail-table">`;
+  h += `<div class="detail-section"><div class="detail-header">${t('panel.description')}</div><table class="detail-table">`;
   Object.entries(d).forEach(([k,v])=>{ 
       if(!['x','y','fx','fy','vx','vy','index','children','width','height','tool_name','tool_args','result','observation','action','label','id','type','status','description','original_type'].includes(k)) {
           h+=`<tr><td class="detail-key">${k}</td><td class="detail-val">${typeof v==='object'?JSON.stringify(v,null,2):v}</td></tr>`; 
@@ -825,7 +918,7 @@ function hlJson(s) {
 }
 
 async function createTask() { const g=document.getElementById('in-goal').value, t=document.getElementById('in-task').value; if(!g)return; await api('/api/ops',{goal:g,task_name:t}).then(r=>{if(r.ok){loadOps();selectOp(r.op_id)}}); }
-async function abortOp() { if(confirm('Stop?')) await api(`/api/ops/${state.op_id}/abort`,{}); }
+async function abortOp() { if(confirm(t('msg.confirm_abort'))) await api(`/api/ops/${state.op_id}/abort`,{}); }
 
 async function checkPendingIntervention() {
   if(!state.op_id) return;

@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="https://unpkg.com/tippy.js@6/dist/tippy.css" />
   <link rel="stylesheet" href="https://unpkg.com/tippy.js@6/themes/light.css" />
   <link rel="stylesheet" href="/static/style.css" />
+  <script src="/static/i18n.js"></script>
 </head>
 <body>
 
@@ -21,31 +22,36 @@
   <header id="topbar">
     <div class="brand">
       <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
-      鸾鸟Agent
+      <span data-i18n="brand">鸾鸟Agent</span>
     </div>
     <div style="width:1px;height:24px;background:var(--border-color)"></div>
     <div class="flex gap-2">
-      <button class="btn active" data-view="exec" onclick="switchView('exec')">攻击图</button>
-      <button class="btn" data-view="causal" onclick="switchView('causal')">因果图</button>
+      <button class="btn active" data-view="exec" data-i18n="view.exec" onclick="switchView('exec')">攻击图</button>
+      <button class="btn" data-view="causal" data-i18n="view.causal" onclick="switchView('causal')">因果图</button>
     </div>
     <div style="flex:1"></div>
     <div class="flex gap-2 items-center">
-      <input id="in-goal" placeholder="输入目标..." style="width: 200px;">
-      <input id="in-task" placeholder="任务ID" style="width: 80px;">
-      <button class="btn btn-primary" onclick="createTask()">新建</button>
+      <input id="in-goal" data-i18n="input.goal" placeholder="输入目标..." style="width: 200px;">
+      <input id="in-task" data-i18n="input.taskid" placeholder="任务ID" style="width: 80px;">
+      <button class="btn btn-primary" data-i18n="btn.create" onclick="createTask()">新建</button>
     </div>
     <div style="width:1px;height:24px;background:var(--border-color);margin:0 10px;"></div>
     <div class="flex gap-2">
-      <button class="btn" onclick="openMCPModal()" title="MCP服务">MCP</button>
-      <button class="btn" onclick="openInjectModal()" title="注入任务">Inject</button>
-      <button class="btn" onclick="render(true)" title="刷新">Refresh</button>
-      <button class="btn btn-danger" onclick="abortOp()" title="终止">Stop</button>
+      <button class="btn" data-i18n="btn.mcp" onclick="openMCPModal()">MCP</button>
+      <button class="btn" data-i18n="btn.inject" onclick="openInjectModal()">Inject</button>
+      <button class="btn" data-i18n="btn.refresh" onclick="render(true)">刷新</button>
+      <button class="btn btn-danger" data-i18n="btn.stop" onclick="abortOp()">终止</button>
+    </div>
+    <div style="width:1px;height:24px;background:var(--border-color);margin:0 10px;"></div>
+    <div class="flex gap-2">
+      <button class="btn" onclick="switchLanguage('zh')" title="中文">中</button>
+      <button class="btn" onclick="switchLanguage('en')" title="English">EN</button>
     </div>
   </header>
 
   <div id="layout">
     <aside id="sidebar">
-      <div class="panel-header">Operations</div>
+      <div class="panel-header" data-i18n="sidebar.operations">操作列表</div>
       <ul id="ops"></ul>
     </aside>
 
@@ -57,19 +63,19 @@
         <button class="btn" onclick="zoomReset()">Fit</button>
       </div>
       <div id="legend" class="floating-panel">
-        <div style="font-weight:600;margin-bottom:6px;font-size:10px;text-transform:uppercase">Legend</div>
+        <div style="font-weight:600;margin-bottom:6px;font-size:10px;text-transform:uppercase" data-i18n="legend.title">图例</div>
         <div id="legend-content"></div>
       </div>
       
       <div id="node-details-panel" class="floating-details" style="top: 20px; left: 20px;">
         <div class="panel-header">
-          <span>Node Details</span>
+          <span data-i18n="panel.details">节点详情</span>
           <button class="btn" style="height:24px;padding:0 6px;background:transparent;border:none;" onclick="closeDetails()">
             <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
           </button>
         </div>
         <div id="node-detail-content" class="panel-content">
-          <div style="padding:20px;color:var(--text-muted);text-align:center">Select a node</div>
+          <div style="padding:20px;color:var(--text-muted);text-align:center" data-i18n="panel.notselected">未选择节点</div>
         </div>
       </div>
     </main>
