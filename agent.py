@@ -1481,7 +1481,7 @@ async def main():
                         console.print(Panel(f"正在为失败的分支 {subtask_id} 生成新计划...", title="Planner - 分支再生", style="purple"))
                     failure_reason = reflection.get("audit_result", {}).get("completion_check", "未提供具体失败原因。")
 
-                    # 调用新的分支重新规划方法 (下一步实现)
+                    # 调用新的分支重新规划方法
                     branch_replan_ops, branch_replan_metrics = await planner.regenerate_branch_plan(
                         goal=goal,
                         graph_manager=graph_manager,
@@ -1493,6 +1493,28 @@ async def main():
                     run_log.append({"event": "branch_replan", "subtask_id": subtask_id, "data": branch_replan_ops, "metrics": branch_replan_metrics, "timestamp": time.time()})
 
                     if branch_replan_ops:
+                        # 人机协同：分支再生计划审核
+                        if HUMAN_IN_THE_LOOP:
+                            if effective_output_mode in ["default", "debug"]:
+                                console.print(Panel("等待人工审核分支再生计划...", title="人机协同", style="yellow"))
+                            try:
+                                await broker.emit("intervention.required", {"op_id": op_id, "type": "branch_replan_approval"}, op_id=op_id)
+                            except Exception:
+                                pass
+                            
+                            cli_task = asyncio.create_task(handle_cli_approval(op_id, branch_replan_ops))
+                            decision = await intervention_manager.request_approval(op_id, branch_replan_ops)
+                            cli_task.cancel()
+                            
+                            if decision["action"] == "REJECT":
+                                console.print(Panel(f"分支再生计划被拒绝，跳过分支 {subtask_id} 的重新规划。", style="yellow"))
+                                continue
+                            elif decision["action"] == "MODIFY":
+                                branch_replan_ops = decision.get("modified_plan", branch_replan_ops)
+                                console.print(Panel("使用修改后的分支再生计划。", style="green"))
+                            else:  # APPROVE
+                                console.print(Panel("分支再生计划已批准。", style="green"))
+                        
                         if effective_output_mode in ["default", "debug"]:
                             console.print(f"应用为分支 {subtask_id} 生成的新计划...")
                         verified_ops = verify_and_handle_orphans(branch_replan_ops, graph_manager, console)

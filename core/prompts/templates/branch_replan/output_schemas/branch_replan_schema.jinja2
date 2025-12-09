@@ -24,3 +24,8 @@
       }
     }
   ]
+
+**⚠️ 关键约束 (Critical Constraints):**
+- `dependencies` 字段中**禁止**包含 `dead_end_tasks` 列表中的任何任务ID
+- 新任务应依赖于**健康的、已完成的任务**，或将 `dependencies` 设为空数组 `[]`
+- 空依赖表示该任务直接作为根任务的子任务，不依赖任何其他任务

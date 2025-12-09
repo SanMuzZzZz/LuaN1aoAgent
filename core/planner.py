@@ -682,6 +682,37 @@ class Planner:
                             continue
                         if node_id in seen_add_ids:
                             continue
+                        
+                        # 关键修复：清理新节点的依赖关系，移除对dead_branch的依赖
+                        dependencies = node_data.get("dependencies", [])
+                        if dependencies:
+                            # 过滤掉指向dead_branch的依赖
+                            clean_dependencies = [dep for dep in dependencies if dep not in dead_branch_ids]
+                            
+                            # 如果所有依赖都被移除了，需要找到一个合适的替代依赖
+                            if not clean_dependencies and dependencies:
+                                # 尝试找到dead_branch父节点的其他健康子节点
+                                try:
+                                    # 获取失败分支的父节点
+                                    parents_of_failed = list(graph_manager.graph.predecessors(failed_branch_root_id))
+                                    if parents_of_failed:
+                                        parent = parents_of_failed[0]
+                                        # 获取父节点的其他已完成的子节点
+                                        siblings = [succ for succ in graph_manager.graph.successors(parent) 
+                                                   if graph_manager.graph.nodes[succ].get('status') == 'completed'
+                                                   and succ not in dead_branch_ids]
+                                        if siblings:
+                                            clean_dependencies = [siblings[-1]]  # 使用最后一个完成的兄弟节点
+                                        else:
+                                            # 如果没有兄弟节点，直接依赖父节点
+                                            clean_dependencies = [parent]
+                                except Exception as e:
+                                    _get_console().print(f"[yellow]警告：无法自动修复节点 {node_id} 的依赖关系: {e}[/yellow]")
+                                    # 如果无法找到替代依赖，将依赖设为空（成为根节点的直接子节点）
+                                    clean_dependencies = []
+                            
+                            node_data["dependencies"] = clean_dependencies
+                        
                         # 若要添加的节点已存在，则交由执行层处理为更新；此处仍保留，但避免重复
                         seen_add_ids.add(node_id)
                         sanitized_ops.append(op)

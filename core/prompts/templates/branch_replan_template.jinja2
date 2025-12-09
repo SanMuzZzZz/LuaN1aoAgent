@@ -20,6 +20,15 @@
 
 2.  **再生 (Regeneration):** 其次，你必须创建一个或多个新的子任务 (`ADD_NODE`) 来形成一个替代攻击路径，以达成 `original_branch_goal`。这个新计划**必须**从设计上就能规避已知的 `failure_reason`。
 
+## ⚠️ 关键约束：防止孤儿节点
+
+**严禁新任务依赖即将被废弃的任务！**
+
+- 你创建的**所有新任务**的 `dependencies` 字段中**不能包含** `dead_end_tasks` 列表中的任何任务ID
+- 新任务应该依赖于**仍然有效的已完成任务**，或者不设置依赖（直接作为根节点的子任务）
+- 示例错误：如果 `task_A` 在 `dead_end_tasks` 中，则新任务的 `dependencies` 不能是 `["task_A"]`
+- 正确做法：找到 `task_A` 的健康父任务或兄弟任务，或者将 `dependencies` 设为 `[]`
+
 {% include 'planner/planning_principles.jinja2' %}
 
 ## 输出格式
