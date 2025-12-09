@@ -91,17 +91,30 @@ function drawForceGraph(data) {
       ranker: 'network-simplex'  // 使用网络单纯形算法，更好地平衡布局
   });
 
-  // 添加节点 (设置固定尺寸)
-  const nodeWidth = 180;
-  const nodeHeight = 60;
-  
+  // 添加节点 (根据节点类型设置不同尺寸)
   if (!data || !data.nodes) return;
 
   data.nodes.forEach(node => {
+      // 根据节点类型设置不同的宽度
+      let width, height;
+      if (node.type === 'root') {
+          width = 200;   // 主任务：最宽
+          height = 60;
+      } else if (node.type === 'task') {
+          width = 180;   // 子任务：标准宽度
+          height = 60;
+      } else if (node.type === 'action') {
+          width = 120;   // 动作节点：较窄
+          height = 50;   // 稍矮一些
+      } else {
+          width = 160;   // 其他类型：中等宽度
+          height = 55;
+      }
+      
       dagreGraph.setNode(node.id, { 
           label: node.label || node.id, 
-          width: nodeWidth, 
-          height: nodeHeight,
+          width: width, 
+          height: height,
           ...node // 传递原始数据
       });
   });
@@ -138,7 +151,10 @@ function drawForceGraph(data) {
           const points = dagreGraph.edge(d).points;
           return lineGen(points);
       })
-      .attr("marker-end", "url(#arrow)"); // 需确保定义了 marker
+      .attr("marker-end", d => {
+          // 不要在连线上添加箭头，保持简洁
+          return null;
+      });
 
   // 4. 绘制节点 (圆角矩形)
   const nodes = g.selectAll(".node")
@@ -154,14 +170,20 @@ function drawForceGraph(data) {
       })
       .on("click", (e,d)=>showDetails(dagreGraph.node(d)));
 
-  // 节点背景
+  // 节点背景 - 使用动态宽度和高度
   nodes.append("rect")
-      .attr("width", nodeWidth)
-      .attr("height", nodeHeight)
-      .attr("x", -nodeWidth / 2)
-      .attr("y", -nodeHeight / 2)
-      .attr("rx", 8) // 圆角
-      .attr("ry", 8)
+      .attr("width", d => dagreGraph.node(d).width)
+      .attr("height", d => dagreGraph.node(d).height)
+      .attr("x", d => -dagreGraph.node(d).width / 2)
+      .attr("y", d => -dagreGraph.node(d).height / 2)
+      .attr("rx", d => {
+          const n = dagreGraph.node(d);
+          return n.type === 'action' ? 6 : 8;  // 动作节点圆角稍小
+      })
+      .attr("ry", d => {
+          const n = dagreGraph.node(d);
+          return n.type === 'action' ? 6 : 8;
+      })
       .style("fill", d => {
           const n = dagreGraph.node(d);
           // 区分 Task 和 Action 的背景色
@@ -190,14 +212,19 @@ function drawForceGraph(data) {
   nodes.append("rect")
       .attr("width", d => {
           const n = dagreGraph.node(d);
-          return n.type === 'root' ? 58 : 50;  // 主任务标签稍宽
+          if (n.type === 'root') return 58;
+          if (n.type === 'action') return 45;  // 动作节点标签更窄
+          return 50;
       })
       .attr("height", 18)
       .attr("x", d => {
           const n = dagreGraph.node(d);
-          return n.type === 'root' ? -nodeWidth / 2 : -nodeWidth / 2;
+          return -n.width / 2;  // 使用动态宽度
       })
-      .attr("y", -nodeHeight / 2 - 9)
+      .attr("y", d => {
+          const n = dagreGraph.node(d);
+          return -n.height / 2 - 9;  // 使用动态高度
+      })
       .attr("rx", 4)
       .attr("ry", 4)
       .style("fill", d => {
@@ -213,9 +240,14 @@ function drawForceGraph(data) {
   nodes.append("text")
       .attr("x", d => {
           const n = dagreGraph.node(d);
-          return n.type === 'root' ? -nodeWidth / 2 + 29 : -nodeWidth / 2 + 25;
+          // 计算标签中心位置
+          const labelWidth = n.type === 'root' ? 58 : (n.type === 'action' ? 45 : 50);
+          return -n.width / 2 + labelWidth / 2;
       })
-      .attr("y", -nodeHeight / 2 + 3)
+      .attr("y", d => {
+          const n = dagreGraph.node(d);
+          return -n.height / 2 + 3;
+      })
       .attr("text-anchor", "middle")
       .attr("fill", "#fff")
       .style("font-size", "10px")
@@ -262,8 +294,9 @@ function drawForceGraph(data) {
           const textElement = d3.select(this);
           textElement.text(label);
           
-          // 检查文本宽度，如果超过节点宽度则逐步截断
-          const maxWidth = 160; // 节点宽180px，留20px边距
+          // 根据节点宽度动态设置最大文本宽度
+          const nodeWidth = n.width;
+          const maxWidth = nodeWidth - 20;  // 留出左右边距
           let currentText = label;
           
           while (textElement.node().getComputedTextLength() > maxWidth && currentText.length > 3) {
@@ -330,20 +363,66 @@ function drawForceGraph(data) {
 }
 
 function highlightActivePath(dagreGraph, dataNodes, nodeSelection, linkSelection) {
-  // 找到所有正在执行的节点（in_progress 或 running 状态）
+  // 清除之前的高亮
+  nodeSelection.classed("path-highlight", false);
+  linkSelection.classed("path-highlight", false);
+  
+  console.log('All nodes:', dataNodes.map(n => ({id: n.id, type: n.type, status: n.status})));
+  console.log('All edges in graph:', dagreGraph.edges().map(e => `${e.v} -> ${e.w}`));
+  
+  // 策略：始终高亮到最新的执行节点（不管状态）
+  // 1. 找到所有正在执行的节点（in_progress 或 running）
+  // 2. 如果有正在执行的动作节点，选择它
+  // 3. 否则找到所有动作节点中最新的（按图的拓扑顺序或节点ID）
+  
   const activeNodes = dataNodes.filter(n => n.status === 'in_progress' || n.status === 'running');
+  const allActionNodes = dataNodes.filter(n => n.type === 'action');
+  const activeActionNodes = activeNodes.filter(n => n.type === 'action');
+  const activeTaskNodes = activeNodes.filter(n => n.type === 'task');
   
-  if (activeNodes.length === 0) return;
+  let currentNode;
   
-  // 找到最新的执行节点（假设有 created_at 或 sequence 字段，否则取第一个）
-  let currentNode = activeNodes[0];
-  if (activeNodes.length > 1) {
-    // 优先选择有最大 sequence 的节点
-    currentNode = activeNodes.reduce((latest, node) => {
-      const latestSeq = latest.sequence || 0;
-      const nodeSeq = node.sequence || 0;
-      return nodeSeq > latestSeq ? node : latest;
-    }, activeNodes[0]);
+  if (activeActionNodes.length > 0) {
+    // 优先选择正在运行的动作节点（选择最新的）
+    currentNode = activeActionNodes[activeActionNodes.length - 1]; // 选择最后一个
+    console.log('Using active action node:', currentNode.id);
+  } else if (activeTaskNodes.length > 0 && allActionNodes.length > 0) {
+    // 当任务在执行但没有动作节点在运行时，找到最后一个动作节点（不管状态）
+    // 按图的拓扑顺序：找到所有动作节点中最深的那个
+    
+    // 计算每个动作节点到根的距离
+    const actionNodesWithDepth = allActionNodes.map(node => {
+      let depth = 0;
+      let current = node.id;
+      const visited = new Set();
+      
+      while (current && !visited.has(current)) {
+        visited.add(current);
+        const preds = dagreGraph.predecessors(current);
+        if (preds && preds.length > 0) {
+          current = preds[0];
+          depth++;
+        } else {
+          break;
+        }
+      }
+      
+      return { node, depth, id: node.id };
+    });
+    
+    // 选择深度最大的节点（最远离根节点的）
+    currentNode = actionNodesWithDepth.reduce((latest, item) => {
+      return item.depth > latest.depth ? item : latest;
+    }).node;
+    
+    console.log('Task in progress, using deepest action node:', currentNode.id);
+  } else if (activeNodes.length > 0) {
+    // 如果只有根节点或任务节点在运行
+    currentNode = activeNodes[0];
+    console.log('Using active node:', currentNode.id);
+  } else {
+    // 没有活跃节点
+    return;
   }
   
   // 递归找到从当前节点到根节点的路径
@@ -351,8 +430,13 @@ function highlightActivePath(dagreGraph, dataNodes, nodeSelection, linkSelection
   const edgesInPath = new Set();
   
   function findPathToRoot(nodeId) {
+    if (!nodeId || pathToRoot.has(nodeId)) return; // 防止循环
+    
     pathToRoot.add(nodeId);
     const predecessors = dagreGraph.predecessors(nodeId);
+    
+    console.log(`Node ${nodeId} has predecessors:`, predecessors);
+    
     if (predecessors && predecessors.length > 0) {
       predecessors.forEach(pred => {
         edgesInPath.add(`${pred}->${nodeId}`);
@@ -361,7 +445,9 @@ function highlightActivePath(dagreGraph, dataNodes, nodeSelection, linkSelection
     }
   }
   
+  console.log('Starting from node:', currentNode.id, 'type:', currentNode.type);
   findPathToRoot(currentNode.id);
+  console.log('Path to root:', Array.from(pathToRoot));
   
   // 高亮路径上的节点
   nodeSelection.classed("path-highlight", d => pathToRoot.has(d));

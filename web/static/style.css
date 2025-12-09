@@ -60,19 +60,14 @@
     opacity: 0.1 !important;
 }
 
-/* 当前执行路径高亮 */
-.node.path-highlight rect {
-    stroke: #3B82F6 !important;
-    stroke-width: 3px !important;
-    filter: drop-shadow(0 0 8px rgba(59, 130, 246, 0.6));
-}
-
-.link.path-highlight {
-    stroke: #3B82F6 !important;
-    stroke-width: 3px !important;
+/* 当前执行路径高亮 - 只高亮边，不高亮节点框 */
+path.link.path-highlight {
+    stroke: #60a5fa !important;  /* 更亮的蓝色 */
+    stroke-width: 4px !important;  /* 更粗的线条 */
     opacity: 1 !important;
-    stroke-dasharray: 8 4;
-    animation: flow-path 1.5s linear infinite;
+    stroke-dasharray: 10 5 !important;  /* 更明显的虚线 */
+    animation: flow-path 1.2s linear infinite !important;  /* 更快的动画 */
+    filter: drop-shadow(0 0 8px rgba(96, 165, 250, 0.6)) !important;  /* 发光效果 */
 }
 
 @keyframes flow-path {
