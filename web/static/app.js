@@ -1,4 +1,24 @@
-const nodeColors = { 'default': '#3b82f6', 'completed': '#10b981', 'failed': '#ef4444', 'pending': '#64748b', 'in_progress': '#3b82f6', 'aborted': '#94a3b8', 'aborted_by_halt_signal': '#94a3b8', 'stalled_no_plan': '#f59e0b', 'stalled_orphan': '#f59e0b', 'completed_error': '#ef4444', 'ConfirmedVulnerability': '#f59e0b', 'Vulnerability': '#a855f7', 'Evidence': '#06b6d4', 'Hypothesis': '#84cc16', 'KeyFact': '#fbbf24', 'Flag': '#ef4444' };
+const nodeColors = { 
+    'default': '#3b82f6', 
+    // 执行状态颜色
+    'completed': '#10b981', 
+    'failed': '#ef4444', 
+    'pending': '#64748b', 
+    'in_progress': '#3b82f6', 
+    'deprecated': '#94a3b8',
+    'aborted': '#94a3b8', 
+    'aborted_by_halt_signal': '#94a3b8', 
+    'stalled_no_plan': '#f59e0b', 
+    'stalled_orphan': '#f59e0b', 
+    'completed_error': '#ef4444', 
+    // 因果图节点类型颜色
+    'ConfirmedVulnerability': '#f59e0b', 
+    'Vulnerability': '#a855f7', 
+    'Evidence': '#06b6d4', 
+    'Hypothesis': '#84cc16', 
+    'KeyFact': '#fbbf24', 
+    'Flag': '#ef4444' 
+};
 let state = { op_id: new URLSearchParams(location.search).get('op_id') || '', view: 'exec', simulation: null, svg: null, g: null, zoom: null, es: null, processedEvents: new Set(), pendingReq: null, isModifyMode: false };
 const api = (p, b) => fetch(p + (p.includes('?')?'&':'?') + `op_id=${state.op_id}`, b ? {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}:{}).then(r=>r.json());
 
@@ -63,11 +83,12 @@ function drawForceGraph(data) {
   const dagreGraph = new dagre.graphlib.Graph();
   dagreGraph.setGraph({ 
       rankdir: 'TB',  // Top-to-Bottom 布局 (更像攻击图/树)
-      align: 'DL',    
-      nodesep: 50,    // 节点垂直间距
-      ranksep: 60,    // 节点水平层级间距
-      marginx: 20, 
-      marginy: 20 
+      align: 'UL',    // 上对齐，左对齐（更紧凑）
+      nodesep: 30,    // 同层节点水平间距（减小以避免横向过长）
+      ranksep: 80,    // 层级间垂直间距（增大以拉长纵向）
+      marginx: 30, 
+      marginy: 30,
+      ranker: 'tight-tree'  // 使用紧凑树布局算法
   });
 
   // 添加节点 (设置固定尺寸)
@@ -155,6 +176,7 @@ function drawForceGraph(data) {
           if (n.status === 'completed') return '#10b981';
           if (n.status === 'running' || n.status === 'in_progress') return '#3b82f6';
           
+          if (n.type === 'root') return '#3b82f6'; // Blue for root task
           if (n.type === 'task') return '#8b5cf6'; // Purple for tasks
           if (n.type === 'action' || n.type === 'tool_use') return '#f59e0b'; // Orange for actions
           return '#475569';
@@ -166,14 +188,21 @@ function drawForceGraph(data) {
 
   // 节点类型标签 (左上角小标签) - 增强可见性
   nodes.append("rect")
-      .attr("width", 50)
+      .attr("width", d => {
+          const n = dagreGraph.node(d);
+          return n.type === 'root' ? 58 : 50;  // 主任务标签稍宽
+      })
       .attr("height", 18)
-      .attr("x", -nodeWidth / 2)
+      .attr("x", d => {
+          const n = dagreGraph.node(d);
+          return n.type === 'root' ? -nodeWidth / 2 : -nodeWidth / 2;
+      })
       .attr("y", -nodeHeight / 2 - 9)
       .attr("rx", 4)
       .attr("ry", 4)
       .style("fill", d => {
           const n = dagreGraph.node(d);
+          if (n.type === 'root') return '#3b82f6';  // 蓝色 - 主任务
           if (n.type === 'task') return '#8b5cf6';  // 紫色 - 子任务
           if (n.type === 'action') return '#f59e0b';  // 橙色 - 动作节点
           return '#64748b';
@@ -182,7 +211,10 @@ function drawForceGraph(data) {
       .style("stroke-width", "1px");
       
   nodes.append("text")
-      .attr("x", -nodeWidth / 2 + 25)
+      .attr("x", d => {
+          const n = dagreGraph.node(d);
+          return n.type === 'root' ? -nodeWidth / 2 + 29 : -nodeWidth / 2 + 25;
+      })
       .attr("y", -nodeHeight / 2 + 3)
       .attr("text-anchor", "middle")
       .attr("fill", "#fff")
@@ -190,6 +222,7 @@ function drawForceGraph(data) {
       .style("font-weight", "bold")
       .text(d => {
           const n = dagreGraph.node(d);
+          if (n.type === 'root') return '主任务';
           if (n.type === 'task') return '子任务';
           if (n.type === 'action') return '动作';
           return 'NODE';
@@ -204,8 +237,17 @@ function drawForceGraph(data) {
       .style("font-size", "11px")
       .text(d => {
           const n = dagreGraph.node(d);
-          // 优先使用 description，然后 label，最后 id
-          const label = n.description || n.label || n.id;
+          let label = n.label || n.id;
+          
+          // 如果是动作节点，且ID格式为 <subtask>_<action>，只显示后面的动作名
+          if (n.type === 'action' && label.includes('_')) {
+              const parts = label.split('_');
+              // 如果第一部分看起来像子任务ID（如 initial_reconnaissance, systematic_order），取后面的部分
+              if (parts.length >= 2) {
+                  label = parts.slice(1).join('_');  // 保留所有下划线后的部分
+              }
+          }
+          
           return label.length > 22 ? label.substring(0, 20) + "..." : label;
       });
       
@@ -242,20 +284,25 @@ function drawForceGraph(data) {
       links.classed("dimmed", false);
   });
   
-  // 初始居中
-  const initialScale = 0.8;
-  // Center the graph
+  // 自适应缩放和居中
   const graphWidth = dagreGraph.graph().width;
   const graphHeight = dagreGraph.graph().height;
-  const svgWidth = state.svg.node().clientWidth;
-  const svgHeight = state.svg.node().clientHeight;
+  const svgWidth = state.svg.node().clientWidth || 800;
+  const svgHeight = state.svg.node().clientHeight || 600;
   
-  const x = (svgWidth - graphWidth * initialScale) / 2;
-  const y = (svgHeight - graphHeight * initialScale) / 2;
+  // 计算合适的缩放比例，确保图完全可见
+  const scaleX = (svgWidth * 0.9) / graphWidth;  // 留10%边距
+  const scaleY = (svgHeight * 0.9) / graphHeight;
+  const autoScale = Math.min(scaleX, scaleY, 1);  // 不超过1倍，避免放大过度
   
+  // 计算居中偏移
+  const x = (svgWidth - graphWidth * autoScale) / 2;
+  const y = (svgHeight - graphHeight * autoScale) / 2;
+  
+  // 应用变换
   state.svg.call(state.zoom.transform, d3.zoomIdentity
       .translate(x, y)
-      .scale(initialScale));
+      .scale(autoScale));
 }
 
 function dragstarted(e,d) { if(!e.active) state.simulation.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; }
@@ -265,9 +312,43 @@ function zoomIn() { state.svg.transition().call(state.zoom.scaleBy, 1.2); }
 function zoomOut() { state.svg.transition().call(state.zoom.scaleBy, 0.8); }
 function zoomReset() { state.svg.transition().call(state.zoom.transform, d3.zoomIdentity); }
 function updateLegend() { 
-    const el=document.getElementById('legend-content'); let h='';
-    Object.entries(nodeColors).forEach(([k,v])=>{if(k!=='default')h+=`<div class="legend-item"><div class="legend-dot" style="background:${v}"></div>${k}</div>`});
-    el.innerHTML=h;
+    const el = document.getElementById('legend-content');
+    let h = '';
+    
+    if (state.view === 'exec') {
+        // 攻击图 - 显示执行状态
+        const execLegend = {
+            'completed': { color: '#10b981', label: '已完成' },
+            'failed': { color: '#ef4444', label: '失败' },
+            'in_progress': { color: '#3b82f6', label: '执行中' },
+            'pending': { color: '#64748b', label: '待执行' },
+            'deprecated': { color: '#94a3b8', label: '已废弃' }
+        };
+        Object.entries(execLegend).forEach(([k, v]) => {
+            h += `<div class="legend-item">
+                    <div class="legend-dot" style="background:${v.color}"></div>
+                    <span>${v.label}</span>
+                  </div>`;
+        });
+    } else if (state.view === 'causal') {
+        // 因果图 - 显示节点类型
+        const causalLegend = {
+            'ConfirmedVulnerability': { color: '#f59e0b', label: '确认漏洞' },
+            'Vulnerability': { color: '#a855f7', label: '疑似漏洞' },
+            'Evidence': { color: '#06b6d4', label: '证据' },
+            'Hypothesis': { color: '#84cc16', label: '假设' },
+            'KeyFact': { color: '#fbbf24', label: '关键事实' },
+            'Flag': { color: '#ef4444', label: 'Flag' }
+        };
+        Object.entries(causalLegend).forEach(([k, v]) => {
+            h += `<div class="legend-item">
+                    <div class="legend-dot" style="background:${v.color}"></div>
+                    <span>${v.label}</span>
+                  </div>`;
+        });
+    }
+    
+    el.innerHTML = h;
 }
 
 function showDetails(d) {
@@ -275,10 +356,12 @@ function showDetails(d) {
   let h = '';
   
   // Header with Type and ID - 增强类型显示
-  const typeLabel = d.type === 'task' ? '子任务 (Subtask)' : 
+  const typeLabel = d.type === 'root' ? '主任务 (Root Task)' : 
+                    d.type === 'task' ? '子任务 (Subtask)' : 
                     d.type === 'action' ? '动作节点 (Action)' : 
                     (d.type || 'NODE');
-  const typeColor = d.type === 'task' ? '#8b5cf6' : 
+  const typeColor = d.type === 'root' ? '#3b82f6' : 
+                    d.type === 'task' ? '#8b5cf6' : 
                     d.type === 'action' ? '#f59e0b' : 
                     '#64748b';
   
@@ -324,7 +407,7 @@ function showDetails(d) {
           h += `<div class="detail-row" style="margin-bottom:4px;margin-top:8px;">
                   <span class="detail-key">观察结果 (Observation):</span>
                 </div>
-                <div style="color:#94a3b8;font-size:12px;line-height:1.5;white-space:pre-wrap;">${d.observation}</div>`;
+                <div class="code-block" style="max-height:300px;overflow-y:auto;">${typeof d.observation === 'object' ? hlJson(d.observation) : d.observation}</div>`;
       }
       
       h += `</div>`;

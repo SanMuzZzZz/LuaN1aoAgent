@@ -78,13 +78,18 @@ async def api_graph_execution(op_id: str):
         if data.get("is_staged_causal") or data.get("type") == "staged_causal":
             continue
         
+        # 判断是否为根节点（主任务）
+        is_root = (nid == gm.task_id)
+        
         # 确定节点类型：subtask(子任务) 或 execution_step(执行步骤/动作)
         node_type = data.get("type", "unknown")
         is_subtask = node_type in ["task", "subtask"] or nid.startswith("subtask_") or "description" in data
         is_action = node_type in ["execution_step", "action", "tool_use"] or "tool_name" in data or "action" in data
         
         # 统一节点类型标识
-        if is_subtask and not is_action:
+        if is_root:
+            unified_type = "root"  # 根节点标记为特殊类型
+        elif is_subtask and not is_action:
             unified_type = "task"
         elif is_action or "tool_name" in data:
             unified_type = "action"
@@ -93,17 +98,26 @@ async def api_graph_execution(op_id: str):
         
         # 提取工具执行信息（如果存在）
         tool_info = {}
+        tool_name = None
         if "tool_name" in data:
-            tool_info["tool_name"] = data["tool_name"]
+            tool_name = data["tool_name"]
+            tool_info["tool_name"] = tool_name
         if "action" in data and isinstance(data["action"], dict):
-            tool_info["tool_name"] = data["action"].get("tool", data["action"].get("tool_name"))
+            tool_name = data["action"].get("tool", data["action"].get("tool_name"))
+            tool_info["tool_name"] = tool_name
             tool_info["tool_args"] = data["action"].get("params", data["action"].get("args"))
         if "result" in data:
             tool_info["result"] = data["result"]
         if "observation" in data:
             tool_info["observation"] = data["observation"]
         
-        label = data.get("description") or data.get("thought") or data.get("goal") or nid
+        # 构建节点显示标签：
+        # - 根节点/子任务节点：优先 description/goal
+        # - 动作节点：显示节点ID（如 step_1a），工具信息在详情中查看
+        if is_root or is_subtask:
+            label = data.get("description") or data.get("goal") or nid
+        else:
+            label = nid  # 动作节点显示节点ID
         
         node_data = {
             "id": nid,

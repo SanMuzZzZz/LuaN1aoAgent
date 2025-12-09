@@ -1436,9 +1436,16 @@ async def main():
                                 console.print(f"  ✓ 关键事实已记录: {fact[:80]}{'...' if len(fact) > 80 else ''}", style="cyan")
 
                     subtask_audit_status = audit_result.get("status", "FAILED")
-                    new_status = "failed" if subtask_audit_status != "INCOMPLETE" else "pending"
-                    if subtask_audit_status in ["PASS", "GOAL_ACHIEVED"]:
+                    # 统一转换为小写进行比较
+                    status_lower = str(subtask_audit_status).lower()
+                    
+                    # 判断状态：completed, incomplete, 或 failed
+                    if status_lower in ["completed", "pass", "goal_achieved"]:
                         new_status = "completed"
+                    elif status_lower == "incomplete":
+                        new_status = "pending"
+                    else:
+                        new_status = "failed"
 
                     graph_manager.update_node(subtask_id, {"status": new_status,
                                                            "summary": reflection_output.get("audit_result", {}).get("completion_check")})
