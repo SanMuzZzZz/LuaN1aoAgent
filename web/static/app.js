@@ -19,7 +19,17 @@ const nodeColors = {
     'KeyFact': '#fbbf24', 
     'Flag': '#ef4444' 
 };
-let state = { op_id: new URLSearchParams(location.search).get('op_id') || '', view: 'exec', simulation: null, svg: null, g: null, zoom: null, es: null, processedEvents: new Set(), pendingReq: null, isModifyMode: false, currentPhase: null };
+
+// 因果图颜色映射
+const causalColors = {
+    'ConfirmedVulnerability': '#f59e0b',
+    'Vulnerability': '#a855f7',
+    'Evidence': '#06b6d4',
+    'Hypothesis': '#84cc16',
+    'KeyFact': '#fbbf24',
+    'Flag': '#ef4444'
+};
+let state = { op_id: new URLSearchParams(location.search).get('op_id') || '', view: 'exec', simulation: null, svg: null, g: null, zoom: null, es: null, processedEvents: new Set(), pendingReq: null, isModifyMode: false, currentPhase: null, missionAccomplished: false };
 const api = (p, b) => fetch(p + (p.includes('?')?'&':'?') + `op_id=${state.op_id}`, b ? {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}:{}).then(r=>r.json());
 
 // 显示阶段横幅
@@ -41,6 +51,20 @@ function showPhaseBanner(phase) {
 function hidePhaseBanner() {
   document.getElementById('phase-banner').style.display = 'none';
   state.currentPhase = null;
+}
+
+// 显示任务完成横幅
+function showSuccessBanner() {
+  const banner = document.getElementById('phase-banner');
+  const spinner = banner.querySelector('.spinner');
+  const text = banner.querySelector('.phase-text');
+  
+  // 隐藏旋转图标，改为成功图标
+  if (spinner) spinner.style.display = 'none';
+  
+  text.textContent = '🎉 ' + t('status.mission_accomplished');
+  banner.style.background = 'linear-gradient(90deg, rgba(16, 185, 129, 0.9), rgba(5, 150, 105, 0.9))';
+  banner.style.display = 'block';
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -114,6 +138,15 @@ function drawForceGraph(data) {
 
   // 添加节点 (根据节点类型设置不同尺寸)
   if (!data || !data.nodes) return;
+
+  // 调试：打印因果图节点类型
+  if (state.view === 'causal' && data.nodes.length > 0) {
+      console.log('Causal graph nodes:', data.nodes.map(n => ({
+          id: n.id, 
+          type: n.type, 
+          node_type: n.node_type
+      })));
+  }
 
   data.nodes.forEach(node => {
       // 根据节点类型设置不同的宽度
@@ -429,6 +462,21 @@ function highlightActivePath(dagreGraph, dataNodes, nodeSelection, linkSelection
   console.log('All nodes:', dataNodes.map(n => ({id: n.id, type: n.type, status: n.status})));
   console.log('All edges in graph:', dagreGraph.edges().map(e => `${e.v} -> ${e.w}`));
   
+  // 检查全局任务是否完成
+  // 方法1: 检查根节点状态
+  const rootNode = dataNodes.find(n => n.type === 'root');
+  const rootCompleted = rootNode && rootNode.status === 'completed';
+  
+  // 方法2: 检查全局标志（通过 state.missionAccomplished）
+  const isGoalAchieved = rootCompleted || state.missionAccomplished;
+  
+  if (isGoalAchieved) {
+    console.log('🎉 Goal achieved! Highlighting success path...');
+    // 高亮所有成功完成的路径
+    highlightSuccessPaths(dagreGraph, dataNodes, nodeSelection, linkSelection);
+    return;
+  }
+  
   // 新策略：始终高亮到最新的执行节点，不管是否有活跃节点
   // 1. 优先：正在执行的动作节点
   // 2. 其次：如果有活跃任务，找它路径上最后执行的动作节点
@@ -449,40 +497,42 @@ function highlightActivePath(dagreGraph, dataNodes, nodeSelection, linkSelection
     console.log('Found active action nodes:', leafNodes.map(n => n.id));
   } else if (activeTaskNodes.length > 0) {
     // 任务在执行但没有动作节点在运行
-    // 策略：找到从根节点到当前任务路径上的所有动作节点中最新的
+    // 策略：从当前 in_progress 的任务向下找到所有子节点中最深的已执行 action 节点
     activeTaskNodes.forEach(task => {
       console.log('Processing active task:', task.id);
       
-      // 递归收集从根到当前任务的路径上的所有节点
-      const pathFromRoot = new Set();
+      // 递归收集从当前任务向下的所有后继节点（子任务树）
+      const descendantsSet = new Set();
       
-      function traceToRoot(nodeId) {
-        if (pathFromRoot.has(nodeId)) return;
-        pathFromRoot.add(nodeId);
+      function collectDescendants(nodeId) {
+        const succs = dagreGraph.successors(nodeId);
+        if (!succs || succs.length === 0) return;
         
-        const preds = dagreGraph.predecessors(nodeId);
-        if (preds && preds.length > 0) {
-          preds.forEach(pred => traceToRoot(pred));
-        }
+        succs.forEach(succ => {
+          if (!descendantsSet.has(succ)) {
+            descendantsSet.add(succ);
+            collectDescendants(succ); // 递归收集子节点
+          }
+        });
       }
       
-      traceToRoot(task.id);
-      console.log('  Path from root to task:', Array.from(pathFromRoot));
+      collectDescendants(task.id);
+      console.log('  Descendants of task:', Array.from(descendantsSet));
       
-      // 在这条路径上找到所有动作节点
-      const actionsInPath = allActionNodes.filter(action => pathFromRoot.has(action.id));
-      console.log('  Actions in path:', actionsInPath.map(a => ({id: a.id, status: a.status})));
+      // 在后继节点中找到所有动作节点
+      const actionsInSubtree = allActionNodes.filter(action => descendantsSet.has(action.id));
+      console.log('  Actions in subtree:', actionsInSubtree.map(a => ({id: a.id, status: a.status})));
       
-      if (actionsInPath.length > 0) {
-        // 找到所有非 pending 状态的动作节点（已执行的）
-        const executedActions = actionsInPath.filter(n => 
+      if (actionsInSubtree.length > 0) {
+        // 找到所有已执行的动作节点（completed 或 failed）
+        const executedActions = actionsInSubtree.filter(n => 
           n.status === 'completed' || n.status === 'failed'
         );
         
         console.log('  Executed actions:', executedActions.map(a => a.id));
         
         if (executedActions.length > 0) {
-          // 在已执行的动作中找到"叶子节点"（没有后继，或后继不在已执行列表中）
+          // 在已执行的动作中找到"叶子节点"（没有后继，或后继都不在已执行列表中）
           const executedIds = new Set(executedActions.map(a => a.id));
           const leaves = executedActions.filter(action => {
             const successors = dagreGraph.successors(action.id);
@@ -500,13 +550,13 @@ function highlightActivePath(dagreGraph, dataNodes, nodeSelection, linkSelection
             leafNodes.push(executedActions[executedActions.length - 1]);
           }
         } else {
-          // 路径上没有已执行的动作，高亮任务本身
-          console.log('  No executed actions, using task itself');
+          // 子树中没有已执行的动作，高亮任务本身
+          console.log('  No executed actions in subtree, using task itself');
           leafNodes.push(task);
         }
       } else {
-        // 路径上没有动作节点，高亮任务本身
-        console.log('  No actions in path, using task itself');
+        // 子树中没有动作节点，高亮任务本身
+        console.log('  No actions in subtree, using task itself');
         leafNodes.push(task);
       }
     });
@@ -605,6 +655,67 @@ function highlightActivePath(dagreGraph, dataNodes, nodeSelection, linkSelection
   
   // 高亮路径上的边
   linkSelection.classed("path-highlight", d => {
+    const edgeKey = `${d.v}->${d.w}`;
+    return edgesInPath.has(edgeKey);
+  });
+}
+
+// 高亮成功路径（当全局任务完成时）
+function highlightSuccessPaths(dagreGraph, dataNodes, nodeSelection, linkSelection) {
+  console.log('🎉 Highlighting all success paths...');
+  
+  // 找到所有成功完成的叶子节点（completed 状态且没有后继的节点）
+  const completedNodes = dataNodes.filter(n => n.status === 'completed');
+  
+  if (completedNodes.length === 0) {
+    console.log('No completed nodes found');
+    return;
+  }
+  
+  // 找到所有叶子节点（没有后继节点的）
+  const completedNodeIds = new Set(completedNodes.map(n => n.id));
+  const leafNodes = completedNodes.filter(node => {
+    const successors = dagreGraph.successors(node.id);
+    // 没有后继，或者后继都不在已完成列表中
+    return !successors || successors.length === 0 || 
+           !successors.some(succ => completedNodeIds.has(succ));
+  });
+  
+  console.log('Completed leaf nodes:', leafNodes.map(n => ({id: n.id, type: n.type})));
+  
+  if (leafNodes.length === 0) {
+    console.log('No leaf nodes found, using all completed nodes');
+    leafNodes.push(...completedNodes);
+  }
+  
+  // 从所有叶子节点追溯到根节点
+  const pathToRoot = new Set();
+  const edgesInPath = new Set();
+  
+  function findPathToRoot(nodeId) {
+    if (!nodeId || pathToRoot.has(nodeId)) return;
+    
+    pathToRoot.add(nodeId);
+    const predecessors = dagreGraph.predecessors(nodeId);
+    
+    if (predecessors && predecessors.length > 0) {
+      predecessors.forEach(pred => {
+        edgesInPath.add(`${pred}->${nodeId}`);
+        findPathToRoot(pred);
+      });
+    }
+  }
+  
+  leafNodes.forEach(leaf => {
+    findPathToRoot(leaf.id);
+  });
+  
+  console.log('✨ Success path includes', pathToRoot.size, 'nodes and', edgesInPath.size, 'edges');
+  
+  // 使用 success-path 类高亮节点和边（绿色发光效果）
+  nodeSelection.classed("success-path", d => pathToRoot.has(d));
+  
+  linkSelection.classed("success-path", d => {
     const edgeKey = `${d.v}->${d.w}`;
     return edgesInPath.has(edgeKey);
   });
@@ -823,6 +934,39 @@ function renderLLMResponse(msg) {
   const eventType = msg.event || '';
   const data = msg.data || msg.payload || {};
   const msgContent = JSON.stringify(msg).toLowerCase();
+  
+  // 检测全局任务完成标志 - 可能在多个层级
+  let missionFlag = false;
+  if (data) {
+    // 直接在 data 中
+    if (data.global_mission_accomplished === true) {
+      missionFlag = true;
+    }
+    // 嵌套在 data.data 中（来自 run_log 的事件）
+    if (data.data && data.data.global_mission_accomplished === true) {
+      missionFlag = true;
+    }
+    // 尝试解析字符串内容
+    if (typeof data === 'string') {
+      try {
+        const parsed = JSON.parse(data);
+        if (parsed.global_mission_accomplished === true) {
+          missionFlag = true;
+        }
+      } catch(e) {}
+    }
+  }
+  // 也检查消息内容中的关键词
+  if (msgContent.includes('global_mission_accomplished') && msgContent.includes('true')) {
+    missionFlag = true;
+  }
+  
+  if (missionFlag && !state.missionAccomplished) {
+    console.log('🎉 Detected global_mission_accomplished flag!');
+    state.missionAccomplished = true;
+    showSuccessBanner(); // 显示成功横幅
+    render(); // 立即重新渲染以触发成功路径高亮
+  }
   
   if (eventType.includes('reflect') || msgContent.includes('reflector') || msgContent.includes('反思')) {
     showPhaseBanner('reflecting');

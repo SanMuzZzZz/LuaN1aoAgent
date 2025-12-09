@@ -70,9 +70,34 @@ path.link.path-highlight {
     filter: drop-shadow(0 0 8px rgba(96, 165, 250, 0.6)) !important;  /* 发光效果 */
 }
 
+/* 成功路径高亮 - 绿色发光效果 */
+path.link.success-path {
+    stroke: #10b981 !important;  /* 绿色 */
+    stroke-width: 4px !important;
+    opacity: 1 !important;
+    stroke-dasharray: none !important;  /* 实线，不是虚线 */
+    animation: pulse-glow 2s ease-in-out infinite !important;  /* 脉动效果 */
+    filter: drop-shadow(0 0 12px rgba(16, 185, 129, 0.8)) drop-shadow(0 0 4px rgba(16, 185, 129, 0.6)) !important;
+}
+
+g.node.success-path rect {
+    stroke: #10b981 !important;
+    stroke-width: 3px !important;
+    filter: drop-shadow(0 0 10px rgba(16, 185, 129, 0.6)) !important;
+}
+
 @keyframes flow-path {
     from { stroke-dashoffset: 24; }
     to { stroke-dashoffset: 0; }
+}
+
+@keyframes pulse-glow {
+    0%, 100% { 
+        filter: drop-shadow(0 0 12px rgba(16, 185, 129, 0.8)) drop-shadow(0 0 4px rgba(16, 185, 129, 0.6));
+    }
+    50% { 
+        filter: drop-shadow(0 0 20px rgba(16, 185, 129, 1)) drop-shadow(0 0 8px rgba(16, 185, 129, 0.8));
+    }
 }
 
 @keyframes spin {
