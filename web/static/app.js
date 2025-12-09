@@ -529,25 +529,68 @@ function highlightActivePath(dagreGraph, dataNodes, nodeSelection, linkSelection
           n.status === 'completed' || n.status === 'failed'
         );
         
-        console.log('  Executed actions:', executedActions.map(a => a.id));
+        console.log('  Executed actions:', executedActions.map(a => ({id: a.id, completed_at: a.completed_at})));
         
         if (executedActions.length > 0) {
-          // 在已执行的动作中找到"叶子节点"（没有后继，或后继都不在已执行列表中）
-          const executedIds = new Set(executedActions.map(a => a.id));
-          const leaves = executedActions.filter(action => {
-            const successors = dagreGraph.successors(action.id);
-            // 没有后继，或者后继都不在已执行的动作中
-            return !successors || successors.length === 0 || 
-                   !successors.some(succ => executedIds.has(succ));
-          });
+          // 策略：使用 completed_at 时间戳找到最新执行完成的 action 节点
+          const actionsWithTime = executedActions.filter(a => a.completed_at);
           
-          console.log('  Leaf executed actions:', leaves.map(l => l.id));
+          let latestAction = null;
           
-          if (leaves.length > 0) {
-            leafNodes.push(...leaves);
+          if (actionsWithTime.length > 0) {
+            // 按 completed_at 排序，找到最新的
+            actionsWithTime.sort((a, b) => b.completed_at - a.completed_at);
+            latestAction = actionsWithTime[0];
+            console.log('  Latest action by timestamp:', latestAction.id, 'completed at', latestAction.completed_at);
           } else {
-            // 如果找不到叶子，用最后一个已执行的
-            leafNodes.push(executedActions[executedActions.length - 1]);
+            // 如果没有时间戳信息，回退到查找最深的叶子节点
+            console.log('  No timestamp info, falling back to deepest leaf strategy');
+            const executedIds = new Set(executedActions.map(a => a.id));
+            
+            // BFS 寻找最深的叶子节点
+            function findDeepestLeaf() {
+              const queue = [{id: task.id, depth: 0}];
+              let maxDepth = 0;
+              let deepestLeaf = null;
+              const visited = new Set();
+              
+              while (queue.length > 0) {
+                const {id, depth} = queue.shift();
+                if (visited.has(id)) continue;
+                visited.add(id);
+                
+                const successors = dagreGraph.successors(id);
+                const executedSuccessors = successors?.filter(s => executedIds.has(s)) || [];
+                
+                if (executedSuccessors.length === 0 && executedIds.has(id)) {
+                  // 这是一个已执行的叶子节点
+                  if (depth > maxDepth) {
+                    maxDepth = depth;
+                    deepestLeaf = id;
+                  }
+                } else {
+                  // 继续向下搜索
+                  executedSuccessors.forEach(succ => {
+                    queue.push({id: succ, depth: depth + 1});
+                  });
+                }
+              }
+              
+              return deepestLeaf;
+            }
+            
+            const deepestLeaf = findDeepestLeaf();
+            if (deepestLeaf) {
+              latestAction = dataNodes.find(n => n.id === deepestLeaf);
+            }
+          }
+          
+          if (latestAction) {
+            leafNodes.push(latestAction);
+          } else {
+            // 如果没找到，使用任务本身
+            console.log('  No latest action found, using task itself');
+            leafNodes.push(task);
           }
         } else {
           // 子树中没有已执行的动作，高亮任务本身

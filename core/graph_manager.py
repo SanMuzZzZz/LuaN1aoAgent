@@ -712,6 +712,11 @@ class GraphManager:
     def update_node(self, node_id: str, updates: Dict[str, Any]):
         """通用节点更新方法。"""
         if self.graph.has_node(node_id):
+            # 如果状态更新为 completed 或 failed，记录完成时间
+            if "status" in updates and updates["status"] in ("completed", "failed"):
+                import time
+                updates["completed_at"] = time.time()
+            
             for key, value in updates.items():
                 self.graph.nodes[node_id][key] = value
             self._ensure_node_defaults(node_id)

@@ -128,6 +128,7 @@ async def api_graph_execution(op_id: str):
             "description": data.get("description"),
             "thought": data.get("thought"),
             "goal": data.get("goal"),
+            "completed_at": data.get("completed_at"),  # 完成时间戳
         }
         
         # 合并工具执行信息
