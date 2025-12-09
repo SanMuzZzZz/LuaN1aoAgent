@@ -1225,9 +1225,22 @@ async def main():
                 if plan_data.get("global_mission_accomplished"):
                     console.print(Panel("🎉 Planner已宣布全局任务目标达成！任务结束。", title="[bold green]任务完成[/bold green]"))
                     metrics["success_info"] = {"found": True, "reason": "Global mission accomplished signal received from Planner."}
+                    
+                    # 处理最后的图操作（如果有）
                     dynamic_ops = plan_data.get('graph_operations', [])
                     if dynamic_ops:
                         process_graph_commands(dynamic_ops, graph_manager)
+                    
+                    # 关键修复：更新根节点状态为 completed
+                    graph_manager.update_node(graph_manager.task_id, {"status": "completed"})
+                    console.print(Panel(f"根任务 {graph_manager.task_id} 状态已更新为 completed", style="green"))
+                    
+                    # 通知前端图结构变化
+                    try:
+                        await broker.emit("graph.changed", {"reason": "mission_accomplished"}, op_id=os.path.basename(log_dir))
+                    except Exception:
+                        pass
+                    
                     break # 退出主循环
 
                 # 更新Planner上下文状态（新增）并保存完整LLM提示与响应

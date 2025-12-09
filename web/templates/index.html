@@ -116,21 +116,21 @@
 <div id="mcp-modal" class="modal-overlay">
   <div class="modal-box">
     <div class="panel-header" style="background:transparent;border:none;padding:24px 24px 0;">
-      <h2 style="font-size:16px;">Manage MCP Servers</h2>
+      <h2 style="font-size:16px;" data-i18n="mcp.title">Manage MCP Servers</h2>
     </div>
     <div class="modal-body">
       <div class="mb-4">
-        <div class="text-xs text-gray-400 mb-2 uppercase font-bold">Current Servers</div>
-        <div id="mcp-list" class="bg-slate-800 border border-slate-600 rounded p-2 text-white text-xs" style="min-height:50px; max-height:150px; overflow-y:auto;">Loading...</div>
+        <div class="text-xs text-gray-400 mb-2 uppercase font-bold" data-i18n="mcp.current">Current Servers</div>
+        <div id="mcp-list" class="bg-slate-800 border border-slate-600 rounded p-2 text-white text-xs" style="min-height:50px; max-height:150px; overflow-y:auto;" data-i18n="mcp.loading">Loading...</div>
       </div>
       <hr class="border-slate-700 my-4">
-      <div class="mb-2 text-xs text-gray-400 uppercase font-bold">Add New Server</div>
-      <div class="mb-2"><label class="block text-xs text-gray-400 mb-1">Name</label><input id="mcp-name" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div>
-      <div class="mb-2"><label class="block text-xs text-gray-400 mb-1">Command</label><input id="mcp-cmd" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div>
-      <div class="mb-2"><label class="block text-xs text-gray-400 mb-1">Args (comma separated)</label><input id="mcp-args" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div>
-      <div class="mb-2"><label class="block text-xs text-gray-400 mb-1">Env (JSON)</label><textarea id="mcp-env" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-16" placeholder='{"KEY": "VALUE"}'></textarea></div>
+      <div class="mb-2 text-xs text-gray-400 uppercase font-bold" data-i18n="mcp.add_new">Add New Server</div>
+      <div class="mb-2"><label class="block text-xs text-gray-400 mb-1" data-i18n="mcp.name">Name</label><input id="mcp-name" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div>
+      <div class="mb-2"><label class="block text-xs text-gray-400 mb-1" data-i18n="mcp.command">Command</label><input id="mcp-cmd" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div>
+      <div class="mb-2"><label class="block text-xs text-gray-400 mb-1" data-i18n="mcp.args">Args (comma separated)</label><input id="mcp-args" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div>
+      <div class="mb-2"><label class="block text-xs text-gray-400 mb-1" data-i18n="mcp.env">Env (JSON)</label><textarea id="mcp-env" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-16" placeholder='{"KEY": "VALUE"}'></textarea></div>
     </div>
-    <div class="modal-footer"><button class="btn" onclick="closeModals()">Close</button><button class="btn btn-primary" onclick="addMCPServer()">Add & Reload</button></div>
+    <div class="modal-footer"><button class="btn" onclick="closeModals()" data-i18n="btn.close">Close</button><button class="btn btn-primary" onclick="addMCPServer()" data-i18n="mcp.add_reload">Add & Reload</button></div>
   </div>
 </div>
 

@@ -71,6 +71,22 @@ const i18n = {
     'phase.reflecting': '🤔 反思中...',
     'phase.planning': '📋 规划中...',
     'phase.executing': '⚡ 执行中...',
+    
+    // MCP Modal
+    'mcp.title': '管理 MCP 服务器',
+    'mcp.current': '当前服务器',
+    'mcp.loading': '加载中...',
+    'mcp.add_new': '添加新服务器',
+    'mcp.name': '名称',
+    'mcp.command': '命令',
+    'mcp.args': '参数（逗号分隔）',
+    'mcp.env': '环境变量（JSON）',
+    'mcp.add_reload': '添加并重载',
+    'mcp.no_servers': '未配置服务器',
+    'mcp.required': '名称和命令为必填项',
+    'mcp.invalid_json': '环境变量 JSON 格式无效',
+    'mcp.success': '服务器已添加并重载！',
+    'mcp.error': '错误',
   },
   
   en: {
@@ -144,6 +160,22 @@ const i18n = {
     'phase.reflecting': '🤔 Reflecting...',
     'phase.planning': '📋 Planning...',
     'phase.executing': '⚡ Executing...',
+    
+    // MCP Modal
+    'mcp.title': 'Manage MCP Servers',
+    'mcp.current': 'Current Servers',
+    'mcp.loading': 'Loading...',
+    'mcp.add_new': 'Add New Server',
+    'mcp.name': 'Name',
+    'mcp.command': 'Command',
+    'mcp.args': 'Args (comma separated)',
+    'mcp.env': 'Env (JSON)',
+    'mcp.add_reload': 'Add & Reload',
+    'mcp.no_servers': 'No servers configured.',
+    'mcp.required': 'Name and command required',
+    'mcp.invalid_json': 'Invalid JSON for Env',
+    'mcp.success': 'Server added & reloaded!',
+    'mcp.error': 'Error',
   }
 };
 

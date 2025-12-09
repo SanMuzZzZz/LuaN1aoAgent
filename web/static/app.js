@@ -126,15 +126,37 @@ function drawForceGraph(data) {
 
   // 1. 数据转换与 Dagre 图构建
   const dagreGraph = new dagre.graphlib.Graph();
-  dagreGraph.setGraph({ 
-      rankdir: 'TB',  // Top-to-Bottom 布局 (更像攻击图/树)
-      align: undefined,    // 不设置对齐方式，让算法自动平衡
-      nodesep: 40,    // 同层节点水平间距（适当增加以改善可读性）
-      ranksep: 80,    // 层级间垂直间距（增大以拉长纵向）
-      marginx: 40, 
-      marginy: 40,
-      ranker: 'network-simplex'  // 使用网络单纯形算法，更好地平衡布局
-  });
+  
+  // 根据视图类型使用不同的布局配置
+  if (state.view === 'causal') {
+    // 因果图：使用从上到下的紧凑布局
+    const nodeCount = data.nodes ? data.nodes.length : 0;
+    
+    // 如果节点数量很多，使用更紧凑的参数
+    const nodesep = nodeCount > 20 ? 30 : 40;
+    const ranksep = nodeCount > 20 ? 50 : 60;
+    
+    dagreGraph.setGraph({ 
+        rankdir: 'TB',  // Top-to-Bottom 布局
+        align: 'DL',    // 下左对齐，减少横向扩展
+        nodesep: nodesep,    // 同层节点间距（动态调整）
+        ranksep: ranksep,    // 层级间距（动态调整）
+        marginx: 20, 
+        marginy: 20,
+        ranker: 'tight-tree'  // 使用紧凑树算法，减少宽度
+    });
+  } else {
+    // 执行图：使用标准树形布局
+    dagreGraph.setGraph({ 
+        rankdir: 'TB',  // Top-to-Bottom 布局 (更像攻击图/树)
+        align: undefined,    // 不设置对齐方式，让算法自动平衡
+        nodesep: 40,    // 同层节点水平间距（适当增加以改善可读性）
+        ranksep: 80,    // 层级间垂直间距（增大以拉长纵向）
+        marginx: 40, 
+        marginy: 40,
+        ranker: 'network-simplex'  // 使用网络单纯形算法，更好地平衡布局
+    });
+  }
 
   // 添加节点 (根据节点类型设置不同尺寸)
   if (!data || !data.nodes) return;
@@ -149,20 +171,43 @@ function drawForceGraph(data) {
   }
 
   data.nodes.forEach(node => {
-      // 根据节点类型设置不同的宽度
+      // 根据视图类型和节点类型设置不同的宽度
       let width, height;
-      if (node.type === 'root') {
-          width = 200;   // 主任务：最宽
-          height = 60;
-      } else if (node.type === 'task') {
-          width = 180;   // 子任务：标准宽度
-          height = 60;
-      } else if (node.type === 'action') {
-          width = 120;   // 动作节点：较窄
-          height = 50;   // 稍矮一些
+      
+      if (state.view === 'causal') {
+          // 因果图节点：更紧凑的尺寸
+          const nodeType = node.node_type || node.type;
+          if (nodeType === 'KeyFact' || nodeType === 'Evidence') {
+              width = 140;   // 关键事实和证据
+              height = 50;
+          } else if (nodeType === 'Hypothesis') {
+              width = 130;   // 假设
+              height = 50;
+          } else if (nodeType === 'Vulnerability' || nodeType === 'ConfirmedVulnerability') {
+              width = 150;   // 漏洞节点稍宽
+              height = 50;
+          } else if (nodeType === 'Flag') {
+              width = 100;   // Flag 最窄
+              height = 45;
+          } else {
+              width = 140;   // 默认因果图节点
+              height = 50;
+          }
       } else {
-          width = 160;   // 其他类型：中等宽度
-          height = 55;
+          // 执行图节点：原有尺寸
+          if (node.type === 'root') {
+              width = 200;   // 主任务：最宽
+              height = 60;
+          } else if (node.type === 'task') {
+              width = 180;   // 子任务：标准宽度
+              height = 60;
+          } else if (node.type === 'action') {
+              width = 120;   // 动作节点：较窄
+              height = 50;   // 稍矮一些
+          } else {
+              width = 160;   // 其他类型：中等宽度
+              height = 55;
+          }
       }
       
       dagreGraph.setNode(node.id, { 
@@ -707,6 +752,9 @@ function highlightActivePath(dagreGraph, dataNodes, nodeSelection, linkSelection
 function highlightSuccessPaths(dagreGraph, dataNodes, nodeSelection, linkSelection) {
   console.log('🎉 Highlighting all success paths...');
   
+  // 显示成功横幅
+  showSuccessBanner();
+  
   // 找到所有成功完成的叶子节点（completed 状态且没有后继的节点）
   const completedNodes = dataNodes.filter(n => n.status === 'completed');
   
@@ -943,7 +991,15 @@ function renderSystemEvent(msg) {
     } 
     // 针对 Graph Changed
     else if (eventType === 'graph.changed') {
-        if (data.reason === 'confidence_update') {
+        if (data.reason === 'mission_accomplished') {
+            html += `<div style="color:#10b981;font-weight:bold;">🎉 Mission Accomplished!</div>`;
+            html += `<div style="color:#94a3b8">Root task marked as completed</div>`;
+            // 立即标记任务完成，触发前端状态更新
+            if (!state.missionAccomplished) {
+                state.missionAccomplished = true;
+                console.log('🎉 Mission accomplished via graph.changed event!');
+            }
+        } else if (data.reason === 'confidence_update') {
             html += `<div style="color:#fbbf24;font-weight:bold;">📈 Confidence Update</div>`;
             html += `<div style="color:#94a3b8">${data.message || 'No details'}</div>`;
         } else {
@@ -1231,7 +1287,7 @@ async function loadMCPConfig(){
                     </div>`;
           });
       }
-      list.innerHTML = h || 'No servers configured.';
+      list.innerHTML = h || t('mcp.no_servers');
   } catch(e){ console.error(e); }
 }
 
@@ -1241,23 +1297,23 @@ async function addMCPServer(){
   const argsStr = document.getElementById('mcp-args').value;
   const envStr = document.getElementById('mcp-env').value;
   
-  if(!name || !cmd) return alert('Name and command required');
+  if(!name || !cmd) return alert(t('mcp.required'));
   
   let env = {};
   try {
       if(envStr) env = JSON.parse(envStr);
-  } catch(e){ return alert('Invalid JSON for Env'); }
+  } catch(e){ return alert(t('mcp.invalid_json')); }
   
   const args = argsStr ? argsStr.split(',').map(s=>s.trim()) : [];
   
   try {
       await api('/api/mcp/add', {name, command: cmd, args, env});
-      alert('Server added & reloaded!');
+      alert(t('mcp.success'));
       loadMCPConfig();
       // Clear inputs
       document.getElementById('mcp-name').value='';
       document.getElementById('mcp-cmd').value='';
       document.getElementById('mcp-args').value='';
       document.getElementById('mcp-env').value='';
-  } catch(e){ alert('Error: '+e); }
+  } catch(e){ alert(t('mcp.error') + ': ' + e); }
 }
