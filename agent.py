@@ -320,9 +320,31 @@ def process_graph_commands(operations: List[Dict], graph_manager: GraphManager) 
                 status = updates['status']
                 current_node_status = graph_manager.graph.nodes[node_id].get('status')
 
+                # [CRITICAL] 严禁将 completed 状态改为 deprecated
+                # 这会破坏因果链和Reflector的判断权威性
+                if current_node_status == 'completed' and status == 'deprecated':
+                    console.print(
+                        f"⚠️  [状态保护] Planner 试图将已完成任务 {node_id} 标记为 'deprecated'。",
+                        style="bold yellow"
+                    )
+                    console.print(
+                        f"   📋 原因: Reflector已判定此任务目标达成，状态不可逆转。",
+                        style="yellow"
+                    )
+                    console.print(
+                        f"   💡 建议: 若需补充，请创建新任务并依赖于 {node_id}。",
+                        style="cyan"
+                    )
+                    # 移除状态更新，保持 completed 状态
+                    del updates['status']
+                    # 记录到节点的警告信息中
+                    node_warnings = graph_manager.graph.nodes[node_id].get('warnings', [])
+                    node_warnings.append(
+                        f"[时间戳 {time.time()}] Planner尝试将completed状态改为deprecated，已被拒绝"
+                    )
+                    graph_manager.graph.nodes[node_id]['warnings'] = node_warnings
                 # 如果当前状态是终结状态，且Planner试图将其重置为非终结状态，则忽略并警告
-                TERMINAL_STATUSES = {'completed', 'failed', 'deprecated', 'stalled_orphan', 'completed_error'}
-                if current_node_status in TERMINAL_STATUSES and status not in TERMINAL_STATUSES:
+                elif current_node_status in {'failed', 'deprecated', 'stalled_orphan', 'completed_error'} and status not in {'completed', 'failed', 'deprecated', 'stalled_orphan', 'completed_error'}:
                     console.print(
                         f"⚠️  Planner 试图将已处于终结状态 '{current_node_status}' 的节点 {node_id} 重置为 '{status}'。此操作已被忽略。",
                         style="yellow"
