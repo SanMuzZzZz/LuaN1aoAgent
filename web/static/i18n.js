@@ -65,6 +65,11 @@ const i18n = {
     'msg.task_created': '任务创建成功',
     'msg.task_injected': '任务注入成功',
     'msg.operation_aborted': '操作已终止',
+    
+    // Phase Status
+    'phase.reflecting': '🤔 反思中...',
+    'phase.planning': '📋 规划中...',
+    'phase.executing': '⚡ 执行中...',
   },
   
   en: {
@@ -132,6 +137,11 @@ const i18n = {
     'msg.task_created': 'Task created successfully',
     'msg.task_injected': 'Task injected successfully',
     'msg.operation_aborted': 'Operation aborted',
+    
+    // Phase Status
+    'phase.reflecting': '🤔 Reflecting...',
+    'phase.planning': '📋 Planning...',
+    'phase.executing': '⚡ Executing...',
   }
 };
 

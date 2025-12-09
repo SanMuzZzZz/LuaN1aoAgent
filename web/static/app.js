@@ -19,8 +19,29 @@ const nodeColors = {
     'KeyFact': '#fbbf24', 
     'Flag': '#ef4444' 
 };
-let state = { op_id: new URLSearchParams(location.search).get('op_id') || '', view: 'exec', simulation: null, svg: null, g: null, zoom: null, es: null, processedEvents: new Set(), pendingReq: null, isModifyMode: false };
+let state = { op_id: new URLSearchParams(location.search).get('op_id') || '', view: 'exec', simulation: null, svg: null, g: null, zoom: null, es: null, processedEvents: new Set(), pendingReq: null, isModifyMode: false, currentPhase: null };
 const api = (p, b) => fetch(p + (p.includes('?')?'&':'?') + `op_id=${state.op_id}`, b ? {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}:{}).then(r=>r.json());
+
+// 显示阶段横幅
+function showPhaseBanner(phase) {
+  const banner = document.getElementById('phase-banner');
+  const text = document.getElementById('phase-text');
+  
+  if (phase) {
+    text.textContent = t('phase.' + phase);
+    banner.style.display = 'block';
+  } else {
+    banner.style.display = 'none';
+  }
+  
+  state.currentPhase = phase;
+}
+
+// 隐藏阶段横幅
+function hidePhaseBanner() {
+  document.getElementById('phase-banner').style.display = 'none';
+  state.currentPhase = null;
+}
 
 document.addEventListener('DOMContentLoaded', () => {
   initD3();
@@ -193,7 +214,14 @@ function drawForceGraph(data) {
       })
       .style("stroke", d => {
           const n = dagreGraph.node(d);
-          // 区分 Task 和 Action 的边框色
+          
+          // 因果图：使用 node_type 来确定颜色
+          if (state.view === 'causal') {
+              const nodeType = n.node_type || n.type;
+              return causalColors[nodeType] || '#64748b';
+          }
+          
+          // 执行图：使用状态和类型来确定颜色
           if (n.status === 'failed') return '#ef4444';
           if (n.status === 'completed') return '#10b981';
           if (n.status === 'running' || n.status === 'in_progress') return '#3b82f6';
@@ -229,6 +257,14 @@ function drawForceGraph(data) {
       .attr("ry", 4)
       .style("fill", d => {
           const n = dagreGraph.node(d);
+          
+          // 因果图：使用 causal 颜色
+          if (state.view === 'causal') {
+              const nodeType = n.node_type || n.type;
+              return causalColors[nodeType] || '#64748b';
+          }
+          
+          // 执行图：使用任务类型颜色
           if (n.type === 'root') return '#3b82f6';  // 蓝色 - 主任务
           if (n.type === 'task') return '#8b5cf6';  // 紫色 - 子任务
           if (n.type === 'action') return '#f59e0b';  // 橙色 - 动作节点
@@ -254,9 +290,26 @@ function drawForceGraph(data) {
       .style("font-weight", "bold")
       .text(d => {
           const n = dagreGraph.node(d);
-          if (n.type === 'root') return '主任务';
-          if (n.type === 'task') return '子任务';
-          if (n.type === 'action') return '动作';
+          
+          // 因果图：显示 node_type
+          if (state.view === 'causal') {
+              const nodeType = n.node_type || n.type;
+              // 节点类型翻译映射
+              const typeLabels = {
+                  'KeyFact': currentLang === 'zh' ? '关键事实' : 'Key Fact',
+                  'Evidence': currentLang === 'zh' ? '证据' : 'Evidence',
+                  'Hypothesis': currentLang === 'zh' ? '假设' : 'Hypothesis',
+                  'Vulnerability': currentLang === 'zh' ? '漏洞' : 'Vuln',
+                  'ConfirmedVulnerability': currentLang === 'zh' ? '确认漏洞' : 'Confirmed',
+                  'Flag': 'Flag'
+              };
+              return typeLabels[nodeType] || nodeType || 'UNKNOWN';
+          }
+          
+          // 执行图：显示任务类型
+          if (n.type === 'root') return currentLang === 'zh' ? '主任务' : 'Root';
+          if (n.type === 'task') return currentLang === 'zh' ? '子任务' : 'Task';
+          if (n.type === 'action') return currentLang === 'zh' ? '动作' : 'Action';
           return 'NODE';
       });
 
@@ -366,6 +419,12 @@ function highlightActivePath(dagreGraph, dataNodes, nodeSelection, linkSelection
   // 清除之前的高亮
   nodeSelection.classed("path-highlight", false);
   linkSelection.classed("path-highlight", false);
+  
+  // 如果系统在反思或规划阶段，不进行路径高亮
+  if (state.currentPhase === 'reflecting' || state.currentPhase === 'planning') {
+    console.log('Skipping path highlight - system in phase:', state.currentPhase);
+    return;
+  }
   
   console.log('All nodes:', dataNodes.map(n => ({id: n.id, type: n.type, status: n.status})));
   console.log('All edges in graph:', dagreGraph.edges().map(e => `${e.v} -> ${e.w}`));
@@ -759,6 +818,25 @@ function renderLLMResponse(msg) {
   state.processedEvents.add(id);
   
   if (msg.event && msg.event.includes('request')) return;
+  
+  // 检测阶段变化（通过事件名称和数据内容）
+  const eventType = msg.event || '';
+  const data = msg.data || msg.payload || {};
+  const msgContent = JSON.stringify(msg).toLowerCase();
+  
+  if (eventType.includes('reflect') || msgContent.includes('reflector') || msgContent.includes('反思')) {
+    showPhaseBanner('reflecting');
+  } else if (eventType.includes('plan') || msgContent.includes('planner') || msgContent.includes('规划')) {
+    showPhaseBanner('planning');
+  } else if (eventType.includes('execut') || msgContent.includes('executor') || msgContent.includes('执行')) {
+    showPhaseBanner('executing');
+    // 执行阶段后短暂延迟后隐藏横幅
+    setTimeout(() => {
+      if (state.currentPhase === 'executing') {
+        hidePhaseBanner();
+      }
+    }, 2000);
+  }
   
   const container = document.getElementById('llm-stream');
   const div = document.createElement('div');

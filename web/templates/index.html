@@ -56,6 +56,14 @@
     </aside>
 
     <main id="main">
+      <!-- Agent Phase Status Banner -->
+      <div id="phase-banner" style="display:none;position:absolute;top:20px;left:50%;transform:translateX(-50%);z-index:100;background:rgba(59,130,246,0.95);color:white;padding:12px 24px;border-radius:8px;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,0.3);backdrop-filter:blur(8px);">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div class="spinner" style="width:16px;height:16px;border:2px solid rgba(255,255,255,0.3);border-top-color:white;border-radius:50%;animation:spin 1s linear infinite;"></div>
+          <span id="phase-text">处理中...</span>
+        </div>
+      </div>
+      
       <svg id="d3-graph" width="100%" height="100%"></svg>
       <div id="controls" class="floating-panel">
         <button class="btn" onclick="zoomIn()">+</button>
