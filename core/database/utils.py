@@ -104,13 +104,20 @@ async def upsert_node(session_id: str, node_id: str, graph_type: str, node_data:
                 GraphNodeModel.graph_type == graph_type
             )
         )
-        existing = result.scalar_one_or_none()
+        existing_records = result.scalars().all()
         
-        if existing:
-            existing.type = n_type
-            existing.status = status
-            existing.data = node_data
-            existing.updated_at = datetime.now()
+        if existing_records:
+            # Update the first record found
+            target_record = existing_records[0]
+            target_record.type = n_type
+            target_record.status = status
+            target_record.data = node_data
+            target_record.updated_at = datetime.now()
+            
+            # If there are duplicates, delete them to clean up the DB
+            if len(existing_records) > 1:
+                for duplicate in existing_records[1:]:
+                    await session.delete(duplicate)
         else:
             session.add(GraphNodeModel(
                 session_id=session_id,

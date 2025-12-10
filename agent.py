@@ -934,6 +934,7 @@ async def main():
     parser.add_argument("--llm-expert-model", help="Model to use for the Expert Analysis role.")
     parser.add_argument("--web", action="store_true", help="显示 Web 可视化服务的提示信息 (Web服务现已独立运行)")
     parser.add_argument("--web-port", type=int, default=DEFAULT_WEB_PORT, help="Web 服务端口 (仅显示提示用)")
+    parser.add_argument("--op-id", type=str, help="指定当前任务的操作ID (由Web UI启动时传入)")
     parser.add_argument(
         "--output-mode", 
         type=str, 
@@ -1075,18 +1076,21 @@ async def main():
     task_id = None # Initialize outside the loop
 
     try:
-        # 1. Initialization
-        task_id = generate_task_id()
+        # If op_id is provided, use it. Otherwise, generate a new one.
+        op_id = args.op_id if args.op_id else generate_task_id()
+        task_id = op_id # Unify task_id and op_id for consistency
+
         metrics["task_id"] = task_id
         mcp_service.CURRENT_TASK_ID = task_id # Set global task ID for tools
         console.print(Panel(f"Task: {task_name}\nTask ID: {task_id}\nGoal: {goal}", title="任务初始化", style="bold green"))
         run_log.append({"event": "task_initialized", "task_id": task_id, "goal": goal, "timestamp": time.time()})
 
         # Initialize GraphManager with op_id for DB sync
-        graph_manager = GraphManager(task_id, goal, op_id=llm.op_id)
+        graph_manager = GraphManager(task_id, goal, op_id=op_id)
         
         # Record deployment time (considered complete upon GraphManager initialization)
         metrics["deployment_time"] = time.time() - metrics["start_time"]
+        
         planner = Planner(llm, output_mode=effective_output_mode)
         reflector = Reflector(llm, output_mode=effective_output_mode)
 

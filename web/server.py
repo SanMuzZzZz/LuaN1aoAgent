@@ -455,10 +455,42 @@ async def api_events(request: Request, op_id: str):
 # Legacy/Compatibility Routes
 @app.post("/api/ops")
 async def api_ops_create(payload: Dict[str, Any]):
-    # This implies the Web Server can start an agent. 
-    # Since we decoupled, this endpoint might just return an error or start a detached process.
-    # For now: return 501 Not Implemented
-    raise HTTPException(status_code=501, detail="Starting tasks from Web UI is not supported in decoupled mode yet. Please start Agent via CLI.")
+    goal = (payload.get("goal") or "").strip()
+    task_name = (payload.get("task_name") or f"web_task_{int(time.time())}").strip()
+    
+    if not goal:
+        raise HTTPException(status_code=400, detail="Goal is required to create a task.")
+
+    # Generate a unique op_id for the new task
+    op_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{str(uuid.uuid4())[:8]}"
+    
+    # Construct the command to run agent.py in the background
+    # Ensure it runs within the same virtual environment as the web server
+    command = [
+        sys.executable,  # Path to the current python interpreter (inside venv)
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "agent.py")),
+        "--goal", goal,
+        "--task-name", task_name,
+        "--op-id", op_id, # Pass the generated op_id to the agent
+        "--web" # To ensure agent prints web URL for debug if needed, but no web server will be started.
+    ]
+
+    # Use subprocess.Popen to start agent.py as a detached process
+    # This prevents the web server from being blocked by the agent task
+    try:
+        # Use start_new_session=True to detach the child process from the current process group
+        # This makes the child process independent of the web server's lifespan
+        process = subprocess.Popen(command, start_new_session=True, 
+                                   stdout=subprocess.DEVNULL, # Redirect stdout to /dev/null
+                                   stderr=subprocess.DEVNULL) # Redirect stderr to /dev/null
+        
+        _sse_logger.info(f"Agent task '{task_name}' (op_id: {op_id}) started with PID: {process.pid}")
+
+        # The agent itself will create the session in the DB
+        return {"ok": True, "op_id": op_id, "message": "Agent task started successfully."}
+    except Exception as e:
+        _sse_logger.error(f"Failed to start agent task: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to start agent task: {e}")
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):

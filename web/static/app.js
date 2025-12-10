@@ -150,6 +150,34 @@ function drawForceGraph(data) {
   
   const g = state.g;
 
+  if (!data || !data.nodes) return;
+
+  // --- [新增] 节点去重与状态清洗逻辑 ---
+  const uniqueNodesMap = new Map();
+  const terminalStates = new Set(['completed', 'failed', 'aborted', 'deprecated', 'stalled_orphan', 'completed_error']);
+  
+  data.nodes.forEach(node => {
+      const existing = uniqueNodesMap.get(node.id);
+      if (!existing) {
+          uniqueNodesMap.set(node.id, node);
+      } else {
+          // 如果已存在节点是终态，保留它
+          if (terminalStates.has(existing.status)) return;
+          // 如果新节点是终态，替换旧节点
+          if (terminalStates.has(node.status)) {
+              uniqueNodesMap.set(node.id, node);
+              return;
+          }
+          // 都是非终态，优先保留 'in_progress'
+          if (node.status === 'in_progress' || node.status === 'running') {
+              uniqueNodesMap.set(node.id, node);
+          }
+      }
+  });
+  // 使用去重后的节点列表覆盖原始数据
+  data.nodes = Array.from(uniqueNodesMap.values());
+  // -------------------------------------
+
   // 1. 数据转换与 Dagre 图构建
   const dagreGraph = new dagre.graphlib.Graph();
   
