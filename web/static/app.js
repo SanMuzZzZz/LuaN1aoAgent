@@ -1062,6 +1062,7 @@ function renderSystemEvent(msg) {
             html += `<div style="color:#94a3b8">Root task marked as completed</div>`;
             if (!state.missionAccomplished) {
                 state.missionAccomplished = true;
+                loadOps(); // Refresh the task list on mission accomplished
             }
         } else if (data.reason === 'confidence_update') {
             html += `<div style="color:#fbbf24;font-weight:bold;">📈 Confidence Update</div>`;

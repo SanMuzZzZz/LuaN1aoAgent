@@ -872,11 +872,11 @@ async def handle_cli_approval(op_id: str, plan_data: List[Dict[str, Any]]):
                 choice = line.strip().lower()
                 
                 if choice == 'y':
-                    intervention_manager.submit_decision(op_id, "APPROVE")
+                    await intervention_manager.submit_decision(op_id, "APPROVE")
                     console.print("✅ CLI: 已批准计划。", style="green")
                     break
                 elif choice == 'n':
-                    intervention_manager.submit_decision(op_id, "REJECT")
+                    await intervention_manager.submit_decision(op_id, "REJECT")
                     console.print("❌ CLI: 已拒绝计划。", style="red")
                     break
                 elif choice == 'm':
@@ -897,7 +897,7 @@ async def handle_cli_approval(op_id: str, plan_data: List[Dict[str, Any]]):
                         with open(tf_path, 'r') as tf:
                             modified_data = json.load(tf)
                         
-                        intervention_manager.submit_decision(op_id, "MODIFY", modified_data)
+                        await intervention_manager.submit_decision(op_id, "MODIFY", modified_data)
                         console.print("✏️ CLI: 已提交修改后的计划。", style="green")
                         os.unlink(tf_path)
                         break
@@ -948,6 +948,14 @@ async def main():
     task_name = args.task_name
     log_dir = args.log_dir  # 获取传递的 log_dir
 
+    # Determine op_id and task_id early, outside the try block
+    op_id = args.op_id if args.op_id else generate_task_id()
+    task_id = op_id # Unify task_id and op_id for consistency
+
+    # Set LLM's op_id for event sending immediately after op_id is determined
+    llm = LLMClient() # Initialize LLMClient before setting op_id
+    llm.op_id = op_id # Use the unified op_id for LLMClient's event emission
+
     # 确定最终的输出模式
     effective_output_mode = args.output_mode
 
@@ -984,11 +992,9 @@ async def main():
 
     os.makedirs(log_dir, exist_ok=True)  # Ensure directory exists
 
-    # Set LLM's op_id for event sending
-    llm.op_id = os.path.basename(log_dir) # Use timestamp-based ID as op_id
-
     # --- Setup Global Event Listener for DB Persistence ---
-    async def global_event_listener(msg):
+    # Define the functions here, but start the consumer AFTER op_id is set
+    async def global_event_listener(msg, op_id):
         """Persist relevant events to database for Web UI visibility."""
         event_type = msg.get("event")
         if not event_type:
@@ -1000,27 +1006,13 @@ async def main():
             content = msg.get("data") or msg.get("payload") or msg
             
             # Use schedule_coroutine to run DB insert without blocking event loop
-            schedule_coroutine(add_log(llm.op_id, event_type, content))
+            schedule_coroutine(add_log(op_id, event_type, content))
 
     async def event_consumer(op_id):
         """Background task to consume events from the broker."""
         async for msg in broker.subscribe(op_id):
-            await global_event_listener(msg)
-
-    # Start the event consumer in the background
-    asyncio.create_task(event_consumer(llm.op_id))
+            await global_event_listener(msg, op_id)
     # ----------------------------------------------------
-
-    # Web Server Decoupling Warning
-    if args.web:
-        web_url = f"http://{DEFAULT_WEB_HOST}:{args.web_port}/?op_id={llm.op_id}"
-        console.print(Panel(
-            f"您启用了 --web 标志。\n"
-            f"请确保独立的 Web 服务正在运行: `python web/server.py`\n"
-            f"访问地址: [link={web_url}]{web_url}[/link]",
-            style="bold green",
-            title="Web Visualization"
-        ))
 
     # Security Warning Banner
     console.print(Panel(
@@ -1073,12 +1065,27 @@ async def main():
     # Ensure knowledge service is running
     await ensure_knowledge_service(console)
 
-    task_id = None # Initialize outside the loop
-
     try:
         # If op_id is provided, use it. Otherwise, generate a new one.
         op_id = args.op_id if args.op_id else generate_task_id()
         task_id = op_id # Unify task_id and op_id for consistency
+
+        # Set LLM's op_id for event sending
+        llm.op_id = op_id # Use the unified op_id for LLMClient's event emission
+
+        # Start the event consumer NOW that op_id is properly set
+        asyncio.create_task(event_consumer(op_id))
+
+        # Web Server Decoupling Warning (after op_id is set)
+        if args.web:
+            web_url = f"http://{DEFAULT_WEB_HOST}:{args.web_port}/?op_id={op_id}"
+            console.print(Panel(
+                f"您启用了 --web 标志。\n"
+                f"请确保独立的 Web 服务正在运行: `python web/server.py`\n"
+                f"访问地址: [link={web_url}]{web_url}[/link]",
+                style="bold green",
+                title="Web Visualization"
+            ))
 
         metrics["task_id"] = task_id
         mcp_service.CURRENT_TASK_ID = task_id # Set global task ID for tools
