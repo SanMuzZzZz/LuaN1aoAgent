@@ -53,6 +53,7 @@ from core.intervention import intervention_manager
 from conf.config import (
     PLANNER_HISTORY_WINDOW,
     REFLECTOR_HISTORY_WINDOW,
+    WEB_HOST as DEFAULT_WEB_HOST,
     WEB_PORT as DEFAULT_WEB_PORT,
     KNOWLEDGE_SERVICE_PORT,
     KNOWLEDGE_SERVICE_URL,
@@ -990,7 +991,7 @@ async def main():
 
             def is_port_in_use(port: int) -> bool:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    return s.connect_ex(('127.0.0.1', port)) == 0
+                    return s.connect_ex((DEFAULT_WEB_HOST, port)) == 0
 
             # 自动寻找可用端口
             web_port = args.web_port
@@ -998,13 +999,13 @@ async def main():
                 web_port += 1
             
             async def start_web():
-                config = uvicorn.Config(app, host=KNOWLEDGE_SERVICE_HOST, port=web_port, log_level="critical")
+                config = uvicorn.Config(app, host=DEFAULT_WEB_HOST, port=web_port, log_level="critical")
                 server = uvicorn.Server(config)
                 await server.serve()
             
             asyncio.create_task(start_web())
             
-            web_url = f"http://{KNOWLEDGE_SERVICE_HOST}:{web_port}/?op_id={os.path.basename(log_dir)}"
+            web_url = f"http://{DEFAULT_WEB_HOST}:{web_port}/?op_id={os.path.basename(log_dir)}"
             console.print(Panel(
                 f"可视化 Web 服务已启动: [link={web_url}]{web_url}[/link]\n"
                 f"[dim]注意: 此Web服务仅用于当前任务的可视化，随任务结束而停止。[/dim]", 

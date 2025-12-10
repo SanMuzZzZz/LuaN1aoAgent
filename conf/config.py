@@ -159,6 +159,9 @@ REFLECTOR_HISTORY_WINDOW = int(os.getenv("REFLECTOR_HISTORY_WINDOW", "15"))
 # Web 服务配置
 # ============================================================================
 
+# Web UI 服务主机地址
+WEB_HOST = os.getenv("WEB_HOST", "127.0.0.1")
+
 # Web UI 服务端口
 WEB_PORT = int(os.getenv("WEB_PORT", "8000"))
 
