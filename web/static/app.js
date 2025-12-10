@@ -1263,7 +1263,16 @@ function renderApproval(r) {
 }
 
 function toggleModifyMode() { state.isModifyMode=!state.isModifyMode; const l=document.getElementById('approval-list'), ea=document.getElementById('approval-edit-area'), b=document.getElementById('btn-modify-mode'); if(state.isModifyMode){l.style.display='none';ea.style.display='block';b.innerText='Cancel';b.classList.add('active')}else{l.style.display='block';ea.style.display='none';b.innerText='Modify';b.classList.remove('active')} } 
-async function submitDecision(a) { let p={action:a}; if(a==='APPROVE'&&state.isModifyMode) { try{p.modified_data=JSON.parse(document.getElementById('approval-json-editor').value);p.action='MODIFY'}catch(e){return alert('Invalid JSON')} } await api(`/api/ops/${state.op_id}/intervention/decision`,p); document.getElementById('approval-modal').classList.remove('show'); state.pendingReq=null; }
+async function submitDecision(a) { 
+    if (!state.pendingReq) return;
+    let p={action:a, id: state.pendingReq.id}; 
+    if(a==='APPROVE'&&state.isModifyMode) { 
+        try{p.modified_data=JSON.parse(document.getElementById('approval-json-editor').value);p.action='MODIFY'}catch(e){return alert('Invalid JSON')} 
+    } 
+    await api(`/api/ops/${state.op_id}/intervention/decision`,p); 
+    document.getElementById('approval-modal').classList.remove('show'); 
+    state.pendingReq=null; 
+}
 
 function openInjectModal(){document.getElementById('inject-modal').classList.add('show')}
 function closeModals(){document.querySelectorAll('.modal-overlay').forEach(e=>e.classList.remove('show'))}

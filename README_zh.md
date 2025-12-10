@@ -12,7 +12,7 @@
 
 <div align="center">
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Architecture: P-E-R](https://img.shields.io/badge/Architecture-P--E--R-purple.svg)](#-系统架构)
@@ -480,23 +480,93 @@ LuaN1aoAgent/
 
 ## 🔐 安全免责声明
 
-**⚠️ 请务必仔细阅读以下内容：**
+**⚠️ 重要提示：本软件仅用于授权的安全测试和教育目的。请务必仔细阅读以下内容。**
 
-### 法律合规
-1. **授权测试**：本工具仅限用于您拥有**明确书面授权**的系统进行安全测试、教育和研究。
-2. **法律责任**：未经授权的渗透测试是**违法行为**，可能导致严重的法律后果。
-3. **用户责任**：使用者需自行承担因不当使用本工具产生的一切法律责任。
+### 使用限制
 
-### 技术风险
-4. **代码执行风险**：鸾鸟包含 `shell_exec` 和 `python_exec` 等高权限工具，**可能对系统造成不可逆的破坏**。
-5. **隔离环境**：**强烈建议在 Docker 容器、虚拟机或完全隔离的沙箱环境中运行本程序**。
-6. **数据安全**：不要在生产环境或包含敏感数据的系统上运行鸾鸟。
+使用鸾鸟（LuaN1ao）即表示您确认并同意以下条款：
 
-### 免责声明
-7. **无担保**：本软件按"现状"提供，不提供任何形式的明示或暗示担保。
-8. **责任限制**：开发者不对因使用本工具造成的任何直接、间接、偶然、特殊或后续损失承担责任。
+#### 1. 授权要求
+- **明确授权必需**：在测试任何系统、网络或应用程序之前，您**必须**获得系统所有者的**明确书面授权**。
+- **仅限授权范围**：测试活动必须严格限制在授权范围内，不得超出授权边界。
+- **教育与研究**：本工具适用于网络安全教育、学术研究和授权的安全评估。
 
-**通过使用鸾鸟，您确认已阅读、理解并同意上述条款。**
+#### 2. 法律合规
+- **遵守法律**：您有责任确保使用本工具符合所有适用的地方、国家和国际法律法规。
+- **法律后果**：未经授权的渗透测试是**违法行为**，可能导致刑事起诉、民事诉讼和巨额罚款。
+- **个人责任**：使用者需对因不当使用本工具产生的一切法律后果承担全部责任。
+
+#### 3. 道德使用
+- **负责任披露**：发现的安全漏洞应遵循负责任的披露原则（Responsible Disclosure）。
+- **专业标准**：使用本工具必须符合专业安全研究标准和行业最佳实践。
+- **保密义务**：尊重测试期间发现的任何漏洞的隐私和机密性，不得未经授权公开或利用。
+
+#### 4. 禁止活动
+
+**严禁将本软件用于以下目的：**
+- ❌ 未经授权访问计算机系统、网络或数据
+- ❌ 恶意攻击、破坏或干扰服务
+- ❌ 窃取、篡改或破坏数据
+- ❌ 任何非法或犯罪活动
+- ❌ 侵犯隐私权或违反保密协议
+- ❌ 商业间谍或不正当竞争
+
+### 技术风险警告
+
+#### 5. 代码执行风险
+- **高权限工具**：鸾鸟包含 `shell_exec` 和 `python_exec` 等高权限工具，具有执行任意系统命令和代码的能力。
+- **潜在破坏性**：不当使用可能对目标系统造成**不可逆的破坏**，包括但不限于：
+  - 系统崩溃或服务中断
+  - 数据丢失或损坏
+  - 配置文件被修改
+  - 安全机制被破坏
+
+#### 6. 隔离环境要求
+- **强制隔离**：**强烈建议在以下隔离环境中运行：**
+  - Docker 容器（推荐）
+  - 专用虚拟机（VMware、VirtualBox、KVM 等）
+  - 完全隔离的沙箱环境
+- **网络隔离**：测试环境应与生产网络物理或逻辑隔离。
+- **数据隔离**：不要在包含真实用户数据或敏感信息的系统上运行。
+
+#### 7. 生产环境禁令
+- **严禁生产使用**：切勿在生产环境、关键业务系统或包含敏感数据的系统上运行鸾鸟。
+- **仅限测试环境**：仅在专门的测试、开发或沙箱环境中使用。
+
+### 免责与责任限制
+
+#### 8. 软件保证声明
+- **按"现状"提供**：本软件按"现状"（AS IS）提供，不提供任何形式的明示或暗示担保。
+- **无适用性保证**：不保证软件的适销性、特定用途的适用性或无侵权性。
+- **无结果保证**：不保证软件能够发现所有漏洞或达到预期效果。
+
+#### 9. 责任限制
+**作者和贡献者明确声明对本软件的滥用不承担任何责任。**
+
+在任何情况下，开发者、贡献者或版权持有人均不对以下情况承担责任：
+- ✗ 因使用或无法使用本软件而产生的任何直接、间接、偶然、特殊、惩罚性或后续损害
+- ✗ 未经授权的系统访问或数据泄露
+- ✗ 系统损坏、数据丢失或业务中断
+- ✗ 法律诉讼、罚款或其他法律后果
+- ✗ 商誉损失、利润损失或其他经济损失
+- ✗ 即使已被告知可能发生此类损害
+
+#### 10. 用户全责声明
+- **独立判断**：用户对使用本工具的决定拥有完全自主权和判断力。
+- **自担风险**：使用本软件的一切风险由用户自行承担。
+- **全部责任**：用户对其使用本工具的所有行为及其后果承担全部责任。
+
+### 知情同意
+
+**通过下载、安装、配置或使用鸾鸟（LuaN1ao），您明确表示：**
+
+1. ✅ 您已完整阅读并充分理解本免责声明的所有条款
+2. ✅ 您同意受本免责声明的约束
+3. ✅ 您承诺仅在授权范围内使用本工具
+4. ✅ 您理解并接受使用本工具的所有风险
+5. ✅ 您承认开发者不对您的任何使用行为承担责任
+
+**如果您不同意上述任何条款，请立即停止使用本软件并删除所有相关文件。**
 
 ---
 
@@ -519,16 +589,22 @@ LuaN1aoAgent/
 
 ## 📝 许可证
 
-本项目采用 [MIT License](LICENSE)。
+本项目采用 [Apache License 2.0](LICENSE)。
 
 ```
-MIT License
+Copyright 2025 鸾鸟 (LuaN1ao) Project Contributors
 
-Copyright (c) 2025 鸾鸟 (LuaN1ao) Project Contributors
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction...
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 ```
 
 ---

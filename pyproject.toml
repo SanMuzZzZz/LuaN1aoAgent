@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "AI-Powered Autonomous Penetration Testing Agent"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = {text = "Apache-2.0"}
 
 [tool.ruff]
 # 设置行长度
