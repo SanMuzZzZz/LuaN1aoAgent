@@ -100,32 +100,40 @@ python -m rag.rag_kdprepare
 
 ---
 
-## 🚀 运行 Agent
+## 🚀 运行 Agent (新架构)
 
-### 基础运行
+系统现在分为两个独立进程运行：**Web 服务**（监控台）和 **Agent**（工作进程）。
 
-最简单的运行方式，只需指定目标和任务名称。
+### 1. 启动 Web 服务 (Dashboard)
 
+首先启动持久化的 Web 界面。该进程应保持运行。
+
+```bash
+# 启动 Web Server (默认端口 8088)
+python -m web.server
+```
+*打开浏览器访问: http://localhost:8088*
+
+### 2. 启动 Agent 任务
+
+打开一个**新的终端窗口**运行 Agent。Agent 将执行任务，将日志写入数据库，并在完成后退出。Web UI 会实时更新。
+
+**基础扫描任务：**
 ```bash
 python agent.py --goal "对 http://target.local 进行全面的 Web 安全测试" --task-name "task_001"
 ```
 
-### 启用 Web 可视化 (推荐)
-
-启动一个 Web 服务器，实时展示任务图谱和执行进度。
-
+**启用 --web 标志：**
+这不会启动新的 Web 服务，而是会打印出当前任务在 Web UI 中的直接访问链接。
 ```bash
-python agent.py --goal "测试 http://target.local 的 SQL 注入漏洞" --task-name "sql_test" --web --web-port 8000
+python agent.py --goal "Scan localhost" --task-name "local_scan" --web
 ```
-*访问浏览器: http://localhost:8000*
 
-### 详细日志模式
+### 3. 管理任务
 
-如果你需要调试或查看 Agent 的详细思考过程。
-
-```bash
-python agent.py --goal "测试目标" --task-name "debug_task" --output-mode debug
-```
+- **查看历史**: 访问 Web UI 首页，可以看到所有历史任务列表。
+- **删除任务**: 在 Web UI 左侧任务列表中，悬停在任务卡片上，点击右侧的 "✕" 按钮删除任务及其关联数据。
+- **人工干预**: 如果启用了 `HUMAN_IN_THE_LOOP=true`，Web UI 会自动弹出审批窗口。
 
 ---
 
@@ -142,15 +150,16 @@ python agent.py --goal "测试目标" --task-name "debug_task" --output-mode deb
     2.  检查端口 8081 (默认 RAG 服务端口) 是否被占用。
     3.  在 `.env` 中修改 `KNOWLEDGE_SERVICE_PORT`。
 
-### Q3: LLM API 连接超时或 401 错误
-*   **原因**: API Key 错误、Base URL 不匹配或网络问题。
-*   **解决**: 检查 `.env` 中的 `LLM_API_KEY` 和 `LLM_API_BASE_URL`。如果是国内网络，可能需要配置代理或使用国内的中转 API。
-
-### Q4: Agent 陷入死循环
-*   **原因**: 模型能力不足或任务目标过于模糊。
+### Q3: Web UI 显示空白或不刷新
+*   **原因**: Web 服务与 Agent 没有连接到同一个数据库，或者前端缓存问题。
 *   **解决**:
-    1.  尝试使用更强大的模型 (如 GPT-4o)。
-    2.  提供更具体的目标描述 (例如："测试 /login 接口的 SQL 注入" 而不是 "黑掉这个网站")。
+    1.  确保在项目根目录下运行命令。
+    2.  尝试强制刷新浏览器 (Ctrl+F5)。
+    3.  检查控制台是否有 SSE 连接错误。
+
+### Q4: 无法删除任务
+*   **原因**: 数据库锁定或权限问题。
+*   **解决**: 确保没有其他进程（如 SQLite 客户端）正在锁定 `luan1ao.db` 文件。
 
 ---
 

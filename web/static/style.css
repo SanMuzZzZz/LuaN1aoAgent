@@ -145,6 +145,9 @@ input:focus, textarea:focus { border-color: var(--accent-primary); }
 .task-card.active { border-color: var(--accent-primary); background: linear-gradient(90deg, rgba(59,130,246,0.1) 0%, rgba(30,41,59,0) 100%); }
 .task-card.active::before { content:''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--accent-primary); }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.delete-btn { font-size: 14px; color: var(--text-muted); cursor: pointer; display: none; padding: 0 4px; border-radius: 4px; }
+.task-card:hover .delete-btn { display: inline-block; }
+.delete-btn:hover { color: var(--error); background: rgba(239, 68, 68, 0.1); }
 
 .panel-header { padding: 0 16px; height: 40px; background: rgba(15, 23, 42, 0.5); border-bottom: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
 .panel-content { flex: 1; overflow-y: auto; position: relative; }
@@ -185,10 +188,64 @@ input:focus, textarea:focus { border-color: var(--accent-primary); }
 }
 
 #llm-output-container { background: #0d1117; flex: 1; display: flex; flex-direction: column; overflow: hidden; height: 100%; }
-.llm-msg { padding: 12px 16px; border-bottom: 1px solid #21262d; font-family: var(--font-ui); font-size: 13px; line-height: 1.5; }
-.llm-msg.user { background: rgba(59, 130, 246, 0.05); border-left: 3px solid var(--accent-primary); }
-.llm-msg.assistant { border-left: 3px solid var(--success); }
-.msg-meta { font-size: 10px; color: #6e7681; margin-bottom: 8px; display: flex; justify-content: space-between; font-family: var(--font-code); }
+.llm-msg { padding: 12px 16px; border-bottom: 1px solid #21262d; font-family: var(--font-ui); font-size: 13px; line-height: 1.5; border-left: 3px solid transparent; }
+.llm-msg.role-planner { border-left-color: #3b82f6; background: rgba(59, 130, 246, 0.02); }
+.llm-msg.role-executor { border-left-color: #f59e0b; background: rgba(245, 158, 11, 0.02); }
+.llm-msg.role-reflector { border-left-color: #a855f7; background: rgba(168, 85, 247, 0.02); }
+.llm-msg.role-system { border-left-color: #64748b; }
+
+.role-badge { 
+    font-size: 9px; 
+    font-weight: 700; 
+    padding: 1px 4px; 
+    border-radius: 3px; 
+    text-transform: uppercase; 
+    margin-right: 6px;
+    vertical-align: middle;
+}
+.role-planner .role-badge { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
+.role-executor .role-badge { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+.role-reflector .role-badge { background: rgba(168, 85, 247, 0.2); color: #c084fc; }
+.role-system .role-badge { background: rgba(100, 116, 139, 0.2); color: #94a3b8; }
+
+/* 折叠面板样式 */
+.log-summary {
+    cursor: pointer;
+    padding: 4px 0;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    transition: color 0.2s;
+}
+.log-summary:hover { color: var(--text-main); }
+.log-summary::before { content: '▶'; display: inline-block; font-size: 8px; transition: transform 0.2s; }
+.log-details { display: none; margin-top: 4px; padding-left: 8px; border-left: 1px solid var(--border-color); }
+.log-group.open .log-summary::before { transform: rotate(90deg); }
+.log-group.open .log-details { display: block; }
+
+.step-separator {
+    height: 1px;
+    background: var(--border-color);
+    margin: 16px 0;
+    position: relative;
+}
+.step-separator::after {
+    content: 'STEP COMPLETED';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    background: #0d1117;
+    padding: 0 8px;
+    color: var(--text-muted);
+    font-size: 9px;
+    font-family: var(--font-code);
+}
+
+.msg-meta { font-size: 10px; color: #6e7681; margin-bottom: 8px; display: flex; justify-content: space-between; font-family: var(--font-code); align-items: center; }
 
 .system-msg { padding: 10px 16px; border-bottom: 1px solid #334155; background: rgba(30, 41, 59, 0.3); font-size: 12px; }
 

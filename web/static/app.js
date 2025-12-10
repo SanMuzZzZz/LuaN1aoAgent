@@ -79,11 +79,37 @@ async function loadOps() {
     const list = document.getElementById('ops'); list.innerHTML = '';
     data.items.forEach(i => {
       const li = document.createElement('li'); li.className = `task-card ${i.op_id === state.op_id ? 'active' : ''}`; li.dataset.op = i.op_id; li.onclick = () => selectOp(i.op_id);
-      const color = i.status.achieved ? 'var(--success)' : (i.status.failed ? 'var(--error)' : 'var(--accent-primary)');
-      li.innerHTML = `<div class="flex justify-between mb-1"><span style="font-family:monospace;font-size:10px;opacity:0.7">#${i.op_id.slice(-4)}</span><span class="status-dot" style="background:${color}"></span></div><div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${i.goal}</div>`;
+      
+      let color = 'var(--accent-primary)'; // Default: in progress / pending
+      if (i.status.achieved) color = 'var(--success)';
+      else if (i.status.failed) color = 'var(--error)';
+      else if (i.status.aborted) color = '#94a3b8'; // Grey for aborted
+      
+      li.innerHTML = `<div class="flex justify-between mb-1">
+          <span style="font-family:monospace;font-size:10px;opacity:0.7">#${i.op_id.slice(-4)}</span>
+          <div style="display:flex;gap:8px;align-items:center;">
+              <span class="status-dot" style="background:${color}" title="${i.status.raw}"></span>
+              <span class="delete-btn" onclick="deleteOp(event, '${i.op_id}')" title="Delete Task">✕</span>
+          </div>
+      </div>
+      <div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${i.goal}</div>`;
       list.appendChild(li);
     });
   } catch(e) {}
+}
+
+async function deleteOp(e, id) {
+    e.stopPropagation();
+    if(!confirm('Are you sure you want to delete this task?')) return;
+    await fetch(`/api/ops/${id}`, {method:'DELETE'});
+    if(state.op_id === id) { 
+        state.op_id = ''; 
+        history.replaceState(null, '', location.pathname);
+        document.getElementById('llm-stream').innerHTML = '';
+        if(state.g) state.g.selectAll("*").remove();
+        if(state.es) state.es.close();
+    }
+    loadOps();
 }
 
 function selectOp(id, refresh=true) {
@@ -971,12 +997,24 @@ function renderSystemEvent(msg) {
 
     const container = document.getElementById('llm-stream');
     const div = document.createElement('div');
-    div.className = 'system-msg';
-    const time = new Date(msg.timestamp ? msg.timestamp * 1000 : Date.now()).toLocaleTimeString();
-    let html = `<div class="msg-meta"><span>${msg.event}</span><span>${time}</span></div>`;
+    // 使用 role-system 样式
+    div.className = 'llm-msg role-system';
     
+    const time = new Date(msg.timestamp ? msg.timestamp * 1000 : Date.now()).toLocaleTimeString();
     const eventType = msg.event;
     const data = msg.data || msg.payload || {};
+    
+    // 步骤分隔线
+    if (eventType === 'execution.step.completed') {
+        const sep = document.createElement('div');
+        sep.className = 'step-separator';
+        container.appendChild(sep);
+    }
+
+    let html = `<div class="msg-meta">
+        <div><span class="role-badge">SYSTEM</span><span>${msg.event}</span></div>
+        <span>${time}</span>
+    </div>`;
 
     // 针对 Tool Execution Completed 的特殊渲染
     if (eventType === 'execution.step.completed') {
@@ -994,10 +1032,8 @@ function renderSystemEvent(msg) {
         if (data.reason === 'mission_accomplished') {
             html += `<div style="color:#10b981;font-weight:bold;">🎉 Mission Accomplished!</div>`;
             html += `<div style="color:#94a3b8">Root task marked as completed</div>`;
-            // 立即标记任务完成，触发前端状态更新
             if (!state.missionAccomplished) {
                 state.missionAccomplished = true;
-                console.log('🎉 Mission accomplished via graph.changed event!');
             }
         } else if (data.reason === 'confidence_update') {
             html += `<div style="color:#fbbf24;font-weight:bold;">📈 Confidence Update</div>`;
@@ -1009,6 +1045,7 @@ function renderSystemEvent(msg) {
     // 针对 Intervention
     else if (eventType === 'intervention.required') {
         html += `<div style="color:#f59e0b;font-weight:bold;">⚠ Intervention Required</div>`;
+        html += `<div style="color:#94a3b8">Waiting for user approval...</div>`;
     }
     // 兜底通用渲染
     else {
@@ -1029,196 +1066,144 @@ function renderLLMResponse(msg) {
   
   if (msg.event && msg.event.includes('request')) return;
   
-  // 检测阶段变化（通过事件名称和数据内容）
+  // 1. 确定角色和样式
   const eventType = msg.event || '';
   const data = msg.data || msg.payload || {};
-  const msgContent = JSON.stringify(msg).toLowerCase();
   
-  // 检测全局任务完成标志 - 可能在多个层级
-  let missionFlag = false;
-  if (data) {
-    // 直接在 data 中
-    if (data.global_mission_accomplished === true) {
-      missionFlag = true;
-    }
-    // 嵌套在 data.data 中（来自 run_log 的事件）
-    if (data.data && data.data.global_mission_accomplished === true) {
-      missionFlag = true;
-    }
-    // 尝试解析字符串内容
-    if (typeof data === 'string') {
-      try {
-        const parsed = JSON.parse(data);
-        if (parsed.global_mission_accomplished === true) {
-          missionFlag = true;
-        }
-      } catch(e) {}
-    }
+  let roleClass = 'role-system';
+  let roleName = 'SYSTEM';
+  
+  // 尝试从 payload 中获取 role
+  let role = data.role;
+  if (!role && typeof data === 'string') {
+      try { const p = JSON.parse(data); role = p.role; } catch(e){}
   }
-  // 也检查消息内容中的关键词
-  if (msgContent.includes('global_mission_accomplished') && msgContent.includes('true')) {
-    missionFlag = true;
+  
+  if (role === 'planner' || eventType.includes('planner') || (data.model && data.model.includes('planner'))) {
+      roleClass = 'role-planner'; roleName = 'PLANNER';
+      showPhaseBanner('planning');
+  } else if (role === 'executor' || eventType.includes('executor') || (data.model && data.model.includes('executor'))) {
+      roleClass = 'role-executor'; roleName = 'EXECUTOR';
+      showPhaseBanner('executing');
+      setTimeout(() => { if (state.currentPhase === 'executing') hidePhaseBanner(); }, 2000);
+  } else if (role === 'reflector' || eventType.includes('reflector') || (data.model && data.model.includes('reflector'))) {
+      roleClass = 'role-reflector'; roleName = 'REFLECTOR';
+      showPhaseBanner('reflecting');
+  }
+
+  // 检测全局任务完成
+  let missionFlag = false;
+  const msgContentStr = JSON.stringify(msg).toLowerCase();
+  if ((data && data.global_mission_accomplished === true) || 
+      (data.data && data.data.global_mission_accomplished === true) ||
+      (msgContentStr.includes('global_mission_accomplished') && msgContentStr.includes('true'))) {
+      missionFlag = true;
   }
   
   if (missionFlag && !state.missionAccomplished) {
-    console.log('🎉 Detected global_mission_accomplished flag!');
     state.missionAccomplished = true;
-    showSuccessBanner(); // 显示成功横幅
-    render(); // 立即重新渲染以触发成功路径高亮
+    showSuccessBanner();
+    render();
   }
   
-  if (eventType.includes('reflect') || msgContent.includes('reflector') || msgContent.includes('反思')) {
-    showPhaseBanner('reflecting');
-  } else if (eventType.includes('plan') || msgContent.includes('planner') || msgContent.includes('规划')) {
-    showPhaseBanner('planning');
-  } else if (eventType.includes('execut') || msgContent.includes('executor') || msgContent.includes('执行')) {
-    showPhaseBanner('executing');
-    // 执行阶段后短暂延迟后隐藏横幅
-    setTimeout(() => {
-      if (state.currentPhase === 'executing') {
-        hidePhaseBanner();
-      }
-    }, 2000);
-  }
-  
-  const container = document.getElementById('llm-stream');
-  const div = document.createElement('div');
-  div.className = `llm-msg assistant`;
-  
-  let content = msg.data || msg.payload;
-  if (typeof content === 'string') { try { content = JSON.parse(content); } catch(e){} }
+  // 2. 解析内容
+  let content = data;
   if (content && content.content) content = content.content;
   if (typeof content === 'string' && (content.trim().startsWith('{') || content.trim().startsWith('['))) {
       try { content = JSON.parse(content); } catch(e){}
   }
   
-  let htmlContent = '';
+  // 3. 构建 HTML 内容
+  const container = document.getElementById('llm-stream');
+  const div = document.createElement('div');
+  div.className = `llm-msg ${roleClass}`;
+  
+  const time = new Date(msg.timestamp ? msg.timestamp * 1000 : Date.now()).toLocaleTimeString();
+  
+  let htmlContent = `<div class="msg-meta">
+      <div><span class="role-badge">${roleName}</span><span>${msg.event}</span></div>
+      <span>${time}</span>
+  </div>`;
   
   if (typeof content === 'object' && content !== null) {
       let remaining = { ...content };
       
-      // 1. Thought
+      // Thought
       if (remaining.thought) {
-          htmlContent += `<div class="thought-card"><div class="thought-header"><svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>Thinking Process</div>`;
+          let thoughtText = '';
           if (typeof remaining.thought === 'object') {
               for (const [key, val] of Object.entries(remaining.thought)) {
-                   if (typeof val === 'string') htmlContent += `<div class="thought-item"><span class="thought-key">${key.replace(/_/g,' ')}</span><div class="thought-val">${val}</div></div>`;
+                   if (typeof val === 'string') thoughtText += `<div style="margin-bottom:6px;"><span class="detail-key">${key.replace(/_/g,' ')}:</span> <span style="color:#e2e8f0">${val}</span></div>`;
               }
           } else {
-              htmlContent += `<div class="thought-val">${remaining.thought}</div>`;
+              thoughtText = `<div style="color:#e2e8f0">${remaining.thought}</div>`;
           }
-          htmlContent += `</div>`;
+          htmlContent += `<div class="thought-card">${thoughtText}</div>`;
           delete remaining.thought;
       }
       
-      // 2. Reflector/Audit
+      // Audit Result
       if (remaining.audit_result) {
-          htmlContent += `<div class="thought-card" style="border-color:#ec4899;"><div class="thought-header audit-header"><svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>Reflector Audit</div>`;
           const audit = remaining.audit_result;
-          htmlContent += `<div class="audit-badge" style="background:${audit.status==='passed'?'#10b981':'#f59e0b'}">Status: ${audit.status.toUpperCase()}</div>`;
-          htmlContent += `<div style="font-size:12px;margin-bottom:8px;">${audit.completion_check}</div>`;
-          if (audit.logic_issues && audit.logic_issues.length > 0) {
-              htmlContent += `<div class="audit-issues">`;
-              audit.logic_issues.forEach(issue => { htmlContent += `<div class="audit-issue-item">⚠ ${issue}</div>`; });
-              htmlContent += `</div>`;
-          }
-          htmlContent += `</div>`;
+          const statusColor = audit.status==='passed'?'#10b981':(audit.status==='failed'?'#ef4444':'#f59e0b');
+          htmlContent += `<div class="thought-card" style="border-left-color:${statusColor}">
+              <div class="thought-title" style="color:${statusColor}">Audit: ${audit.status.toUpperCase()}</div>
+              <div style="margin-bottom:6px;">${audit.completion_check}</div>
+          </div>`;
           delete remaining.audit_result;
       }
 
-      if (remaining.attack_intelligence) {
-          const intel = remaining.attack_intelligence;
-          if (intel.actionable_insights && intel.actionable_insights.length > 0) {
-              htmlContent += `<div class="thought-card"><div class="thought-header" style="color:#a855f7">Actionable Insights</div><ul style="padding-left:16px;font-size:12px;color:#e2e8f0;list-style:disc">`;
-              intel.actionable_insights.forEach(item => { htmlContent += `<li>${item}</li>`; });
-              htmlContent += `</ul></div>`;
-          }
-          delete remaining.attack_intelligence;
-      }
-
-      if (remaining.key_findings) {
-          htmlContent += `<div class="thought-card"><div class="thought-header" style="color:#f59e0b">Key Findings</div><div class="op-list">`;
-          remaining.key_findings.forEach(f => {
-              htmlContent += `<div class="op-card-inner"><div class="op-desc" style="color:#fbbf24">${f.title}</div><div style="font-size:11px;color:#94a3b8">${f.description}</div></div>`;
-          });
-          htmlContent += `</div></div>`;
-          delete remaining.key_findings;
-      }
-      delete remaining.key_facts;
-      delete remaining.causal_graph_updates;
-
-      // 3. Graph Operations
+      // Collapsible Graph Actions
       if (remaining.graph_operations && Array.isArray(remaining.graph_operations)) {
-          htmlContent += `<div class="thought-header" style="margin-top:10px;"><svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>Graph Actions</div><div class="op-list">`;
+          const count = remaining.graph_operations.length;
+          let detailsHtml = '';
           remaining.graph_operations.forEach(op => {
               const nodeData = op.node_data || {};
-              htmlContent += `<div class="op-card-inner"><div class="op-badge">${op.command}</div><div style="flex:1"><div class="op-id">${nodeData.id || '-'}</div><div class="op-desc">${nodeData.description || (op.updates ? JSON.stringify(op.updates) : '')}</div></div></div>`;
+              detailsHtml += `<div class="op-item"><span class="plan-tag ${op.command}">${op.command}</span> <span style="font-family:monospace;color:#cbd5e1">${nodeData.id || '-'}</span></div>`;
           });
-          htmlContent += `</div>`;
+          htmlContent += `
+          <div class="log-group">
+              <div class="log-summary" onclick="this.parentElement.classList.toggle('open')">Graph Actions (${count})</div>
+              <div class="log-details">${detailsHtml}</div>
+          </div>`;
           delete remaining.graph_operations;
       }
 
-      // 4. Execution Operations
+      // Collapsible Execution Actions
       if (remaining.execution_operations && Array.isArray(remaining.execution_operations)) {
-          htmlContent += `<div class="thought-header" style="margin-top:10px; color:#f59e0b;"><svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>Execution Actions</div><div class="op-list">`;
+          const count = remaining.execution_operations.length;
+          let detailsHtml = '';
           remaining.execution_operations.forEach(op => {
-              const params = op.action && op.action.params ? JSON.stringify(op.action.params, null, 1) : '';
-              const toolName = op.action ? op.action.tool : 'Unknown Tool';
-              htmlContent += `<div class="op-card-inner"><div class="op-badge" style="background:rgba(245, 158, 11, 0.2);color:#f59e0b;">${toolName}</div><div style="flex:1"><div class="op-id">${op.node_id}</div><div class="op-desc">${op.thought || ''}</div>${params ? `<div class="op-details">${params}</div>` : ''}</div></div>`;
+              const toolName = op.action ? op.action.tool : 'Unknown';
+              detailsHtml += `<div class="op-item"><span style="color:#f59e0b">🔧 ${toolName}</span> <span style="color:#94a3b8">${op.thought || ''}</span></div>`;
           });
-          htmlContent += `</div>`;
+          htmlContent += `
+          <div class="log-group open">
+              <div class="log-summary" onclick="this.parentElement.classList.toggle('open')">Execution Actions (${count})</div>
+              <div class="log-details">${detailsHtml}</div>
+          </div>`;
           delete remaining.execution_operations;
       }
-
-      // 5. Hypothesis Update
-      if (remaining.hypothesis_update && typeof remaining.hypothesis_update === 'object') {
-          htmlContent += `<div class="thought-card" style="border-color:#8b5cf6;"><div class="thought-header" style="color:#8b5cf6;"><svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>Hypothesis Update</div>`;
-          for (const [key, val] of Object.entries(remaining.hypothesis_update)) {
-               if(val) htmlContent += `<div class="thought-item"><span class="thought-key">${key.replace(/_/g,' ')}</span><div class="thought-val">${val}</div></div>`;
-          }
-          htmlContent += `</div>`;
-          delete remaining.hypothesis_update;
-      }
       
-      // 6. Staged Causal Nodes
-      if (remaining.staged_causal_nodes && Array.isArray(remaining.staged_causal_nodes) && remaining.staged_causal_nodes.length > 0) {
-           htmlContent += `<div class="thought-header" style="margin-top:10px; color:#06b6d4;">New Findings</div><div class="op-list">`;
-           remaining.staged_causal_nodes.forEach(node => {
-               htmlContent += `<div class="op-card-inner"><div class="op-badge" style="background:rgba(6, 182, 212, 0.2);color:#06b6d4;">${node.type || 'Finding'}</div><div class="op-desc" style="flex:1">${node.description || node.title}</div></div>`;
-           });
-           htmlContent += `</div>`;
-           delete remaining.staged_causal_nodes;
-      } else {
-           delete remaining.staged_causal_nodes;
-      }
+      // Cleanup common fields
+      delete remaining.key_findings; delete remaining.key_facts; delete remaining.causal_graph_updates;
+      delete remaining.staged_causal_nodes; delete remaining.attack_intelligence; delete remaining.role; delete remaining.model;
+      delete remaining.global_mission_accomplished; delete remaining.is_subtask_complete; delete remaining.success; delete remaining.hypothesis_update;
 
-      // 7. Render Remaining Specific Keys nicely
+      // Remaining Data Dump (Collapsible)
       if (Object.keys(remaining).length > 0) {
-          htmlContent += `<div class="raw-data-block"><div class="raw-data-header">Status & Other Data</div><div style="display:flex;flex-wrap:wrap;">`;
-          
-          // Render specific flags as badges
-          const flags = ['global_mission_accomplished', 'is_subtask_complete', 'success'];
-          flags.forEach(f => {
-              if (remaining[f] !== undefined) {
-                  const isTrue = remaining[f] === true;
-                  htmlContent += `<div class="status-item"><span class="${isTrue?'status-check':'status-cross'}">${isTrue?'✓':'✕'}</span> ${f}</div>`;
-                  delete remaining[f];
-              }
-          });
-          htmlContent += `</div>`;
-          
-          // If anything is STILL left, dump as JSON
-          if (Object.keys(remaining).length > 0) {
-              htmlContent += `<div class="raw-data-content">${hlJson(JSON.stringify(remaining, null, 2))}</div>`;
-          }
-          htmlContent += `</div>`;
+          htmlContent += `
+          <div class="log-group">
+              <div class="log-summary" onclick="this.parentElement.classList.toggle('open')">Other Data</div>
+              <div class="log-details"><div class="raw-data-content">${hlJson(JSON.stringify(remaining, null, 2))}</div></div>
+          </div>`;
       }
       
   } else {
-      htmlContent = `<div style="white-space:pre-wrap">${content}</div>`;
+      htmlContent += `<div style="white-space:pre-wrap;color:#e2e8f0;">${content}</div>`;
   }
 
-  div.innerHTML = `<div class="msg-meta"><span>${msg.event}</span><span>${new Date().toLocaleTimeString()}</span></div>${htmlContent}`;
+  div.innerHTML = htmlContent;
   
   const shouldScroll = Math.abs(container.scrollHeight - container.clientHeight - container.scrollTop) < 50;
   container.appendChild(div); 

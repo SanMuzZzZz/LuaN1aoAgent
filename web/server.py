@@ -181,7 +181,12 @@ async def api_ops():
                 "goal": s.goal,
                 "created_at": s.created_at.timestamp(),
                 "log_dir": f"logs/{s.name}/{s.id}", # Approximation
-                "status": {"achieved": s.status == "completed"} # Simplified
+                "status": {
+                    "raw": s.status,
+                    "achieved": s.status == "completed",
+                    "failed": s.status in ["failed", "stalled_orphan", "completed_error"],
+                    "aborted": s.status == "aborted"
+                }
             })
         return {"items": items}
 
@@ -303,6 +308,18 @@ async def api_ops_abort(op_id: str):
             .where(SessionModel.id == op_id)
             .values(status="aborted", updated_at=datetime.now())
         )
+        await session.commit()
+    return {"ok": True}
+
+@app.delete("/api/ops/{op_id}")
+async def api_ops_delete(op_id: str):
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(SessionModel).where(SessionModel.id == op_id))
+        s = result.scalar_one_or_none()
+        if not s:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        await session.delete(s)
         await session.commit()
     return {"ok": True}
 

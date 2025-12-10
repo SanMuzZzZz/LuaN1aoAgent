@@ -4,11 +4,11 @@
 
 <h1 align="center">LuaN1aoAgent</h1>
 
-<h3 align="center">
+<h2 align="center">
 
 **Cognitive-Driven AI Hackers**
 
-</h3>
+</h2>
 
 <div align="center">
 
@@ -16,6 +16,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Architecture: P-E-R](https://img.shields.io/badge/Architecture-P--E--R-purple.svg)](#system-architecture)
+[![Powered by LLM](https://img.shields.io/badge/Powered%20by-LLM-ff69b4.svg)](#)
 
 ---
 
@@ -139,7 +140,7 @@ Say goodbye to static task lists. LuaN1ao models penetration testing plans as dy
 | Dynamic Adjustment | Regenerate | Local graph editing |
 | Visualization | Difficult | Native support (Web UI) |
 
-**Visualization Example**: After starting in `--web` mode, you can view the task graph evolution in real-time in the browser.
+**Visualization Example**: Start the Web Server to view the task graph evolution in real-time in the browser.
 
 ---
 
@@ -163,11 +164,14 @@ LuaN1ao achieves unified integration and scheduling of tools through the **Model
 - **Domain Knowledge**: Integration of PayloadsAllTheThings and other open-source security knowledge bases
 - **Dynamic Learning**: Continuous addition of custom knowledge documents
 
-### Web Visualization
+### Web Visualization (New Architecture)
 
-- **Real-time Monitoring**: Browser view of dynamic task graph evolution
-- **Node Details**: Click nodes to view execution logs, artifacts, state transitions
-- **Progress Tracking**: Visualize parallel task execution and dependencies
+The Web UI is now a standalone service powered by a database, enabling persistent task monitoring and management.
+
+- **Real-time Monitoring**: Browser view of dynamic task graph evolution and live logs.
+- **Node Details**: Click nodes to view execution logs, artifacts, state transitions.
+- **Task Management**: Create, abort, and **delete** historical tasks.
+- **Data Persistence**: All task data is stored in SQLite (`luan1ao.db`), preserving history across restarts.
 
 ### Human-in-the-Loop (HITL) Mode
 
@@ -290,33 +294,41 @@ python -m rag.rag_kdprepare
 
 > **Knowledge Base Description**: PayloadsAllTheThings contains rich attack payloads, bypass techniques, and vulnerability exploitation methods, making it a valuable resource for penetration testing.
 
-### Step 3: Running
+### Step 3: Running (New Architecture)
 
-#### Basic Usage
+The system now runs as two separate processes: the **Web Server** (dashboard) and the **Agent** (worker). They communicate via a local SQLite database (`luan1ao.db`).
+
+#### 1. Start the Web Server (Dashboard)
+
+Start the persistent web interface first. This process should remain running.
 
 ```bash
-# Command-line mode (minimal output)
+python -m web.server
+```
+
+> Open your browser and visit: **http://localhost:8088**
+
+#### 2. Run an Agent Task
+
+Open a **new terminal window** and run the agent. The agent will execute the task, write logs to the database, and exit when finished. The Web UI will update in real-time.
+
+```bash
+# Basic usage
 python agent.py \
     --goal "Perform comprehensive web security testing on http://testphp.vulnweb.com" \
     --task-name "demo_test"
-```
 
-#### Web Visualization Mode (Recommended)
-
-```bash
-# Start Web UI
+# Enable --web flag to print the task URL
 python agent.py \
-    --goal "Perform comprehensive web security testing on http://testphp.vulnweb.com" \
-    --task-name "demo_test" \
+    --goal "Scan localhost" \
+    --task-name "local_scan" \
     --web
-
-# Open browser and visit http://localhost:8000
-# View task graph evolution, node status, and execution logs in real-time
 ```
 
 ### Viewing Results
 
-After task completion, logs and metrics are saved in the `logs/TASK-NAME/TIMESTAMP/` directory:
+- **Real-time**: Use the Web UI (http://localhost:8088) to monitor progress.
+- **Archives**: Task history is persisted in the database. Logs and metrics are also saved in `logs/TASK-NAME/TIMESTAMP/`:
 
 ```
 logs/demo_test/20250204_120000/
@@ -359,14 +371,14 @@ logs/demo_test/20250204_120000/
 │  │ • Parallel Task Scheduling                     │     │
 │  └────────────────────────────────────────────────┘     │
 │  ┌────────────────────────────────────────────────┐     │
-│  │ EventBroker                                    │     │
-│  │ • Inter-component Communication                │     │
-│  │ • Event Publishing/Subscription                │     │
+│  │ Database Layer (SQLite)                        │     │
+│  │ • Persistence for Tasks, Graphs, Logs          │     │
+│  │ • Decoupled State Management                   │     │
 │  └────────────────────────────────────────────────┘     │
 │  ┌────────────────────────────────────────────────┐     │
-│  │ PromptManager                                  │     │
-│  │ • Jinja2 Template Rendering                    │     │
-│  │ • Context Injection                            │     │
+│  │ EventBroker (Global)                           │     │
+│  │ • Inter-component Communication                │     │
+│  │ • Event Publishing/Subscription                │     │
 │  └────────────────────────────────────────────────┘     │
 └─────────────────────────┬────────────────────────────────┘
                           │
@@ -393,30 +405,27 @@ sequenceDiagram
     participant G as GraphManager
     participant E as Executor
     participant R as Reflector
-    participant T as Tools/RAG
+    participant DB as SQLite DB
+    participant W as Web UI
 
     U->>P: Input Goal
     P->>G: Initialize Task Graph
+    G->>DB: Persist Initial State
+    W->>DB: Poll for Updates (SSE)
     
     loop P-E-R Cycle
         P->>G: Analyze graph, generate graph edit operations
         G->>G: Update graph structure
+        G->>DB: Sync Updates
         G->>E: Assign pending sub-tasks
         
-        E->>T: Call tools for execution
-        T-->>E: Return execution results
-        E->>G: Submit execution logs and artifacts
+        E->>E: Execute Tools
+        E->>DB: Log Events
         
         E->>R: Request reflection
-        R->>G: Read execution logs and history
-        R->>R: Analyze success/failure reasons
-        R->>G: Validate artifacts, update node status
-        
-        alt Goal Achieved
-            R->>U: Return final report
-        else Continue
-            R->>P: Provide reflection insights
-        end
+        R->>R: Analyze success/failure
+        R->>G: Update node status
+        G->>DB: Sync Updates
     end
 ```
 
@@ -443,10 +452,11 @@ LuaN1aoAgent/
 │   ├── console.py            # Console output management
 │   ├── data_contracts.py     # Data contract definitions
 │   ├── tool_manager.py       # Tool manager
+│   ├── intervention.py       # Human-in-the-Loop manager
+│   ├── database/             # Database persistence layer
+│   │   ├── models.py         # SQLAlchemy models
+│   │   └── utils.py          # DB utilities
 │   └── prompts/              # Prompt template system
-│       ├── manager.py        # Template manager
-│       ├── renderers.py      # Renderers
-│       └── templates/        # Jinja2 templates
 │
 ├── llm/                       # LLM abstraction layer
 │   ├── llm_client.py         # LLM client (unified interface)
@@ -465,8 +475,9 @@ LuaN1aoAgent/
 │   └── __init__.py
 │
 ├── web/                       # Web UI
-│   ├── server.py             # FastAPI server
-│   └── __init__.py
+│   ├── server.py             # Web dashboard server
+│   ├── static/               # Frontend assets
+│   └── templates/            # HTML templates
 │
 ├── knowledge_base/            # Knowledge base directory (manual creation required)
 │   └── PayloadsAllTheThings/ # Security knowledge base (clone required)
