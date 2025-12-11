@@ -17,6 +17,9 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Architecture: P-E-R](https://img.shields.io/badge/Architecture-P--E--R-purple.svg)](#system-architecture)
 [![Powered by LLM](https://img.shields.io/badge/Powered%20by-LLM-ff69b4.svg)](#)
+</div>
+<div align="center">
+<a href="https://zc.tencent.com/competition/competitionHackathon?code=cha004"><img src="imgs/tch.png" alt="[TCH]Top-RankedIntelligent Pentest Project" width="250" /></a>
 
 ---
 
