@@ -271,10 +271,15 @@ async def api_tree_execution(op_id: str):
 
 @app.get("/api/ops/{op_id}/llm-events")
 async def api_llm_events(op_id: str):
+    """
+    Fetch event history. 
+    Note: Despite the name, this now returns ALL events, not just llm.*, 
+    to ensure the frontend renders the full history (including system events) on load.
+    """
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             select(EventLogModel)
-            .where(EventLogModel.session_id == op_id, EventLogModel.event_type.like("llm.%"))
+            .where(EventLogModel.session_id == op_id)
             .order_by(EventLogModel.timestamp)
         )
         events = result.scalars().all()

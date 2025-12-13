@@ -1,49 +1,52 @@
-const nodeColors = { 
-    'default': '#3b82f6', 
-    // 执行状态颜色
-    'completed': '#10b981', 
-    'failed': '#ef4444', 
-    'pending': '#64748b', 
-    'in_progress': '#3b82f6', 
-    'deprecated': '#94a3b8',
-    'aborted': '#94a3b8', 
-    'aborted_by_halt_signal': '#94a3b8', 
-    'stalled_no_plan': '#f59e0b', 
-    'stalled_orphan': '#f59e0b', 
-    'completed_error': '#ef4444', 
-    // 因果图节点类型颜色
-    'ConfirmedVulnerability': '#f59e0b', 
-    'Vulnerability': '#a855f7', 
-    'Evidence': '#06b6d4', 
-    'Hypothesis': '#84cc16', 
-    'KeyFact': '#fbbf24', 
-    'Flag': '#ef4444' 
+const nodeColors = {
+  'default': '#3b82f6',
+  // 执行状态颜色
+  'completed': '#10b981',
+  'failed': '#ef4444',
+  'pending': '#64748b',
+  'in_progress': '#3b82f6',
+  'deprecated': '#94a3b8',
+  'aborted': '#94a3b8',
+  'aborted_by_halt_signal': '#94a3b8',
+  'stalled_no_plan': '#f59e0b',
+  'stalled_orphan': '#f59e0b',
+  'completed_error': '#ef4444',
+  // 因果图节点类型颜色
+  'ConfirmedVulnerability': '#f59e0b',
+  'Vulnerability': '#a855f7',
+  'Evidence': '#06b6d4',
+  'Hypothesis': '#84cc16',
+  'KeyFact': '#fbbf24',
+  'Flag': '#ef4444'
 };
 
 // 因果图颜色映射
 const causalColors = {
-    'ConfirmedVulnerability': '#f59e0b',
-    'Vulnerability': '#a855f7',
-    'Evidence': '#06b6d4',
-    'Hypothesis': '#84cc16',
-    'KeyFact': '#fbbf24',
-    'Flag': '#ef4444'
+  'ConfirmedVulnerability': '#f59e0b',
+  'Vulnerability': '#a855f7',
+  'Evidence': '#06b6d4',
+  'Hypothesis': '#84cc16',
+  'KeyFact': '#fbbf24',
+  'Flag': '#ef4444'
 };
 let state = { op_id: new URLSearchParams(location.search).get('op_id') || '', view: 'exec', simulation: null, svg: null, g: null, zoom: null, es: null, processedEvents: new Set(), pendingReq: null, isModifyMode: false, currentPhase: null, missionAccomplished: false };
-const api = (p, b) => fetch(p + (p.includes('?')?'&':'?') + `op_id=${state.op_id}`, b ? {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}:{}).then(r=>r.json());
+const api = (p, b) => fetch(p + (p.includes('?') ? '&' : '?') + `op_id=${state.op_id}`, b ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) } : {}).then(r => r.json());
 
 // 显示阶段横幅
 function showPhaseBanner(phase) {
   const banner = document.getElementById('phase-banner');
   const text = document.getElementById('phase-text');
-  
+
+  // 如果任务已完成，不再显示中间状态
+  if (state.missionAccomplished) return;
+
   if (phase) {
     text.textContent = t('phase.' + phase);
     banner.style.display = 'block';
   } else {
     banner.style.display = 'none';
   }
-  
+
   state.currentPhase = phase;
 }
 
@@ -57,11 +60,11 @@ function hidePhaseBanner() {
 function showSuccessBanner() {
   const banner = document.getElementById('phase-banner');
   const spinner = banner.querySelector('.spinner');
-  const text = banner.querySelector('.phase-text');
-  
+  const text = document.getElementById('phase-text'); // [Fix] Use ID selector instead of class selector
+
   // 隐藏旋转图标，改为成功图标
   if (spinner) spinner.style.display = 'none';
-  
+
   text.textContent = '🎉 ' + t('status.mission_accomplished');
   banner.style.background = 'linear-gradient(90deg, rgba(16, 185, 129, 0.9), rgba(5, 150, 105, 0.9))';
   banner.style.display = 'block';
@@ -69,22 +72,22 @@ function showSuccessBanner() {
 
 document.addEventListener('DOMContentLoaded', () => {
   initD3();
-  loadOps().then(() => { if(!state.op_id) { const f = document.querySelector('.task-card'); if(f) selectOp(f.dataset.op); } else selectOp(state.op_id, false); });
+  loadOps().then(() => { if (!state.op_id) { const f = document.querySelector('.task-card'); if (f) selectOp(f.dataset.op); } else selectOp(state.op_id, false); });
   setInterval(checkPendingIntervention, 2000);
 });
 
 async function loadOps() {
   try {
-    const data = await fetch('/api/ops').then(r=>r.json());
+    const data = await fetch('/api/ops').then(r => r.json());
     const list = document.getElementById('ops'); list.innerHTML = '';
     data.items.forEach(i => {
       const li = document.createElement('li'); li.className = `task-card ${i.op_id === state.op_id ? 'active' : ''}`; li.dataset.op = i.op_id; li.onclick = () => selectOp(i.op_id);
-      
+
       let color = 'var(--accent-primary)'; // Default: in progress / pending
       if (i.status.achieved) color = 'var(--success)';
       else if (i.status.failed) color = 'var(--error)';
       else if (i.status.aborted) color = '#94a3b8'; // Grey for aborted
-      
+
       li.innerHTML = `<div class="flex justify-between mb-1">
           <span style="font-family:monospace;font-size:10px;opacity:0.7">#${i.op_id.slice(-4)}</span>
           <div style="display:flex;gap:8px;align-items:center;">
@@ -95,42 +98,44 @@ async function loadOps() {
       <div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${i.goal}</div>`;
       list.appendChild(li);
     });
-  } catch(e) {}
+  } catch (e) { }
 }
 
 async function deleteOp(e, id) {
-    e.stopPropagation();
-    if(!confirm('Are you sure you want to delete this task?')) return;
-    await fetch(`/api/ops/${id}`, {method:'DELETE'});
-    if(state.op_id === id) { 
-        state.op_id = ''; 
-        history.replaceState(null, '', location.pathname);
-        document.getElementById('llm-stream').innerHTML = '';
-        if(state.g) state.g.selectAll("*").remove();
-        if(state.es) state.es.close();
-    }
-    loadOps();
+  e.stopPropagation();
+  if (!confirm('Are you sure you want to delete this task?')) return;
+  await fetch(`/api/ops/${id}`, { method: 'DELETE' });
+  if (state.op_id === id) {
+    state.op_id = '';
+    history.replaceState(null, '', location.pathname);
+    document.getElementById('llm-stream').innerHTML = '';
+    if (state.g) state.g.selectAll("*").remove();
+    if (state.es) state.es.close();
+  }
+  loadOps();
 }
 
-function selectOp(id, refresh=true) {
-  if(!id) return; state.op_id = id;
+function selectOp(id, refresh = true) {
+  if (!id) return; state.op_id = id;
   document.querySelectorAll('.task-card').forEach(el => el.classList.toggle('active', el.dataset.op === id));
   history.replaceState(null, '', `?op_id=${id}`);
   document.getElementById('llm-stream').innerHTML = '';
+  state.processedEvents.clear(); // [Fix] Clear processed events history so they can be re-rendered
+  state.missionAccomplished = false; // [Fix] Reset mission status when switching tasks
   document.getElementById('node-detail-content').innerHTML = '<div style="padding:20px;text-align:center;color:#64748b">Loading...</div>';
   closeDetails();
-  if(state.es) state.es.close(); subscribe(); render(); if(refresh) loadOps();
+  if (state.es) state.es.close(); subscribe(); render(); if (refresh) loadOps();
 }
 
 async function render(force) {
-  if(!state.op_id) return;
+  if (!state.op_id) return;
   try {
     let data;
-    if(state.view === 'exec') data = await api('/api/graph/execution');
-    else if(state.view === 'causal') data = await api('/api/graph/causal');
+    if (state.view === 'exec') data = await api('/api/graph/execution');
+    else if (state.view === 'causal') data = await api('/api/graph/causal');
     drawForceGraph(data);
     updateLegend();
-  } catch(e) { console.error(e); }
+  } catch (e) { console.error(e); }
 }
 
 function switchView(v) { state.view = v; document.querySelectorAll('#topbar .btn[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === v)); render(); }
@@ -141,13 +146,13 @@ function initD3() {
   state.g = state.svg.append('g');
   state.zoom = d3.zoom().scaleExtent([0.1, 4]).on('zoom', e => state.g.attr('transform', e.transform));
   state.svg.call(state.zoom);
-  state.svg.append("defs").append("marker").attr("id","arrow").attr("viewBox","0 -5 10 10").attr("refX",22).attr("refY",0).attr("markerWidth",6).attr("markerHeight",6).attr("orient","auto").append("path").attr("d","M0,-5L10,0L0,5").attr("fill","#475569");
+  state.svg.append("defs").append("marker").attr("id", "arrow").attr("viewBox", "0 -5 10 10").attr("refX", 22).attr("refY", 0).attr("markerWidth", 6).attr("markerHeight", 6).attr("orient", "auto").append("path").attr("d", "M0,-5L10,0L0,5").attr("fill", "#475569");
 }
 
 function drawForceGraph(data) {
   const svg = state.svg;
   state.g.selectAll("*").remove(); // 清除旧图
-  
+
   const g = state.g;
 
   if (!data || !data.nodes) return;
@@ -155,24 +160,24 @@ function drawForceGraph(data) {
   // --- [新增] 节点去重与状态清洗逻辑 ---
   const uniqueNodesMap = new Map();
   const terminalStates = new Set(['completed', 'failed', 'aborted', 'deprecated', 'stalled_orphan', 'completed_error']);
-  
+
   data.nodes.forEach(node => {
-      const existing = uniqueNodesMap.get(node.id);
-      if (!existing) {
-          uniqueNodesMap.set(node.id, node);
-      } else {
-          // 如果已存在节点是终态，保留它
-          if (terminalStates.has(existing.status)) return;
-          // 如果新节点是终态，替换旧节点
-          if (terminalStates.has(node.status)) {
-              uniqueNodesMap.set(node.id, node);
-              return;
-          }
-          // 都是非终态，优先保留 'in_progress'
-          if (node.status === 'in_progress' || node.status === 'running') {
-              uniqueNodesMap.set(node.id, node);
-          }
+    const existing = uniqueNodesMap.get(node.id);
+    if (!existing) {
+      uniqueNodesMap.set(node.id, node);
+    } else {
+      // 如果已存在节点是终态，保留它
+      if (terminalStates.has(existing.status)) return;
+      // 如果新节点是终态，替换旧节点
+      if (terminalStates.has(node.status)) {
+        uniqueNodesMap.set(node.id, node);
+        return;
       }
+      // 都是非终态，优先保留 'in_progress'
+      if (node.status === 'in_progress' || node.status === 'running') {
+        uniqueNodesMap.set(node.id, node);
+      }
+    }
   });
   // 使用去重后的节点列表覆盖原始数据
   data.nodes = Array.from(uniqueNodesMap.values());
@@ -180,35 +185,35 @@ function drawForceGraph(data) {
 
   // 1. 数据转换与 Dagre 图构建
   const dagreGraph = new dagre.graphlib.Graph();
-  
+
   // 根据视图类型使用不同的布局配置
   if (state.view === 'causal') {
     // 因果图：使用从上到下的紧凑布局
     const nodeCount = data.nodes ? data.nodes.length : 0;
-    
+
     // 如果节点数量很多，使用更紧凑的参数
     const nodesep = nodeCount > 20 ? 30 : 40;
     const ranksep = nodeCount > 20 ? 50 : 60;
-    
-    dagreGraph.setGraph({ 
-        rankdir: 'TB',  // Top-to-Bottom 布局
-        align: 'DL',    // 下左对齐，减少横向扩展
-        nodesep: nodesep,    // 同层节点间距（动态调整）
-        ranksep: ranksep,    // 层级间距（动态调整）
-        marginx: 20, 
-        marginy: 20,
-        ranker: 'tight-tree'  // 使用紧凑树算法，减少宽度
+
+    dagreGraph.setGraph({
+      rankdir: 'TB',  // Top-to-Bottom 布局
+      align: 'DL',    // 下左对齐，减少横向扩展
+      nodesep: nodesep,    // 同层节点间距（动态调整）
+      ranksep: ranksep,    // 层级间距（动态调整）
+      marginx: 20,
+      marginy: 20,
+      ranker: 'tight-tree'  // 使用紧凑树算法，减少宽度
     });
   } else {
     // 执行图：使用标准树形布局
-    dagreGraph.setGraph({ 
-        rankdir: 'TB',  // Top-to-Bottom 布局 (更像攻击图/树)
-        align: undefined,    // 不设置对齐方式，让算法自动平衡
-        nodesep: 40,    // 同层节点水平间距（适当增加以改善可读性）
-        ranksep: 80,    // 层级间垂直间距（增大以拉长纵向）
-        marginx: 40, 
-        marginy: 40,
-        ranker: 'network-simplex'  // 使用网络单纯形算法，更好地平衡布局
+    dagreGraph.setGraph({
+      rankdir: 'TB',  // Top-to-Bottom 布局 (更像攻击图/树)
+      align: undefined,    // 不设置对齐方式，让算法自动平衡
+      nodesep: 40,    // 同层节点水平间距（适当增加以改善可读性）
+      ranksep: 80,    // 层级间垂直间距（增大以拉长纵向）
+      marginx: 40,
+      marginy: 40,
+      ranker: 'network-simplex'  // 使用网络单纯形算法，更好地平衡布局
     });
   }
 
@@ -217,68 +222,68 @@ function drawForceGraph(data) {
 
   // 调试：打印因果图节点类型
   if (state.view === 'causal' && data.nodes.length > 0) {
-      console.log('Causal graph nodes:', data.nodes.map(n => ({
-          id: n.id, 
-          type: n.type, 
-          node_type: n.node_type
-      })));
+    console.log('Causal graph nodes:', data.nodes.map(n => ({
+      id: n.id,
+      type: n.type,
+      node_type: n.node_type
+    })));
   }
 
   data.nodes.forEach(node => {
-      // 根据视图类型和节点类型设置不同的宽度
-      let width, height;
-      
-      if (state.view === 'causal') {
-          // 因果图节点：更紧凑的尺寸
-          const nodeType = node.node_type || node.type;
-          if (nodeType === 'KeyFact' || nodeType === 'Evidence') {
-              width = 140;   // 关键事实和证据
-              height = 50;
-          } else if (nodeType === 'Hypothesis') {
-              width = 130;   // 假设
-              height = 50;
-          } else if (nodeType === 'Vulnerability' || nodeType === 'ConfirmedVulnerability') {
-              width = 150;   // 漏洞节点稍宽
-              height = 50;
-          } else if (nodeType === 'Flag') {
-              width = 100;   // Flag 最窄
-              height = 45;
-          } else {
-              width = 140;   // 默认因果图节点
-              height = 50;
-          }
+    // 根据视图类型和节点类型设置不同的宽度
+    let width, height;
+
+    if (state.view === 'causal') {
+      // 因果图节点：更紧凑的尺寸
+      const nodeType = node.node_type || node.type;
+      if (nodeType === 'KeyFact' || nodeType === 'Evidence') {
+        width = 140;   // 关键事实和证据
+        height = 50;
+      } else if (nodeType === 'Hypothesis') {
+        width = 130;   // 假设
+        height = 50;
+      } else if (nodeType === 'Vulnerability' || nodeType === 'ConfirmedVulnerability') {
+        width = 150;   // 漏洞节点稍宽
+        height = 50;
+      } else if (nodeType === 'Flag') {
+        width = 100;   // Flag 最窄
+        height = 45;
       } else {
-          // 执行图节点：原有尺寸
-          if (node.type === 'root') {
-              width = 200;   // 主任务：最宽
-              height = 60;
-          } else if (node.type === 'task') {
-              width = 180;   // 子任务：标准宽度
-              height = 60;
-          } else if (node.type === 'action') {
-              width = 120;   // 动作节点：较窄
-              height = 50;   // 稍矮一些
-          } else {
-              width = 160;   // 其他类型：中等宽度
-              height = 55;
-          }
+        width = 140;   // 默认因果图节点
+        height = 50;
       }
-      
-      dagreGraph.setNode(node.id, { 
-          label: node.label || node.id, 
-          width: width, 
-          height: height,
-          ...node // 传递原始数据
-      });
+    } else {
+      // 执行图节点：原有尺寸
+      if (node.type === 'root') {
+        width = 200;   // 主任务：最宽
+        height = 60;
+      } else if (node.type === 'task') {
+        width = 180;   // 子任务：标准宽度
+        height = 60;
+      } else if (node.type === 'action') {
+        width = 120;   // 动作节点：较窄
+        height = 50;   // 稍矮一些
+      } else {
+        width = 160;   // 其他类型：中等宽度
+        height = 55;
+      }
+    }
+
+    dagreGraph.setNode(node.id, {
+      label: node.label || node.id,
+      width: width,
+      height: height,
+      ...node // 传递原始数据
+    });
   });
 
   // 添加边
   if (data.edges) {
-      data.edges.forEach(link => {
-          dagreGraph.setEdge(link.source, link.target, { 
-              ...link // 传递原始数据
-          });
+    data.edges.forEach(link => {
+      dagreGraph.setEdge(link.source, link.target, {
+        ...link // 传递原始数据
       });
+    });
   }
 
   // 2. 执行布局计算 (确定性坐标)
@@ -287,262 +292,262 @@ function drawForceGraph(data) {
   // 3. 绘制连线 (使用贝塞尔曲线)
   // 生成曲线路径生成器
   const lineGen = d3.line()
-      .x(d => d.x)
-      .y(d => d.y)
-      .curve(d3.curveBasis); // 使用 Basis 样条插值实现平滑曲线
+    .x(d => d.x)
+    .y(d => d.y)
+    .curve(d3.curveBasis); // 使用 Basis 样条插值实现平滑曲线
 
   const links = g.selectAll(".link")
-      .data(dagreGraph.edges())
-      .enter().append("path")
-      .attr("class", d => {
-          const edgeData = dagreGraph.edge(d);
-          // 如果目标节点正在运行，则连线也设为 active
-          const targetNode = data.nodes.find(n => n.id === d.w);
-          return `link ${targetNode && targetNode.status === 'running' ? 'active' : ''}`;
-      })
-      .attr("d", d => {
-          const points = dagreGraph.edge(d).points;
-          return lineGen(points);
-      })
-      .attr("marker-end", d => {
-          // 不要在连线上添加箭头，保持简洁
-          return null;
-      });
+    .data(dagreGraph.edges())
+    .enter().append("path")
+    .attr("class", d => {
+      const edgeData = dagreGraph.edge(d);
+      // 如果目标节点正在运行，则连线也设为 active
+      const targetNode = data.nodes.find(n => n.id === d.w);
+      return `link ${targetNode && targetNode.status === 'running' ? 'active' : ''}`;
+    })
+    .attr("d", d => {
+      const points = dagreGraph.edge(d).points;
+      return lineGen(points);
+    })
+    .attr("marker-end", d => {
+      // 不要在连线上添加箭头，保持简洁
+      return null;
+    });
 
   // 4. 绘制节点 (圆角矩形)
   const nodes = g.selectAll(".node")
-      .data(dagreGraph.nodes())
-      .enter().append("g")
-      .attr("class", d => {
-          const nodeData = dagreGraph.node(d);
-          return `node status-${nodeData.status || 'pending'} type-${nodeData.type || 'unknown'}`;
-      })
-      .attr("transform", d => {
-          const node = dagreGraph.node(d);
-          return `translate(${node.x},${node.y})`;
-      })
-      .on("click", (e,d)=>showDetails(dagreGraph.node(d)));
+    .data(dagreGraph.nodes())
+    .enter().append("g")
+    .attr("class", d => {
+      const nodeData = dagreGraph.node(d);
+      return `node status-${nodeData.status || 'pending'} type-${nodeData.type || 'unknown'}`;
+    })
+    .attr("transform", d => {
+      const node = dagreGraph.node(d);
+      return `translate(${node.x},${node.y})`;
+    })
+    .on("click", (e, d) => showDetails(dagreGraph.node(d)));
 
   // 节点背景 - 使用动态宽度和高度
   nodes.append("rect")
-      .attr("width", d => dagreGraph.node(d).width)
-      .attr("height", d => dagreGraph.node(d).height)
-      .attr("x", d => -dagreGraph.node(d).width / 2)
-      .attr("y", d => -dagreGraph.node(d).height / 2)
-      .attr("rx", d => {
-          const n = dagreGraph.node(d);
-          return n.type === 'action' ? 6 : 8;  // 动作节点圆角稍小
-      })
-      .attr("ry", d => {
-          const n = dagreGraph.node(d);
-          return n.type === 'action' ? 6 : 8;
-      })
-      .style("fill", d => {
-          const n = dagreGraph.node(d);
-          // 区分 Task 和 Action 的背景色
-          if (n.type === 'task') return '#1e293b'; // Darker for tasks
-          if (n.type === 'action' || n.type === 'tool_use') return '#0f172a'; // Even darker for actions
-          return '#1e293b';
-      })
-      .style("stroke", d => {
-          const n = dagreGraph.node(d);
-          
-          // 因果图：使用 node_type 来确定颜色
-          if (state.view === 'causal') {
-              const nodeType = n.node_type || n.type;
-              return causalColors[nodeType] || '#64748b';
-          }
-          
-          // 执行图：使用状态和类型来确定颜色
-          if (n.status === 'failed') return '#ef4444';
-          if (n.status === 'completed') return '#10b981';
-          if (n.status === 'running' || n.status === 'in_progress') return '#3b82f6';
-          
-          if (n.type === 'root') return '#3b82f6'; // Blue for root task
-          if (n.type === 'task') return '#8b5cf6'; // Purple for tasks
-          if (n.type === 'action' || n.type === 'tool_use') return '#f59e0b'; // Orange for actions
-          return '#475569';
-      })
-      .style("stroke-width", d => {
-          const n = dagreGraph.node(d);
-          return (n.status === 'running' || n.status === 'in_progress') ? 2 : 1.5;
-      });
+    .attr("width", d => dagreGraph.node(d).width)
+    .attr("height", d => dagreGraph.node(d).height)
+    .attr("x", d => -dagreGraph.node(d).width / 2)
+    .attr("y", d => -dagreGraph.node(d).height / 2)
+    .attr("rx", d => {
+      const n = dagreGraph.node(d);
+      return n.type === 'action' ? 6 : 8;  // 动作节点圆角稍小
+    })
+    .attr("ry", d => {
+      const n = dagreGraph.node(d);
+      return n.type === 'action' ? 6 : 8;
+    })
+    .style("fill", d => {
+      const n = dagreGraph.node(d);
+      // 区分 Task 和 Action 的背景色
+      if (n.type === 'task') return '#1e293b'; // Darker for tasks
+      if (n.type === 'action' || n.type === 'tool_use') return '#0f172a'; // Even darker for actions
+      return '#1e293b';
+    })
+    .style("stroke", d => {
+      const n = dagreGraph.node(d);
+
+      // 因果图：使用 node_type 来确定颜色
+      if (state.view === 'causal') {
+        const nodeType = n.node_type || n.type;
+        return causalColors[nodeType] || '#64748b';
+      }
+
+      // 执行图：使用状态和类型来确定颜色
+      if (n.status === 'failed') return '#ef4444';
+      if (n.status === 'completed') return '#10b981';
+      if (n.status === 'running' || n.status === 'in_progress') return '#3b82f6';
+
+      if (n.type === 'root') return '#3b82f6'; // Blue for root task
+      if (n.type === 'task') return '#8b5cf6'; // Purple for tasks
+      if (n.type === 'action' || n.type === 'tool_use') return '#f59e0b'; // Orange for actions
+      return '#475569';
+    })
+    .style("stroke-width", d => {
+      const n = dagreGraph.node(d);
+      return (n.status === 'running' || n.status === 'in_progress') ? 2 : 1.5;
+    });
 
   // 节点类型标签 (左上角小标签) - 增强可见性
   nodes.append("rect")
-      .attr("width", d => {
-          const n = dagreGraph.node(d);
-          if (n.type === 'root') return 58;
-          if (n.type === 'action') return 45;  // 动作节点标签更窄
-          return 50;
-      })
-      .attr("height", 18)
-      .attr("x", d => {
-          const n = dagreGraph.node(d);
-          return -n.width / 2;  // 使用动态宽度
-      })
-      .attr("y", d => {
-          const n = dagreGraph.node(d);
-          return -n.height / 2 - 9;  // 使用动态高度
-      })
-      .attr("rx", 4)
-      .attr("ry", 4)
-      .style("fill", d => {
-          const n = dagreGraph.node(d);
-          
-          // 因果图：使用 causal 颜色
-          if (state.view === 'causal') {
-              const nodeType = n.node_type || n.type;
-              return causalColors[nodeType] || '#64748b';
-          }
-          
-          // 执行图：使用任务类型颜色
-          if (n.type === 'root') return '#3b82f6';  // 蓝色 - 主任务
-          if (n.type === 'task') return '#8b5cf6';  // 紫色 - 子任务
-          if (n.type === 'action') return '#f59e0b';  // 橙色 - 动作节点
-          return '#64748b';
-      })
-      .style("stroke", "#fff")
-      .style("stroke-width", "1px");
-      
+    .attr("width", d => {
+      const n = dagreGraph.node(d);
+      if (n.type === 'root') return 58;
+      if (n.type === 'action') return 45;  // 动作节点标签更窄
+      return 50;
+    })
+    .attr("height", 18)
+    .attr("x", d => {
+      const n = dagreGraph.node(d);
+      return -n.width / 2;  // 使用动态宽度
+    })
+    .attr("y", d => {
+      const n = dagreGraph.node(d);
+      return -n.height / 2 - 9;  // 使用动态高度
+    })
+    .attr("rx", 4)
+    .attr("ry", 4)
+    .style("fill", d => {
+      const n = dagreGraph.node(d);
+
+      // 因果图：使用 causal 颜色
+      if (state.view === 'causal') {
+        const nodeType = n.node_type || n.type;
+        return causalColors[nodeType] || '#64748b';
+      }
+
+      // 执行图：使用任务类型颜色
+      if (n.type === 'root') return '#3b82f6';  // 蓝色 - 主任务
+      if (n.type === 'task') return '#8b5cf6';  // 紫色 - 子任务
+      if (n.type === 'action') return '#f59e0b';  // 橙色 - 动作节点
+      return '#64748b';
+    })
+    .style("stroke", "#fff")
+    .style("stroke-width", "1px");
+
   nodes.append("text")
-      .attr("x", d => {
-          const n = dagreGraph.node(d);
-          // 计算标签中心位置
-          const labelWidth = n.type === 'root' ? 58 : (n.type === 'action' ? 45 : 50);
-          return -n.width / 2 + labelWidth / 2;
-      })
-      .attr("y", d => {
-          const n = dagreGraph.node(d);
-          return -n.height / 2 + 3;
-      })
-      .attr("text-anchor", "middle")
-      .attr("fill", "#fff")
-      .style("font-size", "10px")
-      .style("font-weight", "bold")
-      .text(d => {
-          const n = dagreGraph.node(d);
-          
-          // 因果图：显示 node_type
-          if (state.view === 'causal') {
-              const nodeType = n.node_type || n.type;
-              // 节点类型翻译映射
-              const typeLabels = {
-                  'KeyFact': currentLang === 'zh' ? '关键事实' : 'Key Fact',
-                  'Evidence': currentLang === 'zh' ? '证据' : 'Evidence',
-                  'Hypothesis': currentLang === 'zh' ? '假设' : 'Hypothesis',
-                  'Vulnerability': currentLang === 'zh' ? '漏洞' : 'Vuln',
-                  'ConfirmedVulnerability': currentLang === 'zh' ? '确认漏洞' : 'Confirmed',
-                  'Flag': 'Flag'
-              };
-              return typeLabels[nodeType] || nodeType || 'UNKNOWN';
-          }
-          
-          // 执行图：显示任务类型
-          if (n.type === 'root') return currentLang === 'zh' ? '主任务' : 'Root';
-          if (n.type === 'task') return currentLang === 'zh' ? '子任务' : 'Task';
-          if (n.type === 'action') return currentLang === 'zh' ? '动作' : 'Action';
-          return 'NODE';
-      });
+    .attr("x", d => {
+      const n = dagreGraph.node(d);
+      // 计算标签中心位置
+      const labelWidth = n.type === 'root' ? 58 : (n.type === 'action' ? 45 : 50);
+      return -n.width / 2 + labelWidth / 2;
+    })
+    .attr("y", d => {
+      const n = dagreGraph.node(d);
+      return -n.height / 2 + 3;
+    })
+    .attr("text-anchor", "middle")
+    .attr("fill", "#fff")
+    .style("font-size", "10px")
+    .style("font-weight", "bold")
+    .text(d => {
+      const n = dagreGraph.node(d);
+
+      // 因果图：显示 node_type
+      if (state.view === 'causal') {
+        const nodeType = n.node_type || n.type;
+        // 节点类型翻译映射
+        const typeLabels = {
+          'KeyFact': currentLang === 'zh' ? '关键事实' : 'Key Fact',
+          'Evidence': currentLang === 'zh' ? '证据' : 'Evidence',
+          'Hypothesis': currentLang === 'zh' ? '假设' : 'Hypothesis',
+          'Vulnerability': currentLang === 'zh' ? '漏洞' : 'Vuln',
+          'ConfirmedVulnerability': currentLang === 'zh' ? '确认漏洞' : 'Confirmed',
+          'Flag': 'Flag'
+        };
+        return typeLabels[nodeType] || nodeType || 'UNKNOWN';
+      }
+
+      // 执行图：显示任务类型
+      if (n.type === 'root') return currentLang === 'zh' ? '主任务' : 'Root';
+      if (n.type === 'task') return currentLang === 'zh' ? '子任务' : 'Task';
+      if (n.type === 'action') return currentLang === 'zh' ? '动作' : 'Action';
+      return 'NODE';
+    });
 
   // 节点文字 (使用节点名称/描述)
   nodes.append("text")
-      .attr("text-anchor", "middle")
-      .attr("dy", "0.3em")
-      .attr("fill", "#fff")
-      .style("font-weight", "bold")
-      .style("font-size", "11px")
-      .each(function(d) {
-          const n = dagreGraph.node(d);
-          let label = n.label || n.id;
-          
-          // 如果是动作节点，提取真正的动作名称
-          if (n.type === 'action' && label.includes('_')) {
-              // 格式通常为: <subtask>_step_<action> 或 <subtask>_<action>
-              // 例如: basic_app_recon_step_homepage -> homepage
-              //       initial_reconnaissance_step_1a -> step_1a
-              
-              // 先尝试匹配 _step_ 模式
-              const stepMatch = label.match(/_step_(.+)$/);
-              if (stepMatch) {
-                  label = stepMatch[1];  // 取 step_ 后面的部分
-              } else {
-                  // 如果没有 _step_，则取最后一个下划线后的部分
-                  const parts = label.split('_');
-                  if (parts.length >= 2) {
-                      label = parts[parts.length - 1];  // 只取最后一个部分
-                  }
-              }
+    .attr("text-anchor", "middle")
+    .attr("dy", "0.3em")
+    .attr("fill", "#fff")
+    .style("font-weight", "bold")
+    .style("font-size", "11px")
+    .each(function (d) {
+      const n = dagreGraph.node(d);
+      let label = n.label || n.id;
+
+      // 如果是动作节点，提取真正的动作名称
+      if (n.type === 'action' && label.includes('_')) {
+        // 格式通常为: <subtask>_step_<action> 或 <subtask>_<action>
+        // 例如: basic_app_recon_step_homepage -> homepage
+        //       initial_reconnaissance_step_1a -> step_1a
+
+        // 先尝试匹配 _step_ 模式
+        const stepMatch = label.match(/_step_(.+)$/);
+        if (stepMatch) {
+          label = stepMatch[1];  // 取 step_ 后面的部分
+        } else {
+          // 如果没有 _step_，则取最后一个下划线后的部分
+          const parts = label.split('_');
+          if (parts.length >= 2) {
+            label = parts[parts.length - 1];  // 只取最后一个部分
           }
-          
-          // 智能截断：考虑中英文字符宽度
-          const textElement = d3.select(this);
-          textElement.text(label);
-          
-          // 根据节点宽度动态设置最大文本宽度
-          const nodeWidth = n.width;
-          const maxWidth = nodeWidth - 20;  // 留出左右边距
-          let currentText = label;
-          
-          while (textElement.node().getComputedTextLength() > maxWidth && currentText.length > 3) {
-              currentText = currentText.substring(0, currentText.length - 1);
-              textElement.text(currentText + '...');
-          }
-      });
-      
+        }
+      }
+
+      // 智能截断：考虑中英文字符宽度
+      const textElement = d3.select(this);
+      textElement.text(label);
+
+      // 根据节点宽度动态设置最大文本宽度
+      const nodeWidth = n.width;
+      const maxWidth = nodeWidth - 20;  // 留出左右边距
+      let currentText = label;
+
+      while (textElement.node().getComputedTextLength() > maxWidth && currentText.length > 3) {
+        currentText = currentText.substring(0, currentText.length - 1);
+        textElement.text(currentText + '...');
+      }
+    });
+
   // 节点副标题 (例如耗时或工具名)
   nodes.append("text")
-      .attr("text-anchor", "middle")
-      .attr("dy", "1.8em")
-      .attr("fill", "#94a3b8")
-      .style("font-size", "9px")
-      .text(d => {
-          const n = dagreGraph.node(d);
-          if (n.tool_name) return `Tool: ${n.tool_name}`;
-          return n.status || "";
-      });
+    .attr("text-anchor", "middle")
+    .attr("dy", "1.8em")
+    .attr("fill", "#94a3b8")
+    .style("font-size", "9px")
+    .text(d => {
+      const n = dagreGraph.node(d);
+      if (n.tool_name) return `Tool: ${n.tool_name}`;
+      return n.status || "";
+    });
 
   // 5. 交互：聚焦模式 (Focus Mode)
-  nodes.on("mouseenter", function(event, d) {
-      const nodeId = d;
-      // 找出前驱和后继
-      const predecessors = dagreGraph.predecessors(nodeId);
-      const successors = dagreGraph.successors(nodeId);
-      const neighbors = new Set([nodeId, ...predecessors, ...successors]);
+  nodes.on("mouseenter", function (event, d) {
+    const nodeId = d;
+    // 找出前驱和后继
+    const predecessors = dagreGraph.predecessors(nodeId);
+    const successors = dagreGraph.successors(nodeId);
+    const neighbors = new Set([nodeId, ...predecessors, ...successors]);
 
-      // 变暗所有非相关节点
-      nodes.classed("dimmed", n => !neighbors.has(n));
-      
-      // 变暗所有非相关连线
-      links.classed("dimmed", l => !neighbors.has(l.v) || !neighbors.has(l.w));
-      
-      tippy(this, { content: `<b>${dagreGraph.node(d).type}</b><br>${dagreGraph.node(d).label||d}`, allowHTML:true });
-  }).on("mouseleave", function() {
-      // 恢复原状
-      nodes.classed("dimmed", false);
-      links.classed("dimmed", false);
+    // 变暗所有非相关节点
+    nodes.classed("dimmed", n => !neighbors.has(n));
+
+    // 变暗所有非相关连线
+    links.classed("dimmed", l => !neighbors.has(l.v) || !neighbors.has(l.w));
+
+    tippy(this, { content: `<b>${dagreGraph.node(d).type}</b><br>${dagreGraph.node(d).label || d}`, allowHTML: true });
+  }).on("mouseleave", function () {
+    // 恢复原状
+    nodes.classed("dimmed", false);
+    links.classed("dimmed", false);
   });
-  
+
   // 自适应缩放和居中
   const graphWidth = dagreGraph.graph().width;
   const graphHeight = dagreGraph.graph().height;
   const svgWidth = state.svg.node().clientWidth || 800;
   const svgHeight = state.svg.node().clientHeight || 600;
-  
+
   // 计算合适的缩放比例，确保图完全可见
   const scaleX = (svgWidth * 0.9) / graphWidth;  // 留10%边距
   const scaleY = (svgHeight * 0.9) / graphHeight;
   const autoScale = Math.min(scaleX, scaleY, 1);  // 不超过1倍，避免放大过度
-  
+
   // 计算居中偏移
   const x = (svgWidth - graphWidth * autoScale) / 2;
   const y = (svgHeight - graphHeight * autoScale) / 2;
-  
+
   // 应用变换
   state.svg.call(state.zoom.transform, d3.zoomIdentity
-      .translate(x, y)
-      .scale(autoScale));
-  
+    .translate(x, y)
+    .scale(autoScale));
+
   // 高亮当前执行路径
   highlightActivePath(dagreGraph, data.nodes, nodes, links);
 }
@@ -551,45 +556,45 @@ function highlightActivePath(dagreGraph, dataNodes, nodeSelection, linkSelection
   // 清除之前的高亮
   nodeSelection.classed("path-highlight", false);
   linkSelection.classed("path-highlight", false);
-  
+
   // 如果系统在反思或规划阶段，不进行路径高亮
   if (state.currentPhase === 'reflecting' || state.currentPhase === 'planning') {
     console.log('Skipping path highlight - system in phase:', state.currentPhase);
     return;
   }
-  
-  console.log('All nodes:', dataNodes.map(n => ({id: n.id, type: n.type, status: n.status})));
+
+  console.log('All nodes:', dataNodes.map(n => ({ id: n.id, type: n.type, status: n.status })));
   console.log('All edges in graph:', dagreGraph.edges().map(e => `${e.v} -> ${e.w}`));
-  
+
   // 检查全局任务是否完成
   // 方法1: 检查根节点状态
   const rootNode = dataNodes.find(n => n.type === 'root');
   const rootCompleted = rootNode && rootNode.status === 'completed';
-  
+
   // 方法2: 检查全局标志（通过 state.missionAccomplished）
   const isGoalAchieved = rootCompleted || state.missionAccomplished;
-  
+
   if (isGoalAchieved) {
     console.log('🎉 Goal achieved! Highlighting success path...');
     // 高亮所有成功完成的路径
     highlightSuccessPaths(dagreGraph, dataNodes, nodeSelection, linkSelection);
     return;
   }
-  
+
   // 新策略：始终高亮到最新的执行节点，不管是否有活跃节点
   // 1. 优先：正在执行的动作节点
   // 2. 其次：如果有活跃任务，找它路径上最后执行的动作节点
   // 3. 最后：找所有已完成/失败的动作节点中的叶子节点
-  
+
   const activeNodes = dataNodes.filter(n => n.status === 'in_progress' || n.status === 'running');
   const allActionNodes = dataNodes.filter(n => n.type === 'action');
   const activeActionNodes = activeNodes.filter(n => n.type === 'action');
   const activeTaskNodes = activeNodes.filter(n => n.type === 'task');
   const activeRootNodes = activeNodes.filter(n => n.type === 'root');
-  
+
   // 收集所有需要高亮的"叶子节点"（执行的最前沿）
   let leafNodes = [];
-  
+
   if (activeActionNodes.length > 0) {
     // 有正在运行的动作节点，高亮所有这些节点的路径
     leafNodes = activeActionNodes;
@@ -599,14 +604,14 @@ function highlightActivePath(dagreGraph, dataNodes, nodeSelection, linkSelection
     // 策略：从当前 in_progress 的任务向下找到所有子节点中最深的已执行 action 节点
     activeTaskNodes.forEach(task => {
       console.log('Processing active task:', task.id);
-      
+
       // 递归收集从当前任务向下的所有后继节点（子任务树）
       const descendantsSet = new Set();
-      
+
       function collectDescendants(nodeId) {
         const succs = dagreGraph.successors(nodeId);
         if (!succs || succs.length === 0) return;
-        
+
         succs.forEach(succ => {
           if (!descendantsSet.has(succ)) {
             descendantsSet.add(succ);
@@ -614,28 +619,28 @@ function highlightActivePath(dagreGraph, dataNodes, nodeSelection, linkSelection
           }
         });
       }
-      
+
       collectDescendants(task.id);
       console.log('  Descendants of task:', Array.from(descendantsSet));
-      
+
       // 在后继节点中找到所有动作节点
       const actionsInSubtree = allActionNodes.filter(action => descendantsSet.has(action.id));
-      console.log('  Actions in subtree:', actionsInSubtree.map(a => ({id: a.id, status: a.status})));
-      
+      console.log('  Actions in subtree:', actionsInSubtree.map(a => ({ id: a.id, status: a.status })));
+
       if (actionsInSubtree.length > 0) {
         // 找到所有已执行的动作节点（completed 或 failed）
-        const executedActions = actionsInSubtree.filter(n => 
+        const executedActions = actionsInSubtree.filter(n =>
           n.status === 'completed' || n.status === 'failed'
         );
-        
-        console.log('  Executed actions:', executedActions.map(a => ({id: a.id, completed_at: a.completed_at})));
-        
+
+        console.log('  Executed actions:', executedActions.map(a => ({ id: a.id, completed_at: a.completed_at })));
+
         if (executedActions.length > 0) {
           // 策略：使用 completed_at 时间戳找到最新执行完成的 action 节点
           const actionsWithTime = executedActions.filter(a => a.completed_at);
-          
+
           let latestAction = null;
-          
+
           if (actionsWithTime.length > 0) {
             // 按 completed_at 排序，找到最新的
             actionsWithTime.sort((a, b) => b.completed_at - a.completed_at);
@@ -645,22 +650,22 @@ function highlightActivePath(dagreGraph, dataNodes, nodeSelection, linkSelection
             // 如果没有时间戳信息，回退到查找最深的叶子节点
             console.log('  No timestamp info, falling back to deepest leaf strategy');
             const executedIds = new Set(executedActions.map(a => a.id));
-            
+
             // BFS 寻找最深的叶子节点
             function findDeepestLeaf() {
-              const queue = [{id: task.id, depth: 0}];
+              const queue = [{ id: task.id, depth: 0 }];
               let maxDepth = 0;
               let deepestLeaf = null;
               const visited = new Set();
-              
+
               while (queue.length > 0) {
-                const {id, depth} = queue.shift();
+                const { id, depth } = queue.shift();
                 if (visited.has(id)) continue;
                 visited.add(id);
-                
+
                 const successors = dagreGraph.successors(id);
                 const executedSuccessors = successors?.filter(s => executedIds.has(s)) || [];
-                
+
                 if (executedSuccessors.length === 0 && executedIds.has(id)) {
                   // 这是一个已执行的叶子节点
                   if (depth > maxDepth) {
@@ -670,20 +675,20 @@ function highlightActivePath(dagreGraph, dataNodes, nodeSelection, linkSelection
                 } else {
                   // 继续向下搜索
                   executedSuccessors.forEach(succ => {
-                    queue.push({id: succ, depth: depth + 1});
+                    queue.push({ id: succ, depth: depth + 1 });
                   });
                 }
               }
-              
+
               return deepestLeaf;
             }
-            
+
             const deepestLeaf = findDeepestLeaf();
             if (deepestLeaf) {
               latestAction = dataNodes.find(n => n.id === deepestLeaf);
             }
           }
-          
+
           if (latestAction) {
             leafNodes.push(latestAction);
           } else {
@@ -702,28 +707,28 @@ function highlightActivePath(dagreGraph, dataNodes, nodeSelection, linkSelection
         leafNodes.push(task);
       }
     });
-    
+
     console.log('Task in progress, final leaf nodes:', leafNodes.map(n => n.id));
   } else if (activeRootNodes.length > 0) {
     // 只有根节点在运行，但没有活跃的任务或动作节点
     // 找到所有已完成/失败的动作节点中的叶子节点
-    const executedActions = allActionNodes.filter(n => 
+    const executedActions = allActionNodes.filter(n =>
       n.status === 'completed' || n.status === 'failed'
     );
-    
-    console.log('Root active, executed actions:', executedActions.map(a => ({id: a.id, status: a.status})));
-    
+
+    console.log('Root active, executed actions:', executedActions.map(a => ({ id: a.id, status: a.status })));
+
     if (executedActions.length > 0) {
       // 找到叶子节点（没有后继，或后继不在已执行列表中）
       const executedIds = new Set(executedActions.map(a => a.id));
       const leaves = executedActions.filter(action => {
         const successors = dagreGraph.successors(action.id);
-        return !successors || successors.length === 0 || 
-               !successors.some(succ => executedIds.has(succ));
+        return !successors || successors.length === 0 ||
+          !successors.some(succ => executedIds.has(succ));
       });
-      
+
       console.log('Leaf executed actions:', leaves.map(l => l.id));
-      
+
       if (leaves.length > 0) {
         leafNodes.push(...leaves);
       } else {
@@ -734,47 +739,47 @@ function highlightActivePath(dagreGraph, dataNodes, nodeSelection, linkSelection
       // 没有已执行的动作，高亮根节点
       leafNodes = activeRootNodes;
     }
-    
+
     console.log('Root only, final leaf nodes:', leafNodes.map(n => n.id));
   } else {
     // 完全没有活跃节点 - 这种情况下也要显示最后的执行状态
     console.log('No active nodes at all, finding latest executed actions');
-    
-    const executedActions = allActionNodes.filter(n => 
+
+    const executedActions = allActionNodes.filter(n =>
       n.status === 'completed' || n.status === 'failed'
     );
-    
+
     if (executedActions.length > 0) {
       const executedIds = new Set(executedActions.map(a => a.id));
       const leaves = executedActions.filter(action => {
         const successors = dagreGraph.successors(action.id);
-        return !successors || successors.length === 0 || 
-               !successors.some(succ => executedIds.has(succ));
+        return !successors || successors.length === 0 ||
+          !successors.some(succ => executedIds.has(succ));
       });
-      
+
       if (leaves.length > 0) {
         leafNodes.push(...leaves);
       }
     }
-    
+
     console.log('No active nodes, using executed leaves:', leafNodes.map(n => n.id));
   }
-  
+
   if (leafNodes.length === 0) {
     console.log('No leaf nodes to highlight');
     return;
   }
-  
+
   // 从所有叶子节点追溯到根节点（支持多条并行路径）
   const pathToRoot = new Set();
   const edgesInPath = new Set();
-  
+
   function findPathToRoot(nodeId) {
     if (!nodeId || pathToRoot.has(nodeId)) return; // 防止循环
-    
+
     pathToRoot.add(nodeId);
     const predecessors = dagreGraph.predecessors(nodeId);
-    
+
     if (predecessors && predecessors.length > 0) {
       predecessors.forEach(pred => {
         edgesInPath.add(`${pred}->${nodeId}`);
@@ -782,19 +787,19 @@ function highlightActivePath(dagreGraph, dataNodes, nodeSelection, linkSelection
       });
     }
   }
-  
+
   // 对每个叶子节点追溯路径
   console.log('Tracing paths from leaf nodes:', leafNodes.map(n => n.id));
   leafNodes.forEach(leaf => {
     findPathToRoot(leaf.id);
   });
-  
+
   console.log('Highlighted paths include', pathToRoot.size, 'nodes and', edgesInPath.size, 'edges');
   console.log('Path nodes:', Array.from(pathToRoot));
-  
+
   // 高亮路径上的节点
   nodeSelection.classed("path-highlight", d => pathToRoot.has(d));
-  
+
   // 高亮路径上的边
   linkSelection.classed("path-highlight", d => {
     const edgeKey = `${d.v}->${d.w}`;
@@ -805,44 +810,44 @@ function highlightActivePath(dagreGraph, dataNodes, nodeSelection, linkSelection
 // 高亮成功路径（当全局任务完成时）
 function highlightSuccessPaths(dagreGraph, dataNodes, nodeSelection, linkSelection) {
   console.log('🎉 Highlighting all success paths...');
-  
+
   // 显示成功横幅
   showSuccessBanner();
-  
+
   // 找到所有成功完成的叶子节点（completed 状态且没有后继的节点）
   const completedNodes = dataNodes.filter(n => n.status === 'completed');
-  
+
   if (completedNodes.length === 0) {
     console.log('No completed nodes found');
     return;
   }
-  
+
   // 找到所有叶子节点（没有后继节点的）
   const completedNodeIds = new Set(completedNodes.map(n => n.id));
   const leafNodes = completedNodes.filter(node => {
     const successors = dagreGraph.successors(node.id);
     // 没有后继，或者后继都不在已完成列表中
-    return !successors || successors.length === 0 || 
-           !successors.some(succ => completedNodeIds.has(succ));
+    return !successors || successors.length === 0 ||
+      !successors.some(succ => completedNodeIds.has(succ));
   });
-  
-  console.log('Completed leaf nodes:', leafNodes.map(n => ({id: n.id, type: n.type})));
-  
+
+  console.log('Completed leaf nodes:', leafNodes.map(n => ({ id: n.id, type: n.type })));
+
   if (leafNodes.length === 0) {
     console.log('No leaf nodes found, using all completed nodes');
     leafNodes.push(...completedNodes);
   }
-  
+
   // 从所有叶子节点追溯到根节点
   const pathToRoot = new Set();
   const edgesInPath = new Set();
-  
+
   function findPathToRoot(nodeId) {
     if (!nodeId || pathToRoot.has(nodeId)) return;
-    
+
     pathToRoot.add(nodeId);
     const predecessors = dagreGraph.predecessors(nodeId);
-    
+
     if (predecessors && predecessors.length > 0) {
       predecessors.forEach(pred => {
         edgesInPath.add(`${pred}->${nodeId}`);
@@ -850,82 +855,82 @@ function highlightSuccessPaths(dagreGraph, dataNodes, nodeSelection, linkSelecti
       });
     }
   }
-  
+
   leafNodes.forEach(leaf => {
     findPathToRoot(leaf.id);
   });
-  
+
   console.log('✨ Success path includes', pathToRoot.size, 'nodes and', edgesInPath.size, 'edges');
-  
+
   // 使用 success-path 类高亮节点和边（绿色发光效果）
   nodeSelection.classed("success-path", d => pathToRoot.has(d));
-  
+
   linkSelection.classed("success-path", d => {
     const edgeKey = `${d.v}->${d.w}`;
     return edgesInPath.has(edgeKey);
   });
 }
 
-function dragstarted(e,d) { if(!e.active) state.simulation.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; }
-function dragged(e,d) { d.fx=e.x; d.fy=e.y; }
-function dragended(e,d) { if(!e.active) state.simulation.alphaTarget(0); d.fx=null; d.fy=null; }
+function dragstarted(e, d) { if (!e.active) state.simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; }
+function dragged(e, d) { d.fx = e.x; d.fy = e.y; }
+function dragended(e, d) { if (!e.active) state.simulation.alphaTarget(0); d.fx = null; d.fy = null; }
 function zoomIn() { state.svg.transition().call(state.zoom.scaleBy, 1.2); }
 function zoomOut() { state.svg.transition().call(state.zoom.scaleBy, 0.8); }
 function zoomReset() { state.svg.transition().call(state.zoom.transform, d3.zoomIdentity); }
-function updateLegend() { 
-    const el = document.getElementById('legend-content');
-    let h = '';
-    
-    if (state.view === 'exec') {
-        // 攻击图 - 显示执行状态
-        const execLegend = {
-            'completed': { color: '#10b981', label: t('status.completed') },
-            'failed': { color: '#ef4444', label: t('status.failed') },
-            'in_progress': { color: '#3b82f6', label: t('status.in_progress') },
-            'pending': { color: '#64748b', label: t('status.pending') },
-            'deprecated': { color: '#94a3b8', label: t('status.deprecated') }
-        };
-        Object.entries(execLegend).forEach(([k, v]) => {
-            h += `<div class="legend-item">
+function updateLegend() {
+  const el = document.getElementById('legend-content');
+  let h = '';
+
+  if (state.view === 'exec') {
+    // 攻击图 - 显示执行状态
+    const execLegend = {
+      'completed': { color: '#10b981', label: t('status.completed') },
+      'failed': { color: '#ef4444', label: t('status.failed') },
+      'in_progress': { color: '#3b82f6', label: t('status.in_progress') },
+      'pending': { color: '#64748b', label: t('status.pending') },
+      'deprecated': { color: '#94a3b8', label: t('status.deprecated') }
+    };
+    Object.entries(execLegend).forEach(([k, v]) => {
+      h += `<div class="legend-item">
                     <div class="legend-dot" style="background:${v.color}"></div>
                     <span>${v.label}</span>
                   </div>`;
-        });
-    } else if (state.view === 'causal') {
-        // 因果图 - 显示节点类型（这些标签保持原样，因为是专业术语）
-        const causalLegend = {
-            'ConfirmedVulnerability': { color: '#f59e0b', label: currentLang === 'zh' ? '确认漏洞' : 'Confirmed Vuln' },
-            'Vulnerability': { color: '#a855f7', label: currentLang === 'zh' ? '疑似漏洞' : 'Vulnerability' },
-            'Evidence': { color: '#06b6d4', label: currentLang === 'zh' ? '证据' : 'Evidence' },
-            'Hypothesis': { color: '#84cc16', label: currentLang === 'zh' ? '假设' : 'Hypothesis' },
-            'KeyFact': { color: '#fbbf24', label: currentLang === 'zh' ? '关键事实' : 'Key Fact' },
-            'Flag': { color: '#ef4444', label: 'Flag' }
-        };
-        Object.entries(causalLegend).forEach(([k, v]) => {
-            h += `<div class="legend-item">
+    });
+  } else if (state.view === 'causal') {
+    // 因果图 - 显示节点类型（这些标签保持原样，因为是专业术语）
+    const causalLegend = {
+      'ConfirmedVulnerability': { color: '#f59e0b', label: currentLang === 'zh' ? '确认漏洞' : 'Confirmed Vuln' },
+      'Vulnerability': { color: '#a855f7', label: currentLang === 'zh' ? '疑似漏洞' : 'Vulnerability' },
+      'Evidence': { color: '#06b6d4', label: currentLang === 'zh' ? '证据' : 'Evidence' },
+      'Hypothesis': { color: '#84cc16', label: currentLang === 'zh' ? '假设' : 'Hypothesis' },
+      'KeyFact': { color: '#fbbf24', label: currentLang === 'zh' ? '关键事实' : 'Key Fact' },
+      'Flag': { color: '#ef4444', label: 'Flag' }
+    };
+    Object.entries(causalLegend).forEach(([k, v]) => {
+      h += `<div class="legend-item">
                     <div class="legend-dot" style="background:${v.color}"></div>
                     <span>${v.label}</span>
                   </div>`;
-        });
-    }
-    
-    el.innerHTML = h;
+    });
+  }
+
+  el.innerHTML = h;
 }
 
 function showDetails(d) {
-  const c=document.getElementById('node-detail-content'); 
+  const c = document.getElementById('node-detail-content');
   let h = '';
-  
+
   // Header with Type and ID - 增强类型显示
-  const typeLabel = d.type === 'root' ? t('type.root') : 
-                    d.type === 'task' ? t('type.task') : 
-                    d.type === 'action' ? t('type.action') : 
-                    (d.type || 'NODE');
-  const typeColor = d.type === 'root' ? '#3b82f6' : 
-                    d.type === 'task' ? '#8b5cf6' : 
-                    d.type === 'action' ? '#f59e0b' : 
-                    '#64748b';
-  
+  const typeLabel = d.type === 'root' ? t('type.root') :
+    d.type === 'task' ? t('type.task') :
+      d.type === 'action' ? t('type.action') :
+        (d.type || 'NODE');
+  const typeColor = d.type === 'root' ? '#3b82f6' :
+    d.type === 'task' ? '#8b5cf6' :
+      d.type === 'action' ? '#f59e0b' :
+        '#64748b';
+
   h += `<div style="margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border-color)">
           <div style="font-size:10px;text-transform:uppercase;color:${typeColor};font-weight:bold;display:inline-block;background:${typeColor}22;padding:2px 6px;border-radius:3px;">${typeLabel}</div>
           <div style="font-size:14px;font-weight:bold;word-break:break-all;margin-top:6px;">${d.label || d.description || d.id}</div>
@@ -939,52 +944,52 @@ function showDetails(d) {
 
   // Tool Execution Details (if available) - 增强显示
   if (d.tool_name || d.action) {
-      h += `<div class="detail-section" style="border:1px solid #f59e0b;border-radius:6px;padding:12px;margin-bottom:12px;background:rgba(245,158,11,0.05);">
+    h += `<div class="detail-section" style="border:1px solid #f59e0b;border-radius:6px;padding:12px;margin-bottom:12px;background:rgba(245,158,11,0.05);">
               <div class="detail-header" style="color:#f59e0b;margin-bottom:8px;">🔧 ${t('panel.tool')}</div>`;
-      
-      const toolName = d.tool_name || (d.action && d.action.tool);
-      if (toolName) {
-          h += `<div class="detail-row" style="margin-bottom:8px;">
+
+    const toolName = d.tool_name || (d.action && d.action.tool);
+    if (toolName) {
+      h += `<div class="detail-row" style="margin-bottom:8px;">
                   <span class="detail-key">${t('panel.tool')}:</span> 
                   <span class="detail-val" style="color:#f59e0b;font-weight:bold;font-family:monospace;">${toolName}</span>
                 </div>`;
-      }
-      
-      const toolArgs = d.tool_args || (d.action && d.action.params);
-      if (toolArgs) {
-          h += `<div class="detail-row" style="margin-bottom:4px;">
+    }
+
+    const toolArgs = d.tool_args || (d.action && d.action.params);
+    if (toolArgs) {
+      h += `<div class="detail-row" style="margin-bottom:4px;">
                   <span class="detail-key">${t('panel.args')}:</span>
                 </div>
                 <div class="code-block" style="max-height:200px;overflow-y:auto;margin-bottom:8px;">${hlJson(toolArgs)}</div>`;
-      }
-      
-      if (d.result) {
-          h += `<div class="detail-row" style="margin-bottom:4px;">
+    }
+
+    if (d.result) {
+      h += `<div class="detail-row" style="margin-bottom:4px;">
                   <span class="detail-key">${t('panel.result')}:</span>
                 </div>
                 <div class="code-block" style="max-height:300px;overflow-y:auto;">${hlJson(d.result)}</div>`;
-      }
-      
-      if (d.observation) {
-          h += `<div class="detail-row" style="margin-bottom:4px;margin-top:8px;">
+    }
+
+    if (d.observation) {
+      h += `<div class="detail-row" style="margin-bottom:4px;margin-top:8px;">
                   <span class="detail-key">${t('panel.observation')}:</span>
                 </div>
                 <div class="code-block" style="max-height:300px;overflow-y:auto;">${typeof d.observation === 'object' ? hlJson(d.observation) : d.observation}</div>`;
-      }
-      
-      h += `</div>`;
+    }
+
+    h += `</div>`;
   }
 
   // Other Properties
   h += `<div class="detail-section"><div class="detail-header">${t('panel.description')}</div><table class="detail-table">`;
-  Object.entries(d).forEach(([k,v])=>{ 
-      if(!['x','y','fx','fy','vx','vy','index','children','width','height','tool_name','tool_args','result','observation','action','label','id','type','status','description','original_type'].includes(k)) {
-          h+=`<tr><td class="detail-key">${k}</td><td class="detail-val">${typeof v==='object'?JSON.stringify(v,null,2):v}</td></tr>`; 
-      }
+  Object.entries(d).forEach(([k, v]) => {
+    if (!['x', 'y', 'fx', 'fy', 'vx', 'vy', 'index', 'children', 'width', 'height', 'tool_name', 'tool_args', 'result', 'observation', 'action', 'label', 'id', 'type', 'status', 'description', 'original_type'].includes(k)) {
+      h += `<tr><td class="detail-key">${k}</td><td class="detail-val">${typeof v === 'object' ? JSON.stringify(v, null, 2) : v}</td></tr>`;
+    }
   });
-  h+='</table></div>';
-  
-  c.innerHTML=h;
+  h += '</table></div>';
+
+  c.innerHTML = h;
   document.getElementById('node-details-panel').classList.add('show');
 }
 
@@ -996,347 +1001,348 @@ function subscribe() {
   state.es = new EventSource(`/api/events?op_id=${state.op_id}`);
   state.es.onmessage = e => {
     try {
-        const msg = JSON.parse(e.data);
-        
-        // 统一处理所有事件
-        const eventType = msg.event || 'message';
-        
-        if(eventType === 'graph.changed' || eventType === 'execution.step.completed') render();
-        if(eventType === 'ping' || eventType === 'graph.ready') return;
-        
-        // 分流渲染
-        if(eventType.startsWith('llm.')) {
-            renderLLMResponse(msg);
-        } else {
-            renderSystemEvent(msg);
-        }
-    } catch(x) { console.error('Parse error', x); }
+      const msg = JSON.parse(e.data);
+
+      // 统一处理所有事件
+      const eventType = msg.event || 'message';
+
+      if (eventType === 'graph.changed' || eventType === 'execution.step.completed') render();
+      if (eventType === 'ping' || eventType === 'graph.ready') return;
+
+      // 分流渲染
+      if (eventType.startsWith('llm.')) {
+        renderLLMResponse(msg);
+      } else {
+        renderSystemEvent(msg);
+      }
+    } catch (x) { console.error('Parse error', x); }
   };
-  fetch(`/api/ops/${state.op_id}/llm-events`).then(r=>r.json()).then(d=>(d.events||[]).forEach(e => {
-      if(e.event && e.event.startsWith('llm.')) renderLLMResponse(e); else renderSystemEvent(e);
+  fetch(`/api/ops/${state.op_id}/llm-events`).then(r => r.json()).then(d => (d.events || []).forEach(e => {
+    if (e.event && e.event.startsWith('llm.')) renderLLMResponse(e); else renderSystemEvent(e);
   }));
 }
 
 // 专门处理系统/执行事件 (execution.step.completed, graph.changed, etc)
 function renderSystemEvent(msg) {
-    const id = (msg.timestamp||0) + '_' + msg.event;
-    if(state.processedEvents.has(id)) return;
-    state.processedEvents.add(id);
+  const id = (msg.timestamp || 0) + '_' + msg.event;
+  if (state.processedEvents.has(id)) return;
+  state.processedEvents.add(id);
 
-    const container = document.getElementById('llm-stream');
-    const div = document.createElement('div');
-    // 使用 role-system 样式
-    div.className = 'llm-msg role-system';
-    
-    const time = new Date(msg.timestamp ? msg.timestamp * 1000 : Date.now()).toLocaleTimeString();
-    const eventType = msg.event;
-    const data = msg.data || msg.payload || {};
-    
-    // 步骤分隔线
-    if (eventType === 'execution.step.completed') {
-        const sep = document.createElement('div');
-        sep.className = 'step-separator';
-        container.appendChild(sep);
-    }
+  const container = document.getElementById('llm-stream');
+  const div = document.createElement('div');
+  // 使用 role-system 样式
+  div.className = 'llm-msg role-system';
 
-    let html = `<div class="msg-meta">
+  const time = new Date(msg.timestamp ? msg.timestamp * 1000 : Date.now()).toLocaleTimeString();
+  const eventType = msg.event;
+  const data = msg.data || msg.payload || {};
+
+  // 步骤分隔线
+  if (eventType === 'execution.step.completed') {
+    const sep = document.createElement('div');
+    sep.className = 'step-separator';
+    container.appendChild(sep);
+  }
+
+  let html = `<div class="msg-meta">
         <div><span class="role-badge">SYSTEM</span><span>${msg.event}</span></div>
         <span>${time}</span>
     </div>`;
 
-    // 针对 Tool Execution Completed 的特殊渲染
-    if (eventType === 'execution.step.completed') {
-        let result = data.result;
-        // 尝试解析 result 字符串内部的 JSON
-        if (typeof result === 'string') {
-            try { result = JSON.parse(result); } catch(e) {}
-        }
-        
-        html += `<div style="color:#a5d6ff;margin-bottom:4px;">Tool: <b>${data.tool_name}</b> (Step: ${data.step_id})</div>`;
-        html += `<div class="tool-output">${hlJson(result)}</div>`;
-    } 
-    // 针对 Graph Changed
-    else if (eventType === 'graph.changed') {
-        if (data.reason === 'mission_accomplished') {
-            html += `<div style="color:#10b981;font-weight:bold;">🎉 Mission Accomplished!</div>`;
-            html += `<div style="color:#94a3b8">Root task marked as completed</div>`;
-            if (!state.missionAccomplished) {
-                state.missionAccomplished = true;
-                loadOps(); // Refresh the task list on mission accomplished
-            }
-        } else if (data.reason === 'confidence_update') {
-            html += `<div style="color:#fbbf24;font-weight:bold;">📈 Confidence Update</div>`;
-            html += `<div style="color:#94a3b8">${data.message || 'No details'}</div>`;
-        } else {
-            html += `<div style="color:#94a3b8">Graph updated: ${data.reason || 'Unknown reason'}</div>`;
-        }
+  // 针对 Tool Execution Completed 的特殊渲染
+  if (eventType === 'execution.step.completed') {
+    let result = data.result;
+    // 尝试解析 result 字符串内部的 JSON
+    if (typeof result === 'string') {
+      try { result = JSON.parse(result); } catch (e) { }
     }
-    // 针对 Intervention
-    else if (eventType === 'intervention.required') {
-        html += `<div style="color:#f59e0b;font-weight:bold;">⚠ Intervention Required</div>`;
-        html += `<div style="color:#94a3b8">Waiting for user approval...</div>`;
+
+    html += `<div style="color:#a5d6ff;margin-bottom:4px;">Tool: <b>${data.tool_name}</b> (Step: ${data.step_id})</div>`;
+    html += `<div class="tool-output">${hlJson(result)}</div>`;
+  }
+  // 针对 Graph Changed
+  else if (eventType === 'graph.changed') {
+    if (data.reason === 'mission_accomplished') {
+      html += `<div style="color:#10b981;font-weight:bold;">🎉 Mission Accomplished!</div>`;
+      html += `<div style="color:#94a3b8">Root task marked as completed</div>`;
+      if (!state.missionAccomplished) {
+        state.missionAccomplished = true;
+        showSuccessBanner(); // [Fix] Update UI to show success banner
+        loadOps(); // Refresh the task list on mission accomplished
+      }
+    } else if (data.reason === 'confidence_update') {
+      html += `<div style="color:#fbbf24;font-weight:bold;">📈 Confidence Update</div>`;
+      html += `<div style="color:#94a3b8">${data.message || 'No details'}</div>`;
+    } else {
+      html += `<div style="color:#94a3b8">Graph updated: ${data.reason || 'Unknown reason'}</div>`;
     }
-    // 兜底通用渲染
-    else {
-        html += `<div class="raw-data-content">${hlJson(data)}</div>`;
-    }
-    
-    div.innerHTML = html;
-    const shouldScroll = Math.abs(container.scrollHeight - container.clientHeight - container.scrollTop) < 50;
-    container.appendChild(div);
-    if(shouldScroll) container.scrollTop = container.scrollHeight;
+  }
+  // 针对 Intervention
+  else if (eventType === 'intervention.required') {
+    html += `<div style="color:#f59e0b;font-weight:bold;">⚠ Intervention Required</div>`;
+    html += `<div style="color:#94a3b8">Waiting for user approval...</div>`;
+  }
+  // 兜底通用渲染
+  else {
+    html += `<div class="raw-data-content">${hlJson(data)}</div>`;
+  }
+
+  div.innerHTML = html;
+  const shouldScroll = Math.abs(container.scrollHeight - container.clientHeight - container.scrollTop) < 50;
+  container.appendChild(div);
+  if (shouldScroll) container.scrollTop = container.scrollHeight;
 }
 
 // 专门处理 LLM 响应
 function renderLLMResponse(msg) {
-  const id = (msg.timestamp||Date.now()) + '_' + msg.event; 
-  if(state.processedEvents.has(id)) return; 
+  const id = (msg.timestamp || Date.now()) + '_' + msg.event;
+  if (state.processedEvents.has(id)) return;
   state.processedEvents.add(id);
-  
+
   if (msg.event && msg.event.includes('request')) return;
-  
+
   // 1. 确定角色和样式
   const eventType = msg.event || '';
   const data = msg.data || msg.payload || {};
-  
+
   let roleClass = 'role-system';
   let roleName = 'SYSTEM';
-  
+
   // 尝试从 payload 中获取 role
   let role = data.role;
   if (!role && typeof data === 'string') {
-      try { const p = JSON.parse(data); role = p.role; } catch(e){}
+    try { const p = JSON.parse(data); role = p.role; } catch (e) { }
   }
-  
+
   if (role === 'planner' || eventType.includes('planner') || (data.model && data.model.includes('planner'))) {
-      roleClass = 'role-planner'; roleName = 'PLANNER';
-      showPhaseBanner('planning');
+    roleClass = 'role-planner'; roleName = 'PLANNER';
+    showPhaseBanner('planning');
   } else if (role === 'executor' || eventType.includes('executor') || (data.model && data.model.includes('executor'))) {
-      roleClass = 'role-executor'; roleName = 'EXECUTOR';
-      showPhaseBanner('executing');
-      setTimeout(() => { if (state.currentPhase === 'executing') hidePhaseBanner(); }, 2000);
+    roleClass = 'role-executor'; roleName = 'EXECUTOR';
+    showPhaseBanner('executing');
+    setTimeout(() => { if (state.currentPhase === 'executing') hidePhaseBanner(); }, 2000);
   } else if (role === 'reflector' || eventType.includes('reflector') || (data.model && data.model.includes('reflector'))) {
-      roleClass = 'role-reflector'; roleName = 'REFLECTOR';
-      showPhaseBanner('reflecting');
+    roleClass = 'role-reflector'; roleName = 'REFLECTOR';
+    showPhaseBanner('reflecting');
   }
 
   // 检测全局任务完成
   let missionFlag = false;
   const msgContentStr = JSON.stringify(msg).toLowerCase();
-  if ((data && data.global_mission_accomplished === true) || 
-      (data.data && data.data.global_mission_accomplished === true) ||
-      (msgContentStr.includes('global_mission_accomplished') && msgContentStr.includes('true'))) {
-      missionFlag = true;
+  if ((data && data.global_mission_accomplished === true) ||
+    (data.data && data.data.global_mission_accomplished === true) ||
+    (msgContentStr.includes('global_mission_accomplished') && msgContentStr.includes('true'))) {
+    missionFlag = true;
   }
-  
+
   if (missionFlag && !state.missionAccomplished) {
     state.missionAccomplished = true;
     showSuccessBanner();
     render();
   }
-  
+
   // 2. 解析内容
   let content = data;
   if (content && content.content) content = content.content;
   if (typeof content === 'string' && (content.trim().startsWith('{') || content.trim().startsWith('['))) {
-      try { content = JSON.parse(content); } catch(e){}
+    try { content = JSON.parse(content); } catch (e) { }
   }
-  
+
   // 3. 构建 HTML 内容
   const container = document.getElementById('llm-stream');
   const div = document.createElement('div');
   div.className = `llm-msg ${roleClass}`;
-  
+
   const time = new Date(msg.timestamp ? msg.timestamp * 1000 : Date.now()).toLocaleTimeString();
-  
+
   let htmlContent = `<div class="msg-meta">
       <div><span class="role-badge">${roleName}</span><span>${msg.event}</span></div>
       <span>${time}</span>
   </div>`;
-  
+
   if (typeof content === 'object' && content !== null) {
-      let remaining = { ...content };
-      
-      // Thought
-      if (remaining.thought) {
-          let thoughtText = '';
-          if (typeof remaining.thought === 'object') {
-              for (const [key, val] of Object.entries(remaining.thought)) {
-                   if (typeof val === 'string') thoughtText += `<div style="margin-bottom:6px;"><span class="detail-key">${key.replace(/_/g,' ')}:</span> <span style="color:#e2e8f0">${val}</span></div>`;
-              }
-          } else {
-              thoughtText = `<div style="color:#e2e8f0">${remaining.thought}</div>`;
-          }
-          htmlContent += `<div class="thought-card">${thoughtText}</div>`;
-          delete remaining.thought;
+    let remaining = { ...content };
+
+    // Thought
+    if (remaining.thought) {
+      let thoughtText = '';
+      if (typeof remaining.thought === 'object') {
+        for (const [key, val] of Object.entries(remaining.thought)) {
+          if (typeof val === 'string') thoughtText += `<div style="margin-bottom:6px;"><span class="detail-key">${key.replace(/_/g, ' ')}:</span> <span style="color:#e2e8f0">${val}</span></div>`;
+        }
+      } else {
+        thoughtText = `<div style="color:#e2e8f0">${remaining.thought}</div>`;
       }
-      
-      // Audit Result
-      if (remaining.audit_result) {
-          const audit = remaining.audit_result;
-          const statusColor = audit.status==='passed'?'#10b981':(audit.status==='failed'?'#ef4444':'#f59e0b');
-          htmlContent += `<div class="thought-card" style="border-left-color:${statusColor}">
+      htmlContent += `<div class="thought-card">${thoughtText}</div>`;
+      delete remaining.thought;
+    }
+
+    // Audit Result
+    if (remaining.audit_result) {
+      const audit = remaining.audit_result;
+      const statusColor = audit.status === 'passed' ? '#10b981' : (audit.status === 'failed' ? '#ef4444' : '#f59e0b');
+      htmlContent += `<div class="thought-card" style="border-left-color:${statusColor}">
               <div class="thought-title" style="color:${statusColor}">Audit: ${audit.status.toUpperCase()}</div>
               <div style="margin-bottom:6px;">${audit.completion_check}</div>
           </div>`;
-          delete remaining.audit_result;
-      }
+      delete remaining.audit_result;
+    }
 
-      // Collapsible Graph Actions
-      if (remaining.graph_operations && Array.isArray(remaining.graph_operations)) {
-          const count = remaining.graph_operations.length;
-          let detailsHtml = '';
-          remaining.graph_operations.forEach(op => {
-              const nodeData = op.node_data || {};
-              detailsHtml += `<div class="op-item"><span class="plan-tag ${op.command}">${op.command}</span> <span style="font-family:monospace;color:#cbd5e1">${nodeData.id || '-'}</span></div>`;
-          });
-          htmlContent += `
+    // Collapsible Graph Actions
+    if (remaining.graph_operations && Array.isArray(remaining.graph_operations)) {
+      const count = remaining.graph_operations.length;
+      let detailsHtml = '';
+      remaining.graph_operations.forEach(op => {
+        const nodeData = op.node_data || {};
+        detailsHtml += `<div class="op-item"><span class="plan-tag ${op.command}">${op.command}</span> <span style="font-family:monospace;color:#cbd5e1">${nodeData.id || '-'}</span></div>`;
+      });
+      htmlContent += `
           <div class="log-group">
               <div class="log-summary" onclick="this.parentElement.classList.toggle('open')">Graph Actions (${count})</div>
               <div class="log-details">${detailsHtml}</div>
           </div>`;
-          delete remaining.graph_operations;
-      }
+      delete remaining.graph_operations;
+    }
 
-      // Collapsible Execution Actions
-      if (remaining.execution_operations && Array.isArray(remaining.execution_operations)) {
-          const count = remaining.execution_operations.length;
-          let detailsHtml = '';
-          remaining.execution_operations.forEach(op => {
-              const toolName = op.action ? op.action.tool : 'Unknown';
-              detailsHtml += `<div class="op-item"><span style="color:#f59e0b">🔧 ${toolName}</span> <span style="color:#94a3b8">${op.thought || ''}</span></div>`;
-          });
-          htmlContent += `
+    // Collapsible Execution Actions
+    if (remaining.execution_operations && Array.isArray(remaining.execution_operations)) {
+      const count = remaining.execution_operations.length;
+      let detailsHtml = '';
+      remaining.execution_operations.forEach(op => {
+        const toolName = op.action ? op.action.tool : 'Unknown';
+        detailsHtml += `<div class="op-item"><span style="color:#f59e0b">🔧 ${toolName}</span> <span style="color:#94a3b8">${op.thought || ''}</span></div>`;
+      });
+      htmlContent += `
           <div class="log-group open">
               <div class="log-summary" onclick="this.parentElement.classList.toggle('open')">Execution Actions (${count})</div>
               <div class="log-details">${detailsHtml}</div>
           </div>`;
-          delete remaining.execution_operations;
-      }
-      
-      // Cleanup common fields
-      delete remaining.key_findings; delete remaining.key_facts; delete remaining.causal_graph_updates;
-      delete remaining.staged_causal_nodes; delete remaining.attack_intelligence; delete remaining.role; delete remaining.model;
-      delete remaining.global_mission_accomplished; delete remaining.is_subtask_complete; delete remaining.success; delete remaining.hypothesis_update;
+      delete remaining.execution_operations;
+    }
 
-      // Remaining Data Dump (Collapsible)
-      if (Object.keys(remaining).length > 0) {
-          htmlContent += `
+    // Cleanup common fields
+    delete remaining.key_findings; delete remaining.key_facts; delete remaining.causal_graph_updates;
+    delete remaining.staged_causal_nodes; delete remaining.attack_intelligence; delete remaining.role; delete remaining.model;
+    delete remaining.global_mission_accomplished; delete remaining.is_subtask_complete; delete remaining.success; delete remaining.hypothesis_update;
+
+    // Remaining Data Dump (Collapsible)
+    if (Object.keys(remaining).length > 0) {
+      htmlContent += `
           <div class="log-group">
               <div class="log-summary" onclick="this.parentElement.classList.toggle('open')">Other Data</div>
               <div class="log-details"><div class="raw-data-content">${hlJson(JSON.stringify(remaining, null, 2))}</div></div>
           </div>`;
-      }
-      
+    }
+
   } else {
-      htmlContent += `<div style="white-space:pre-wrap;color:#e2e8f0;">${content}</div>`;
+    htmlContent += `<div style="white-space:pre-wrap;color:#e2e8f0;">${content}</div>`;
   }
 
   div.innerHTML = htmlContent;
-  
+
   const shouldScroll = Math.abs(container.scrollHeight - container.clientHeight - container.scrollTop) < 50;
-  container.appendChild(div); 
-  if(shouldScroll) container.scrollTop = container.scrollHeight;
+  container.appendChild(div);
+  if (shouldScroll) container.scrollTop = container.scrollHeight;
 }
 
 function hlJson(s) {
-  if(typeof s !== 'string') {
-      if(typeof s === 'object') s = JSON.stringify(s, null, 2);
-      else s = String(s);
+  if (typeof s !== 'string') {
+    if (typeof s === 'object') s = JSON.stringify(s, null, 2);
+    else s = String(s);
   }
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/("(\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, m => {
     let c = 'json-number';
-    if(/^"/.test(m)) c = /:$/.test(m) ? 'json-key' : 'json-string';
-    else if(/true|false/.test(m)) c = 'json-boolean';
+    if (/^"/.test(m)) c = /:$/.test(m) ? 'json-key' : 'json-string';
+    else if (/true|false/.test(m)) c = 'json-boolean';
     return `<span class="${c}">${m}</span>`;
   });
 }
 
-async function createTask() { const g=document.getElementById('in-goal').value, t=document.getElementById('in-task').value; if(!g)return; await api('/api/ops',{goal:g,task_name:t}).then(r=>{if(r.ok){loadOps();selectOp(r.op_id)}}); }
-async function abortOp() { if(confirm(t('msg.confirm_abort'))) await api(`/api/ops/${state.op_id}/abort`,{}); }
+async function createTask() { const g = document.getElementById('in-goal').value, t = document.getElementById('in-task').value; if (!g) return; await api('/api/ops', { goal: g, task_name: t }).then(r => { if (r.ok) { loadOps(); selectOp(r.op_id) } }); }
+async function abortOp() { if (confirm(t('msg.confirm_abort'))) await api(`/api/ops/${state.op_id}/abort`, {}); }
 
 async function checkPendingIntervention() {
-  if(!state.op_id) return;
+  if (!state.op_id) return;
   try {
-      const r = await api(`/api/ops/${state.op_id}/intervention/pending`);
-      const m = document.getElementById('approval-modal');
-      if(r.pending && r.request) {
-          if(!state.pendingReq || state.pendingReq.id !== r.request.id) {
-              state.pendingReq = r.request; state.isModifyMode = false;
-              renderApproval(r.request); m.classList.add('show');
-          }
-      } else if(state.pendingReq) { m.classList.remove('show'); state.pendingReq = null; }
-  } catch(e){}
+    const r = await api(`/api/ops/${state.op_id}/intervention/pending`);
+    const m = document.getElementById('approval-modal');
+    if (r.pending && r.request) {
+      if (!state.pendingReq || state.pendingReq.id !== r.request.id) {
+        state.pendingReq = r.request; state.isModifyMode = false;
+        renderApproval(r.request); m.classList.add('show');
+      }
+    } else if (state.pendingReq) { m.classList.remove('show'); state.pendingReq = null; }
+  } catch (e) { }
 }
 
 function renderApproval(r) {
-  const l=document.getElementById('approval-list'), e=document.getElementById('approval-json-editor'), ea=document.getElementById('approval-edit-area'), b=document.getElementById('btn-modify-mode');
-  l.style.display='block'; ea.style.display='none'; b.innerText='Modify'; b.classList.remove('active');
-  let h=''; (r.data||[]).forEach(o=>{ h+=`<div class="plan-item"><div class="plan-tag ${o.command}">${o.command}</div><div style="flex:1;font-size:12px;color:#94a3b8"><div style="color:#e2e8f0;font-family:monospace">${o.node_id||(o.node_data?o.node_data.id:'-')}</div>${o.command==='ADD_NODE'?(o.node_data.description||''):''}</div></div>`; });
-  l.innerHTML=h; e.value=JSON.stringify(r.data,null,2);
+  const l = document.getElementById('approval-list'), e = document.getElementById('approval-json-editor'), ea = document.getElementById('approval-edit-area'), b = document.getElementById('btn-modify-mode');
+  l.style.display = 'block'; ea.style.display = 'none'; b.innerText = 'Modify'; b.classList.remove('active');
+  let h = ''; (r.data || []).forEach(o => { h += `<div class="plan-item"><div class="plan-tag ${o.command}">${o.command}</div><div style="flex:1;font-size:12px;color:#94a3b8"><div style="color:#e2e8f0;font-family:monospace">${o.node_id || (o.node_data ? o.node_data.id : '-')}</div>${o.command === 'ADD_NODE' ? (o.node_data.description || '') : ''}</div></div>`; });
+  l.innerHTML = h; e.value = JSON.stringify(r.data, null, 2);
 }
 
-function toggleModifyMode() { state.isModifyMode=!state.isModifyMode; const l=document.getElementById('approval-list'), ea=document.getElementById('approval-edit-area'), b=document.getElementById('btn-modify-mode'); if(state.isModifyMode){l.style.display='none';ea.style.display='block';b.innerText='Cancel';b.classList.add('active')}else{l.style.display='block';ea.style.display='none';b.innerText='Modify';b.classList.remove('active')} } 
-async function submitDecision(a) { 
-    if (!state.pendingReq) return;
-    let p={action:a, id: state.pendingReq.id}; 
-    if(a==='APPROVE'&&state.isModifyMode) { 
-        try{p.modified_data=JSON.parse(document.getElementById('approval-json-editor').value);p.action='MODIFY'}catch(e){return alert('Invalid JSON')} 
-    } 
-    await api(`/api/ops/${state.op_id}/intervention/decision`,p); 
-    document.getElementById('approval-modal').classList.remove('show'); 
-    state.pendingReq=null; 
+function toggleModifyMode() { state.isModifyMode = !state.isModifyMode; const l = document.getElementById('approval-list'), ea = document.getElementById('approval-edit-area'), b = document.getElementById('btn-modify-mode'); if (state.isModifyMode) { l.style.display = 'none'; ea.style.display = 'block'; b.innerText = 'Cancel'; b.classList.add('active') } else { l.style.display = 'block'; ea.style.display = 'none'; b.innerText = 'Modify'; b.classList.remove('active') } }
+async function submitDecision(a) {
+  if (!state.pendingReq) return;
+  let p = { action: a, id: state.pendingReq.id };
+  if (a === 'APPROVE' && state.isModifyMode) {
+    try { p.modified_data = JSON.parse(document.getElementById('approval-json-editor').value); p.action = 'MODIFY' } catch (e) { return alert('Invalid JSON') }
+  }
+  await api(`/api/ops/${state.op_id}/intervention/decision`, p);
+  document.getElementById('approval-modal').classList.remove('show');
+  state.pendingReq = null;
 }
 
-function openInjectModal(){document.getElementById('inject-modal').classList.add('show')}
-function closeModals(){document.querySelectorAll('.modal-overlay').forEach(e=>e.classList.remove('show'))}
-async function submitInjection(){const d=document.getElementById('inject-desc').value, dp=document.getElementById('inject-deps').value; if(d) await api(`/api/ops/${state.op_id}/inject_task`,{description:d,dependencies:dp?dp.split(','):[]}); closeModals();}
+function openInjectModal() { document.getElementById('inject-modal').classList.add('show') }
+function closeModals() { document.querySelectorAll('.modal-overlay').forEach(e => e.classList.remove('show')) }
+async function submitInjection() { const d = document.getElementById('inject-desc').value, dp = document.getElementById('inject-deps').value; if (d) await api(`/api/ops/${state.op_id}/inject_task`, { description: d, dependencies: dp ? dp.split(',') : [] }); closeModals(); }
 
-function openMCPModal(){
+function openMCPModal() {
   document.getElementById('mcp-modal').classList.add('show');
   loadMCPConfig();
 }
 
-async function loadMCPConfig(){
+async function loadMCPConfig() {
   try {
-      const data = await api('/api/mcp/config');
-      const list = document.getElementById('mcp-list');
-      let h = '';
-      if(data.mcpServers) {
-          Object.entries(data.mcpServers).forEach(([k,v])=>{
-              h += `<div class="mb-1 border-b border-slate-700 pb-1">
+    const data = await api('/api/mcp/config');
+    const list = document.getElementById('mcp-list');
+    let h = '';
+    if (data.mcpServers) {
+      Object.entries(data.mcpServers).forEach(([k, v]) => {
+        h += `<div class="mb-1 border-b border-slate-700 pb-1">
                       <div class="font-bold text-blue-400">${k}</div>
-                      <div class="text-gray-500">${v.command} ${(v.args||[]).join(' ')}</div>
+                      <div class="text-gray-500">${v.command} ${(v.args || []).join(' ')}</div>
                     </div>`;
-          });
-      }
-      list.innerHTML = h || t('mcp.no_servers');
-  } catch(e){ console.error(e); }
+      });
+    }
+    list.innerHTML = h || t('mcp.no_servers');
+  } catch (e) { console.error(e); }
 }
 
-async function addMCPServer(){
+async function addMCPServer() {
   const name = document.getElementById('mcp-name').value;
   const cmd = document.getElementById('mcp-cmd').value;
   const argsStr = document.getElementById('mcp-args').value;
   const envStr = document.getElementById('mcp-env').value;
-  
-  if(!name || !cmd) return alert(t('mcp.required'));
-  
+
+  if (!name || !cmd) return alert(t('mcp.required'));
+
   let env = {};
   try {
-      if(envStr) env = JSON.parse(envStr);
-  } catch(e){ return alert(t('mcp.invalid_json')); }
-  
-  const args = argsStr ? argsStr.split(',').map(s=>s.trim()) : [];
-  
+    if (envStr) env = JSON.parse(envStr);
+  } catch (e) { return alert(t('mcp.invalid_json')); }
+
+  const args = argsStr ? argsStr.split(',').map(s => s.trim()) : [];
+
   try {
-      await api('/api/mcp/add', {name, command: cmd, args, env});
-      alert(t('mcp.success'));
-      loadMCPConfig();
-      // Clear inputs
-      document.getElementById('mcp-name').value='';
-      document.getElementById('mcp-cmd').value='';
-      document.getElementById('mcp-args').value='';
-      document.getElementById('mcp-env').value='';
-  } catch(e){ alert(t('mcp.error') + ': ' + e); }
+    await api('/api/mcp/add', { name, command: cmd, args, env });
+    alert(t('mcp.success'));
+    loadMCPConfig();
+    // Clear inputs
+    document.getElementById('mcp-name').value = '';
+    document.getElementById('mcp-cmd').value = '';
+    document.getElementById('mcp-args').value = '';
+    document.getElementById('mcp-env').value = '';
+  } catch (e) { alert(t('mcp.error') + ': ' + e); }
 }
