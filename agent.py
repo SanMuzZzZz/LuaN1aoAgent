@@ -1247,6 +1247,14 @@ async def main():
                     graph_manager.update_node(graph_manager.task_id, {"status": "completed"})
                     console.print(Panel(f"根任务 {graph_manager.task_id} 状态已更新为 completed", style="green"))
                     
+                    # Update session status to completed in database
+                    try:
+                        from core.database.utils import update_session_status
+                        await update_session_status(llm.op_id, "completed")
+                        console.print(Panel(f"Session {llm.op_id} 状态已更新到数据库: completed", style="green"))
+                    except Exception as e:
+                        console.print(Panel(f"更新数据库状态失败: {e}", style="red"))
+                    
                     # Notify frontend of graph structure change
                     try:
                         await broker.emit("graph.changed", {"reason": "mission_accomplished"}, op_id=llm.op_id)
