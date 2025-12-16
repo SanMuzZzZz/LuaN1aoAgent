@@ -64,6 +64,11 @@
 {{ dependency_context }}
 {% endif %}
 
+{% if failure_patterns %}
+### ⚠️ 失败模式与反模式 (Failure Patterns & Anti-Patterns)
+{{ failure_patterns }}
+{% endif %}
+
 {{ tools_section }}
 </context_input>
 

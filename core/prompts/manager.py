@@ -124,7 +124,11 @@ class PromptManager:
         # 5. 生成工具部分
         tools_section = self._generate_tools_section()
 
-        # 6. 组装输入变量
+        # 6. 渲染失败模式
+        failure_patterns_data = context.get("causal_context", {}).get("failure_patterns", {})
+        failure_patterns_text = render_failure_patterns(failure_patterns_data)
+
+        # 7. 组装输入变量
         input_variables = {
             "main_goal": main_goal,
             "global_mission_briefing": global_mission_briefing,
@@ -136,6 +140,7 @@ class PromptManager:
             "causal_graph_summary": context.get("causal_graph_summary", "因果链图谱为空。"),
             "dependency_context": dependency_text,
             "tools_section": tools_section,
+            "failure_patterns": failure_patterns_text,
         }
 
         return self.executor_template.render(**input_variables)
