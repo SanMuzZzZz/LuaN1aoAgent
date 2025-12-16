@@ -26,10 +26,20 @@
    - 哪些假设被证实或证伪?
    - 哪些类型的输入导致了失败?
 
-4. **失败归因 (L0-L5 模型) (Failure Attribution (L0-L5 Model))**: 使用L0-L5模型准确归因失败原因。
+4. **证据质量控制 (Evidence Quality Control) [CRITICAL]**:
+   - 严格审查 Executor 提交的 `staged_causal_nodes`。
+   - **行使否决权**: 如果某个 Evidence 节点缺乏具体数据（如仅有 "可能存在漏洞" 但无 HTTP 响应截图/Payload），或者 Hypothesis 缺乏逻辑支撑，你**必须**将其 ID 加入 `rejected_staged_nodes` 列表，并说明原因。
+   - **拒绝雷同证据**: 如果新 Evidence 与已存在的 Evidence 内容高度相似（例如：仅仅是换了时间戳的相同报错），**必须**否决，避免图谱冗余。
+   - **拒绝垃圾进图**: 不要让低质量信息污染全局因果图。
+
+5. **图谱密度优化 (Graph Density Optimization)**:
+   - 检查是否存在“孤岛”证据。尝试将新证据连接到**多个**相关的 Hypothesis（不仅仅是生成它的那个）。
+   - *显式*建立更多 `SUPPORTS` 或 `CONTRADICTS` 边，构建多对一的支撑结构。
+
+6. **失败归因 (L0-L5 模型) (Failure Attribution (L0-L5 Model))**: 使用L0-L5模型准确归因失败原因。
 {% include 'common/failure_attribution_levels.jinja2' %}
 
-5. **优化建议 (Optimization Recommendations)**: 提供具体的策略和战术优化建议,以指导未来的规划和执行。建议必须是可操作的,并能直接提升Agent的实战性能。
+7. **优化建议 (Optimization Recommendations)**: 提供具体的策略和战术优化建议,以指导未来的规划和执行。建议必须是可操作的,并能直接提升Agent的实战性能。
 </core_responsibilities>
 
 <operational_guidelines>
@@ -88,7 +98,10 @@
 
 ```json
 {
-{% include 'reflector/output_schemas/reflector_schema.jinja2' %}
+{
+{% include 'reflector/output_schemas/reflector_schema.jinja2' %},
+"rejected_staged_nodes": ["node_id_1", "node_id_2"]
+}
 }
 ```
 </output_format>

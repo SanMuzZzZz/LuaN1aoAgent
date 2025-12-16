@@ -573,6 +573,24 @@ class Reflector:
 
             # 保持对 validated_nodes 的引用，因为它们可能包含除目标产物之外的其他有用证据
             reflection_data.setdefault("causal_graph_updates", {})
+            
+            # --- VETO LOGIC START ---
+            rejected_nodes = reflection_data.get("rejected_staged_nodes", [])
+            if rejected_nodes and graph_manager:
+                _get_console().print(f"🚫 Reflector exercising VETO power on {len(rejected_nodes)} nodes: {rejected_nodes}", style="bold red")
+                for node_id in rejected_nodes:
+                    # Remove from graph
+                    if graph_manager.graph.has_node(node_id):
+                         graph_manager.delete_node(node_id)
+                    # Also need to remove from causal_graph_updates if present to prevent re-addition
+                    updates = reflection_data.get("causal_graph_updates", {})
+                    if "nodes" in updates:
+                        updates["nodes"] = [n for n in updates["nodes"] if n.get("id") != node_id]
+                    # Also remove edges involving this node
+                    if "edges" in updates:
+                        updates["edges"] = [e for e in updates["edges"] if e.get("source_id") != node_id and e.get("target_id") != node_id]
+            # --- VETO LOGIC END ---
+
             try:
                 import os
 
