@@ -520,9 +520,14 @@ def process_causal_graph_commands(
 
         if source_perm_id and target_perm_id:
             label = edge_data.pop("label", "SUPPORTS")
+            evidence_strength = edge_data.pop("evidence_strength", None)  # LLM 输出的证据强度
             graph_manager.add_causal_edge(source_perm_id, target_perm_id, label, **edge_data)
-            # Trigger confidence propagation
-            graph_manager.update_hypothesis_confidence(target_perm_id, edge_data.get("label"))
+            # Trigger confidence propagation with LLM-driven evidence strength
+            graph_manager.update_hypothesis_confidence(
+                target_perm_id, 
+                label,
+                evidence_strength=evidence_strength
+            )
         else:
             console.print(f"⚠️  无法创建因果链关系边，源或目标ID未找到: {source_temp_id} -> {target_temp_id}", style="yellow")
 

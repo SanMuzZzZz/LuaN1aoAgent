@@ -35,6 +35,22 @@ class NodeNotFoundError(GraphManagerError):
     pass
 
 
+from enum import Enum
+import math
+
+
+class EvidenceStrength(Enum):
+    """
+    证据逻辑强度分类（溯因推理核心）
+    
+    用于区分决定性证据和累积性证据，实现非单调逻辑传播。
+    - NECESSARY: 必然性证据，可一票否决或确认假设
+    - CONTINGENT: 偶然性证据，通过 Sigmoid 函数非线性累积
+    """
+    NECESSARY = "necessary"
+    CONTINGENT = "contingent"
+
+
 import uuid
 
 
@@ -219,7 +235,19 @@ class GraphManager:
         }
         return mapping.get(norm, norm)
 
-    def update_hypothesis_confidence(self, hypothesis_id: str, label: str):
+    def update_hypothesis_confidence(self, hypothesis_id: str, label: str, evidence_strength: str = None, evidence_type: str = None):
+        """
+        非单调逻辑置信度传播 (Non-Monotonic Logic Propagation)
+        
+        区分必然性证据（可否决/确认）和偶然性证据（Sigmoid 累积）。
+        这是溯因推理框架的核心机制，避免了贝叶斯方法对先验概率的依赖。
+        
+        Args:
+            hypothesis_id: 假设节点ID
+            label: 边标签（SUPPORTS/CONTRADICTS 等）
+            evidence_strength: LLM 输出的证据强度（优先使用）
+            evidence_type: 证据类型标识，用于回退判断（可选）
+        """
         label = self._standardize_edge_label(label)
         if not self.causal_graph.has_node(hypothesis_id):
             return
@@ -227,6 +255,7 @@ class GraphManager:
         node_data = self.causal_graph.nodes[hypothesis_id]
         node_type = node_data.get("node_type")
 
+        # ConfirmedVulnerability 特殊处理
         if node_type == "ConfirmedVulnerability":
             if label == "CONTRADICTS":
                 self.causal_graph.nodes[hypothesis_id]["re_evaluation_needed"] = True
@@ -237,32 +266,53 @@ class GraphManager:
         if node_type != "Hypothesis":
             return
 
-        WEIGHTS = {
-            "SUPPORTS": 0.25,
-            "CONTRADICTS": -0.35,
-            "FAILED_EXTRACTION_ATTEMPT": -0.05,
-        }
-
-        adjustment = WEIGHTS.get(label, 0.0)
+        # 获取当前置信度
         confidence_val = node_data.get("confidence", 0.5)
         try:
             current_confidence = float(confidence_val)
         except (ValueError, TypeError):
             current_confidence = 0.5
-        new_confidence = current_confidence + adjustment
-
-        if label in ["SUPPORTS"]:
-            self.causal_graph.nodes[hypothesis_id]["status"] = "SUPPORTED"
-        elif label in ["CONTRADICTS", "FAILED_EXTRACTION_ATTEMPT"]:
-            self.causal_graph.nodes[hypothesis_id]["status"] = "CONTRADICTED"
-
-        new_confidence = max(0.0, min(1.0, new_confidence))
+        
+        # 分类证据强度（优先使用 LLM 输出的 evidence_strength）
+        strength = self._classify_evidence_strength(label, evidence_strength=evidence_strength)
+        
+        if strength == EvidenceStrength.NECESSARY:
+            # 必然性证据：一票否决或确认
+            if label == "CONTRADICTS":
+                new_confidence = 0.0
+                new_status = "FALSIFIED"
+                logging.info(f"[Abductive] NECESSARY CONTRADICTS: Hypothesis '{hypothesis_id}' vetoed (conf: 0.0)")
+            else:  # SUPPORTS
+                new_confidence = 1.0
+                new_status = "CONFIRMED"
+                logging.info(f"[Abductive] NECESSARY SUPPORTS: Hypothesis '{hypothesis_id}' confirmed (conf: 1.0)")
+            self.causal_graph.nodes[hypothesis_id]["status"] = new_status
+        else:
+            # 偶然性证据：Sigmoid 非线性累积
+            # 使用 logit 变换实现边缘收敛（避免置信度过快到达边界）
+            delta = 0.4 if label == "SUPPORTS" else -0.5
+            
+            # Clamp to avoid math domain errors
+            clamped_conf = max(0.01, min(0.99, current_confidence))
+            logit = math.log(clamped_conf / (1 - clamped_conf))
+            new_logit = logit + delta
+            new_confidence = 1 / (1 + math.exp(-new_logit))
+            
+            # 防止极端值
+            new_confidence = max(0.05, min(0.95, new_confidence))
+            
+            # 更新状态
+            if label == "SUPPORTS":
+                self.causal_graph.nodes[hypothesis_id]["status"] = "SUPPORTED"
+            elif label in ["CONTRADICTS", "FAILED_EXTRACTION_ATTEMPT"]:
+                self.causal_graph.nodes[hypothesis_id]["status"] = "CONTRADICTED"
 
         self.causal_graph.nodes[hypothesis_id]["confidence"] = new_confidence
         self._sync_node(hypothesis_id, 'causal')
         
         node_status = self.causal_graph.nodes[hypothesis_id].get("status")
-        message = f"Confidence for hypothesis '{hypothesis_id}' updated from {current_confidence:.2f} to {new_confidence:.2f} due to '{label}' edge. Status: {node_status}."
+        strength_label = strength.value if strength else "contingent"
+        message = f"Confidence for hypothesis '{hypothesis_id}' updated from {current_confidence:.2f} to {new_confidence:.2f} via {strength_label} '{label}' edge. Status: {node_status}."
         logging.debug(message)
         
         try:
@@ -277,10 +327,54 @@ class GraphManager:
                     "reason": "confidence_update", 
                     "message": message,
                     "node_id": hypothesis_id,
-                    "new_confidence": new_confidence
+                    "new_confidence": new_confidence,
+                    "evidence_strength": strength_label
                 }, op_id=self.op_id))
             except RuntimeError:
                 pass
+
+    def _classify_evidence_strength(self, label: str, evidence_strength: str = None, evidence_type: str = None) -> EvidenceStrength:
+        """
+        分类证据的逻辑强度（LLM 驱动优先）
+        
+        优先级：
+        1. LLM 显式输出的 evidence_strength 参数（"necessary" / "contingent"）
+        2. 硬编码模式匹配作为回退
+        
+        这样既保证了智能化自主化（LLM 可以根据具体场景判断），
+        又提供了合理的默认行为。
+        
+        Args:
+            label: 边标签（SUPPORTS/CONTRADICTS）
+            evidence_strength: LLM 输出的证据强度（优先使用）
+            evidence_type: 证据类型描述（回退匹配用）
+            
+        Returns:
+            EvidenceStrength 枚举值
+        """
+        # 1. 优先使用 LLM 显式输出的 evidence_strength
+        if evidence_strength:
+            strength_lower = evidence_strength.lower().strip()
+            if strength_lower in ("necessary", "decisive", "conclusive", "definitive"):
+                return EvidenceStrength.NECESSARY
+            elif strength_lower in ("contingent", "cumulative", "weak", "indicative"):
+                return EvidenceStrength.CONTINGENT
+        
+        # 2. 回退：基于 evidence_type 的模式匹配
+        NECESSARY_PATTERNS = {
+            "CONTRADICTS": ["patch_confirmed", "exploit_patched", "fixed", "mitigated", "not_vulnerable"],
+            "SUPPORTS": ["rce_achieved", "shell_obtained", "flag_found", "exploit_success", "confirmed_vulnerable"],
+        }
+        
+        if evidence_type:
+            evidence_lower = evidence_type.lower()
+            patterns = NECESSARY_PATTERNS.get(label, [])
+            for pattern in patterns:
+                if pattern in evidence_lower:
+                    return EvidenceStrength.NECESSARY
+        
+        # 3. 默认为偶然性证据
+        return EvidenceStrength.CONTINGENT
 
     def analyze_attack_paths(self) -> List[Dict[str, Any]]:
         attack_paths = []
@@ -405,10 +499,59 @@ class GraphManager:
                 return True
         return False
 
+    def _find_competing_hypotheses(self) -> List[Dict[str, Any]]:
+        """
+        检测竞争假设（溯因推理核心）
+        
+        当同一证据支持多个假设时，存在解释歧义，需要 Planner 生成区分性探测任务。
+        这是溯因推理框架中"推导至最佳解释"的关键步骤。
+        
+        Returns:
+            竞争假设列表，每项包含证据ID和相关假设
+        """
+        competing = []
+        
+        for evidence_id, data in self.causal_graph.nodes(data=True):
+            if data.get("node_type") != "Evidence":
+                continue
+            
+            # 找出所有由此证据支持/反驳的假设
+            related_hypotheses = []
+            for _, target, edge_data in self.causal_graph.out_edges(evidence_id, data=True):
+                target_data = self.causal_graph.nodes.get(target, {})
+                if target_data.get("node_type") == "Hypothesis":
+                    related_hypotheses.append({
+                        "id": target,
+                        "description": target_data.get("description", "")[:100],
+                        "confidence": target_data.get("confidence"),
+                        "status": target_data.get("status"),
+                        "edge_label": edge_data.get("label"),
+                    })
+            
+            # 如果同一证据关联多个假设，标记为竞争
+            if len(related_hypotheses) > 1:
+                competing.append({
+                    "evidence_id": evidence_id,
+                    "evidence_description": data.get("description", "")[:100],
+                    "hypotheses_count": len(related_hypotheses),
+                    "hypotheses": related_hypotheses,
+                })
+        
+        return competing
+
     def analyze_failure_patterns(self, time_window_seconds: int = 3600) -> Dict[str, Any]:
+        """
+        分析因果图中的问题模式
+        
+        返回三类问题：
+        - 矛盾簇：假设有相互矛盾的证据
+        - 停滞假设：长时间无活动的假设
+        - 竞争假设：同一证据支持多个假设（需消歧）
+        """
         return {
             "contradiction_clusters": self._find_contradiction_clusters(),
             "stalled_hypotheses": self._find_stalled_hypotheses(time_window_seconds),
+            "competing_hypotheses": self._find_competing_hypotheses(),
         }
 
     def get_failed_nodes(self) -> Dict[str, Any]:
