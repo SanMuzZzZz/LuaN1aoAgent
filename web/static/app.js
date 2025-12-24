@@ -88,14 +88,18 @@ async function loadOps() {
       else if (i.status.failed) color = 'var(--error)';
       else if (i.status.aborted) color = '#94a3b8'; // Grey for aborted
 
+      // 显示名称：优先使用task_id（name字段），否则使用goal的前30字符
+      const displayName = i.task_id || (i.goal ? i.goal.slice(0, 30) + (i.goal.length > 30 ? '...' : '') : 'Unnamed');
+
       li.innerHTML = `<div class="flex justify-between mb-1">
           <span style="font-family:monospace;font-size:10px;opacity:0.7">#${i.op_id.slice(-4)}</span>
           <div style="display:flex;gap:8px;align-items:center;">
               <span class="status-dot" style="background:${color}" title="${i.status.raw}"></span>
+              <span class="rename-btn" onclick="renameOp(event, '${i.op_id}', this)" title="Rename">✏️</span>
               <span class="delete-btn" onclick="deleteOp(event, '${i.op_id}')" title="Delete Task">✕</span>
           </div>
       </div>
-      <div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(i.goal)}</div>`;
+      <div class="task-name" data-op="${i.op_id}" style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escapeHtml(i.goal)}">${escapeHtml(displayName)}</div>`;
       list.appendChild(li);
     });
   } catch (e) { }
@@ -113,6 +117,66 @@ async function deleteOp(e, id) {
     if (state.es) state.es.close();
   }
   loadOps();
+}
+
+// 重命名任务
+async function renameOp(e, opId, btn) {
+  e.stopPropagation();
+
+  const taskCard = btn.closest('.task-card');
+  const nameEl = taskCard.querySelector('.task-name');
+  if (!nameEl) return;
+
+  const currentName = nameEl.textContent;
+
+  // 创建输入框替换文本
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = currentName;
+  input.className = 'rename-input';
+  input.style.cssText = 'width:100%;background:var(--bg-input);border:1px solid var(--accent-primary);border-radius:4px;padding:4px;color:var(--text-main);font-size:13px;';
+
+  nameEl.innerHTML = '';
+  nameEl.appendChild(input);
+  input.focus();
+  input.select();
+
+  // 保存函数
+  const saveRename = async () => {
+    const newName = input.value.trim();
+    if (newName && newName !== currentName) {
+      try {
+        const r = await fetch(`/api/ops/${opId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: newName })
+        }).then(res => res.json());
+
+        if (r.ok) {
+          nameEl.textContent = newName;
+        } else {
+          nameEl.textContent = currentName;
+        }
+      } catch (err) {
+        nameEl.textContent = currentName;
+      }
+    } else {
+      nameEl.textContent = currentName;
+    }
+  };
+
+  // 回车保存
+  input.onkeydown = (ev) => {
+    if (ev.key === 'Enter') {
+      ev.preventDefault();
+      input.blur();
+    } else if (ev.key === 'Escape') {
+      nameEl.textContent = currentName;
+    }
+  };
+
+  // 失焦保存
+  input.onblur = saveRename;
 }
 
 function selectOp(id, refresh = true) {

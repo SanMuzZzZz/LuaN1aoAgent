@@ -360,6 +360,30 @@ async def api_ops_abort(op_id: str):
         "process_killed": process_killed
     }
 
+@app.patch("/api/ops/{op_id}")
+async def api_ops_rename(op_id: str, payload: Dict[str, Any]):
+    """重命名任务（更新显示名称）"""
+    new_name = (payload.get("name") or "").strip()
+    
+    if not new_name:
+        raise HTTPException(status_code=400, detail="Name is required")
+    
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(SessionModel).where(SessionModel.id == op_id))
+        s = result.scalar_one_or_none()
+        if not s:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        await session.execute(
+            update(SessionModel)
+            .where(SessionModel.id == op_id)
+            .values(name=new_name, updated_at=datetime.now())
+        )
+        await session.commit()
+        
+    _sse_logger.info(f"Task '{op_id}' renamed to '{new_name}'")
+    return {"ok": True, "name": new_name}
+
 @app.delete("/api/ops/{op_id}")
 async def api_ops_delete(op_id: str):
     async with AsyncSessionLocal() as session:
