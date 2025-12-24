@@ -199,6 +199,9 @@ function selectOp(id, refresh = true) {
 async function render(force) {
   if (!state.op_id) return;
 
+  // 记录当前渲染的任务ID，用于检测竞争条件
+  const renderingOpId = state.op_id;
+
   // 防抖：如果上次渲染时间距现在不足 300ms 且非强制刷新，则跳过
   const now = Date.now();
   if (!force && state.missionAccomplished && (now - state.lastRenderTime) < 500) {
@@ -218,6 +221,13 @@ async function render(force) {
     let data;
     if (state.view === 'exec') data = await api('/api/graph/execution');
     else if (state.view === 'causal') data = await api('/api/graph/causal');
+
+    // 检查竞争条件：如果在 API 调用期间用户切换了任务，则放弃本次渲染
+    if (state.op_id !== renderingOpId) {
+      console.log('Skipping render: task switched during API call', renderingOpId, '->', state.op_id);
+      return;
+    }
+
     drawForceGraph(data);
     updateLegend();
   } catch (e) { console.error(e); }
