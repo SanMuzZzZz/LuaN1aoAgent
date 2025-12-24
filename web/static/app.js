@@ -29,7 +29,7 @@ const causalColors = {
   'KeyFact': '#fbbf24',
   'Flag': '#ef4444'
 };
-let state = { op_id: new URLSearchParams(location.search).get('op_id') || '', view: 'exec', simulation: null, svg: null, g: null, zoom: null, es: null, processedEvents: new Set(), pendingReq: null, isModifyMode: false, currentPhase: null, missionAccomplished: false, userHasInteracted: false, lastActiveNodeId: null, isProgrammaticZoom: false, renderDebounceTimer: null, lastRenderTime: 0, isLoadingHistory: false };
+let state = { op_id: new URLSearchParams(location.search).get('op_id') || '', view: 'exec', simulation: null, svg: null, g: null, zoom: null, es: null, processedEvents: new Set(), pendingReq: null, isModifyMode: false, currentPhase: null, missionAccomplished: false, userHasInteracted: false, lastActiveNodeId: null, isProgrammaticZoom: false, renderDebounceTimer: null, lastRenderTime: 0, isLoadingHistory: false, collapsedNodes: new Set() };
 const api = (p, b) => fetch(p + (p.includes('?') ? '&' : '?') + `op_id=${state.op_id}`, b ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) } : {}).then(r => r.json());
 
 // 显示阶段横幅
@@ -299,6 +299,57 @@ function drawForceGraph(data) {
   data.nodes = Array.from(uniqueNodesMap.values());
   // -------------------------------------
 
+  // --- [折叠功能] 过滤掉被折叠子任务下的执行步骤 ---
+  if (state.view === 'exec' && state.collapsedNodes.size > 0) {
+    // 从边构建父子关系映射：找出每个 action 节点的直接父 task 节点
+    const nodeTypes = new Map(data.nodes.map(n => [n.id, n.type]));
+    const parentMap = new Map(); // action_id -> task_id
+
+    if (data.edges) {
+      data.edges.forEach(edge => {
+        const sourceType = nodeTypes.get(edge.source);
+        const targetType = nodeTypes.get(edge.target);
+        // 如果边是从 task 指向 action，则记录父子关系
+        if (sourceType === 'task' && targetType === 'action') {
+          parentMap.set(edge.target, edge.source);
+        }
+      });
+    }
+
+    // 计算每个折叠子任务下隐藏的节点数量
+    const collapsedChildCounts = new Map();
+    state.collapsedNodes.forEach(id => collapsedChildCounts.set(id, 0));
+
+    // 过滤节点：隐藏被折叠子任务下的 action 节点
+    data.nodes = data.nodes.filter(node => {
+      if (node.type === 'action') {
+        const parentId = parentMap.get(node.id);
+        if (parentId && state.collapsedNodes.has(parentId)) {
+          // 统计隐藏的子节点数量
+          collapsedChildCounts.set(parentId, (collapsedChildCounts.get(parentId) || 0) + 1);
+          return false; // 不显示
+        }
+      }
+      return true;
+    });
+
+    // 将隐藏数量存储到节点数据中，供渲染时使用
+    data.nodes.forEach(node => {
+      if (collapsedChildCounts.has(node.id)) {
+        node._collapsedChildCount = collapsedChildCounts.get(node.id);
+      }
+    });
+
+    // 过滤边：移除涉及被过滤节点的边
+    if (data.edges) {
+      const remainingNodeIds = new Set(data.nodes.map(n => n.id));
+      data.edges = data.edges.filter(edge =>
+        remainingNodeIds.has(edge.source) && remainingNodeIds.has(edge.target)
+      );
+    }
+  }
+  // -------------------------------------
+
   // 1. 数据转换与 Dagre 图构建
   const dagreGraph = new dagre.graphlib.Graph();
 
@@ -326,7 +377,7 @@ function drawForceGraph(data) {
       rankdir: 'TB',  // Top-to-Bottom 布局 (更像攻击图/树)
       align: undefined,    // 不设置对齐方式，让算法自动平衡
       nodesep: 40,    // 同层节点水平间距
-      ranksep: 50,    // 层级间垂直间距（减小以让执行节点间连线更短）
+      ranksep: 50,    // 层级间垂直间距
       marginx: 40,
       marginy: 40,
       ranker: 'network-simplex'  // 使用网络单纯形算法，更好地平衡布局
@@ -640,6 +691,55 @@ function drawForceGraph(data) {
     nodes.classed("dimmed", false);
     links.classed("dimmed", false);
   });
+
+  // [折叠功能] 双击子任务节点切换折叠状态
+  nodes.on("dblclick", function (event, d) {
+    event.stopPropagation();
+    const n = dagreGraph.node(d);
+
+    // 只有 task 类型的节点（子任务）可以折叠
+    if (n.type !== 'task') return;
+
+    // 切换折叠状态
+    if (state.collapsedNodes.has(d)) {
+      state.collapsedNodes.delete(d);
+      console.log('Expanded subtask:', d);
+    } else {
+      state.collapsedNodes.add(d);
+      console.log('Collapsed subtask:', d);
+    }
+
+    // 重新渲染
+    render(true);
+  });
+
+  // [折叠功能] 为可折叠的子任务节点添加折叠指示器
+  nodes.filter(d => {
+    const n = dagreGraph.node(d);
+    return n.type === 'task';  // 只有子任务显示折叠指示器
+  }).append("text")
+    .attr("x", d => {
+      const n = dagreGraph.node(d);
+      return n.width / 2 - 12;  // 右上角
+    })
+    .attr("y", d => {
+      const n = dagreGraph.node(d);
+      return -n.height / 2 + 14;  // 右上角
+    })
+    .attr("fill", "#94a3b8")
+    .style("font-size", "10px")
+    .style("cursor", "pointer")
+    .text(d => {
+      const n = dagreGraph.node(d);
+      if (state.collapsedNodes.has(d)) {
+        // 折叠状态：显示隐藏数量
+        const count = n._collapsedChildCount || 0;
+        return count > 0 ? `▶ ${count}` : '▶';
+      }
+      return '▼';  // 展开状态
+    })
+    .attr("title", d => state.collapsedNodes.has(d) ? "双击展开" : "双击折叠");
+
 
   // 自适应缩放和居中
   const graphWidth = dagreGraph.graph().width;
@@ -1046,10 +1146,19 @@ function highlightSuccessPaths(dagreGraph, dataNodes, nodeSelection, linkSelecti
       console.log('Goal node is a subtask, finding deepest action underneath...');
 
       // 递归寻找该子任务下最后完成的 action（按时间）
-      function findDeepestCompletedAction(nodeId) {
+      const visited = new Set(); // 防止无限循环
+
+      function findDeepestCompletedAction(nodeId, depth = 0) {
+        // 防止无限循环和过深递归
+        if (!nodeId || visited.has(nodeId) || depth > 100) {
+          return null;
+        }
+        visited.add(nodeId);
+
         const successors = dagreGraph.successors(nodeId);
         if (!successors || successors.length === 0) {
-          return nodeById.get(nodeId);
+          const node = nodeById.get(nodeId);
+          return (node && (node.type === 'action' || node.type === 'execution_step')) ? node : null;
         }
 
         let latestNode = null;
@@ -1067,7 +1176,7 @@ function highlightSuccessPaths(dagreGraph, dataNodes, nodeSelection, linkSelecti
               }
             }
             // 递归检查子节点
-            const deeperNode = findDeepestCompletedAction(succId);
+            const deeperNode = findDeepestCompletedAction(succId, depth + 1);
             if (deeperNode && (deeperNode.type === 'action' || deeperNode.type === 'execution_step')) {
               const deeperTime = deeperNode.completed_at || 0;
               if (deeperTime > latestTime) {
@@ -1078,7 +1187,7 @@ function highlightSuccessPaths(dagreGraph, dataNodes, nodeSelection, linkSelecti
           }
         }
 
-        return latestNode || nodeById.get(nodeId);
+        return latestNode;
       }
 
       const deepestAction = findDeepestCompletedAction(goalAchievedNode.id);
