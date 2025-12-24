@@ -742,9 +742,12 @@ function drawForceGraph(data) {
     // 设置程序化缩放标志，避免被误判为用户交互
     state.isProgrammaticZoom = true;
 
+    // 根据节点数量调整过渡动画时间：节点少时动画更快，避免卡顿感
+    const animDuration = data.nodes.length <= 3 ? 100 : 250;
+
     // 使用平滑动画应用变换
     state.svg.transition()
-      .duration(300)
+      .duration(animDuration)
       .call(state.zoom.transform, d3.zoomIdentity
         .translate(targetX, targetY)
         .scale(targetScale))
