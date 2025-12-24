@@ -177,7 +177,11 @@ def _reconstruct_causal_data(nodes: List[GraphNodeModel], edges: List[GraphEdgeM
 async def api_ops():
     async with AsyncSessionLocal() as session:
         result = await session.execute(
-            select(SessionModel).order_by(desc(SessionModel.updated_at))
+            select(SessionModel).order_by(
+                SessionModel.sort_index.is_(None),
+                SessionModel.sort_index,
+                desc(SessionModel.created_at),
+            )
         )
         sessions = result.scalars().all()
         
@@ -197,6 +201,24 @@ async def api_ops():
                 }
             })
         return {"items": items}
+
+@app.post("/api/ops/reorder")
+async def api_ops_reorder(payload: Dict[str, Any]):
+    """持久化保存任务列表顺序"""
+    order = payload.get("order") or []
+    if not isinstance(order, list):
+        raise HTTPException(status_code=400, detail="order must be a list of op_ids")
+
+    async with AsyncSessionLocal() as session:
+        for idx, op_id in enumerate(order):
+            await session.execute(
+                update(SessionModel)
+                .where(SessionModel.id == op_id)
+                .values(sort_index=idx)
+            )
+        await session.commit()
+
+    return {"ok": True}
 
 @app.get("/api/ops/{op_id}")
 async def api_ops_detail(op_id: str):

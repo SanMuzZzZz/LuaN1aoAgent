@@ -81,7 +81,7 @@ async function loadOps() {
     const data = await fetch('/api/ops').then(r => r.json());
     const list = document.getElementById('ops'); list.innerHTML = '';
     data.items.forEach(i => {
-      const li = document.createElement('li'); li.className = `task-card ${i.op_id === state.op_id ? 'active' : ''}`; li.dataset.op = i.op_id; li.onclick = () => selectOp(i.op_id);
+      const li = document.createElement('li'); li.className = `task-card ${i.op_id === state.op_id ? 'active' : ''}`; li.dataset.op = i.op_id; li.onclick = () => selectOp(i.op_id, false);
 
       let color = 'var(--accent-primary)'; // Default: in progress / pending
       if (i.status.achieved) color = 'var(--success)';
@@ -102,7 +102,82 @@ async function loadOps() {
       <div class="task-name" data-op="${i.op_id}" style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escapeHtml(i.goal)}">${escapeHtml(displayName)}</div>`;
       list.appendChild(li);
     });
+    initOpsDragAndDrop();
   } catch (e) { }
+}
+
+function initOpsDragAndDrop() {
+  const list = document.getElementById('ops');
+  if (!list) return;
+
+  const items = Array.from(list.querySelectorAll('.task-card'));
+  items.forEach(item => {
+    item.setAttribute('draggable', 'true');
+    item.addEventListener('dragstart', handleTaskDragStart);
+    item.addEventListener('dragend', handleTaskDragEnd);
+  });
+
+  if (!list._opsDragBound) {
+    list.addEventListener('dragover', handleTaskDragOver);
+    list._opsDragBound = true;
+  }
+}
+
+function handleTaskDragStart(e) {
+  const target = e.currentTarget;
+  if (target && target.classList) {
+    target.classList.add('dragging');
+  }
+}
+
+function handleTaskDragEnd(e) {
+  const target = e.currentTarget;
+  if (target && target.classList) {
+    target.classList.remove('dragging');
+  }
+
+  const list = document.getElementById('ops');
+  if (!list) return;
+
+  const order = Array.from(list.querySelectorAll('.task-card')).map(item => item.dataset.op);
+  saveOpsOrder(order);
+}
+
+function handleTaskDragOver(e) {
+  e.preventDefault();
+  const list = e.currentTarget;
+  const dragging = list.querySelector('.task-card.dragging');
+  if (!dragging) return;
+
+  const afterElement = getDragAfterElement(list, e.clientY);
+  if (!afterElement) {
+    list.appendChild(dragging);
+  } else if (afterElement !== dragging) {
+    list.insertBefore(dragging, afterElement);
+  }
+}
+
+function getDragAfterElement(container, y) {
+  const draggableElements = [...container.querySelectorAll('.task-card:not(.dragging)')];
+  let closest = { offset: Number.NEGATIVE_INFINITY, element: null };
+
+  draggableElements.forEach(child => {
+    const box = child.getBoundingClientRect();
+    const offset = y - box.top - box.height / 2;
+    if (offset < 0 && offset > closest.offset) {
+      closest = { offset, element: child };
+    }
+  });
+
+  return closest.element;
+}
+
+async function saveOpsOrder(order) {
+  try {
+    await api('/api/ops/reorder', { order });
+  } catch (e) {
+    console.error('Failed to save task order', e);
+  }
 }
 
 async function deleteOp(e, id) {
