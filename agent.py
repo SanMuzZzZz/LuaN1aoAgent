@@ -1243,6 +1243,21 @@ async def main():
                     console.print(Panel("🎉 Planner已宣布全局任务目标达成！任务结束。", title="[bold green]任务完成[/bold green]"))
                     metrics["success_info"] = {"found": True, "reason": "Global mission accomplished signal received from Planner."}
                     
+                    # 标记导致成功的子任务节点
+                    # 从 completed_reflections 中找到最近完成的子任务
+                    if completed_reflections:
+                        # 按完成时间排序，取最新的
+                        sorted_reflections = sorted(
+                            completed_reflections.items(),
+                            key=lambda x: x[1].get('completed_at', 0) if isinstance(x[1], dict) else 0,
+                            reverse=True
+                        )
+                        if sorted_reflections:
+                            goal_subtask_id = sorted_reflections[0][0]
+                            # 标记该子任务为目标达成节点
+                            graph_manager.update_node(goal_subtask_id, {"is_goal_achieved": True})
+                            console.print(Panel(f"✨ 子任务 {goal_subtask_id} 被标记为目标达成节点", style="green"))
+                    
                     # Process final graph operations (if any)
                     dynamic_ops = plan_data.get('graph_operations', [])
                     if dynamic_ops:

@@ -115,6 +115,7 @@ def _reconstruct_graph_data(nodes: List[GraphNodeModel], edges: List[GraphEdgeMo
             "thought": data.get("thought"),
             "goal": data.get("goal"),
             "completed_at": data.get("completed_at"),
+            "is_goal_achieved": data.get("is_goal_achieved", False),  # 标记成功路径终点
         }
         node_entry.update(tool_info)
         frontend_nodes.append(node_entry)

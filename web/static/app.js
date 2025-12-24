@@ -953,168 +953,171 @@ function highlightSuccessPaths(dagreGraph, dataNodes, nodeSelection, linkSelecti
   // 显示成功横幅
   showSuccessBanner();
 
-  // 新策略：从根节点开始DFS，沿着completed状态的节点向下遍历
-  // 找到完整的成功执行路径链
-
-  // 1. 找到根节点
-  const rootNode = dataNodes.find(n => n.type === 'root');
-  if (!rootNode) {
-    console.log('No root node found');
-    return;
-  }
-
   // 构建节点ID到数据的映射
   const nodeById = new Map(dataNodes.map(n => [n.id, n]));
 
-  // 2. DFS遍历，收集所有在成功路径上的节点
-  const successPathNodes = new Set();
-  const successPathEdges = new Set();
+  let targetGoalNode = null;
 
-  function dfsSuccessPath(nodeId) {
-    if (successPathNodes.has(nodeId)) return; // 避免循环
+  // 策略0（最优先）：查找带有 is_goal_achieved 标记的节点（由后端标记的真正成功节点）
+  const goalAchievedNode = dataNodes.find(n => n.is_goal_achieved === true);
 
-    const node = nodeById.get(nodeId);
-    if (!node) return;
+  if (goalAchievedNode) {
+    console.log('🎯 Found goal-achieved node (backend marked):', goalAchievedNode.id);
+    targetGoalNode = goalAchievedNode;
+  } else {
+    // 策略1：尝试找到 result/observation 中包含 flag 标识的节点
+    const flagKeywords = ['flag', 'FLAG', 'secret', 'success', 'accomplished', 'objective'];
 
-    // 只有completed状态的节点才算成功路径的一部分
-    // 注意：根节点和任务节点可能有不同的状态值
-    const isSuccess = node.status === 'completed' ||
-      (node.type === 'root' && node.status === 'completed');
-
-    if (!isSuccess && node.type !== 'root') {
-      // 如果当前节点不是成功状态，不继续向下遍历
-      // 除非是根节点（我们总是从根节点开始）
-      return;
+    function containsFlag(node) {
+      const result = node.result || '';
+      const observation = node.observation || '';
+      const combined = (typeof result === 'string' ? result : JSON.stringify(result)) +
+        (typeof observation === 'string' ? observation : JSON.stringify(observation));
+      return flagKeywords.some(kw => combined.toLowerCase().includes(kw.toLowerCase()));
     }
 
-    successPathNodes.add(nodeId);
-
-    // 获取所有后继节点
-    const successors = dagreGraph.successors(nodeId);
-    if (successors && successors.length > 0) {
-      for (const succId of successors) {
-        const succNode = nodeById.get(succId);
-        if (succNode && succNode.status === 'completed') {
-          // 记录这条边
-          successPathEdges.add(`${nodeId}->${succId}`);
-          // 继续DFS
-          dfsSuccessPath(succId);
-        }
-      }
-    }
-  }
-
-  // 从根节点开始DFS
-  dfsSuccessPath(rootNode.id);
-
-  // 3. 如果DFS没找到足够的节点，回退到原来的逻辑（找最后完成的叶子节点）
-  if (successPathNodes.size <= 1) {
-    console.log('DFS found only root, falling back to leaf-based approach');
-
-    // 找到所有已完成的 action 节点
-    const completedActions = dataNodes.filter(n =>
-      n.type === 'action' && n.status === 'completed'
+    const flagNode = dataNodes.find(n =>
+      n.status === 'completed' && (n.type === 'action' || n.type === 'task') && containsFlag(n)
     );
 
-    if (completedActions.length > 0) {
-      // 找叶子节点：没有已完成后继的节点
-      const completedIds = new Set(completedActions.map(a => a.id));
-      const leafActions = completedActions.filter(action => {
-        const successors = dagreGraph.successors(action.id);
-        return !successors || successors.length === 0 ||
-          !successors.some(succ => completedIds.has(succ));
-      });
+    if (flagNode) {
+      console.log('🚩 Found flag-bearing node:', flagNode.id);
+      targetGoalNode = flagNode;
+    } else {
+      // 策略2：从根节点向下，选择有最长 completed 后代链的路径
+      console.log('No explicit goal node found, using longest completed chain strategy');
 
-      // 选择最后完成的叶子节点（如果有时间戳），否则选第一个
-      let targetAction = null;
-      if (leafActions.length > 0) {
-        const withTime = leafActions.filter(a => a.completed_at);
-        if (withTime.length > 0) {
-          withTime.sort((a, b) => (b.completed_at || 0) - (a.completed_at || 0));
-          targetAction = withTime[0];
-        } else {
-          targetAction = leafActions[0];
-        }
-      } else if (completedActions.length > 0) {
-        completedActions.sort((a, b) => (b.completed_at || 0) - (a.completed_at || 0));
-        targetAction = completedActions[0];
-      }
-
-      if (targetAction) {
-        console.log('Fallback: highlighting path from', targetAction.id);
-        highlightPathFromNode(dagreGraph, targetAction.id, nodeSelection, linkSelection);
+      const rootNode = dataNodes.find(n => n.type === 'root');
+      if (!rootNode || rootNode.status !== 'completed') {
+        console.log('Root node not completed');
         return;
       }
-    }
 
-    // 尝试已完成的任务节点
-    const completedTasks = dataNodes.filter(n =>
-      n.type === 'task' && n.status === 'completed'
-    );
-    if (completedTasks.length > 0) {
-      completedTasks.sort((a, b) => (b.completed_at || 0) - (a.completed_at || 0));
-      highlightPathFromNode(dagreGraph, completedTasks[0].id, nodeSelection, linkSelection);
-      return;
-    }
+      // 计算每个节点的最长completed后代链深度
+      const depthCache = new Map();
 
-    console.log('No success path found');
-    return;
-  }
+      function getMaxCompletedDepth(nodeId) {
+        if (depthCache.has(nodeId)) return depthCache.get(nodeId);
 
-  console.log('✨ Success path found:', successPathNodes.size, 'nodes,', successPathEdges.size, 'edges');
-  console.log('Path nodes:', Array.from(successPathNodes));
+        const node = nodeById.get(nodeId);
+        if (!node || node.status !== 'completed') {
+          depthCache.set(nodeId, -1);
+          return -1;
+        }
 
-  // 4. 高亮成功路径
-  nodeSelection.classed("success-path", d => successPathNodes.has(d));
+        const successors = dagreGraph.successors(nodeId);
+        if (!successors || successors.length === 0) {
+          depthCache.set(nodeId, 0);
+          return 0;
+        }
 
-  linkSelection.classed("success-path", d => {
-    const edgeKey = `${d.v}->${d.w}`;
-    return successPathEdges.has(edgeKey);
-  });
+        let maxChildDepth = -1;
+        for (const succId of successors) {
+          const childDepth = getMaxCompletedDepth(succId);
+          if (childDepth > maxChildDepth) {
+            maxChildDepth = childDepth;
+          }
+        }
 
-  // 5. 自动聚焦到成功路径的叶子节点
-  // 找到成功路径上最深的节点（没有成功后继的节点）
-  let deepestNode = null;
-  let maxDepth = -1;
+        const myDepth = maxChildDepth >= 0 ? maxChildDepth + 1 : 0;
+        depthCache.set(nodeId, myDepth);
+        return myDepth;
+      }
 
-  function getDepth(nodeId, depth = 0) {
-    if (depth > maxDepth && successPathNodes.has(nodeId)) {
-      maxDepth = depth;
-      deepestNode = nodeId;
-    }
-    const successors = dagreGraph.successors(nodeId);
-    if (successors) {
-      for (const succId of successors) {
-        if (successPathNodes.has(succId)) {
-          getDepth(succId, depth + 1);
+      // 从根节点追踪最长completed链
+      let currentNode = rootNode.id;
+      let lastNode = rootNode.id;
+
+      while (currentNode) {
+        lastNode = currentNode;
+        const successors = dagreGraph.successors(currentNode);
+        if (!successors || successors.length === 0) break;
+
+        // 筛选completed后继
+        const completedSucc = successors
+          .map(succId => nodeById.get(succId))
+          .filter(n => n && n.status === 'completed');
+
+        if (completedSucc.length === 0) break;
+
+        // 选择有最长completed后代链的那个
+        let bestSucc = null;
+        let bestDepth = -1;
+        for (const succ of completedSucc) {
+          const depth = getMaxCompletedDepth(succ.id);
+          if (depth > bestDepth) {
+            bestDepth = depth;
+            bestSucc = succ;
+          }
+        }
+
+        if (bestSucc) {
+          currentNode = bestSucc.id;
+        } else {
+          break;
         }
       }
+
+      targetGoalNode = nodeById.get(lastNode);
+      console.log('Selected deepest chain leaf:', lastNode);
     }
   }
 
-  getDepth(rootNode.id);
+  // 如果在最外层（策略0成功时）也需要执行回溯和高亮
+  if (targetGoalNode) {
+    // 从目标节点向上回溯到根节点
+    const successPathNodes = new Set();
+    const successPathEdges = new Set();
 
-  if (deepestNode && !state.userHasInteracted) {
-    const nodeData = dagreGraph.node(deepestNode);
-    if (nodeData) {
-      const svgWidth = state.svg.node().clientWidth || 800;
-      const svgHeight = state.svg.node().clientHeight || 600;
+    function traceToRoot(nodeId) {
+      if (!nodeId || successPathNodes.has(nodeId)) return;
 
-      const focusScale = 0.75;
-      const targetX = svgWidth / 2 - nodeData.x * focusScale;
-      const targetY = svgHeight / 2 - nodeData.y * focusScale;
+      successPathNodes.add(nodeId);
 
-      console.log('Focusing on deepest success node:', deepestNode, 'at', nodeData.x, nodeData.y);
+      const predecessors = dagreGraph.predecessors(nodeId);
+      if (predecessors && predecessors.length > 0) {
+        const selectedPred = predecessors[0];
+        successPathEdges.add(`${selectedPred}->${nodeId}`);
+        traceToRoot(selectedPred);
+      }
+    }
 
-      state.isProgrammaticZoom = true;
-      state.svg.transition()
-        .duration(500)
-        .call(state.zoom.transform, d3.zoomIdentity
-          .translate(targetX, targetY)
-          .scale(focusScale))
-        .on('end', () => {
-          state.isProgrammaticZoom = false;
-        });
+    traceToRoot(targetGoalNode.id);
+
+    console.log('✨ Success path found:', successPathNodes.size, 'nodes,', successPathEdges.size, 'edges');
+    console.log('Path nodes:', Array.from(successPathNodes));
+
+    // 高亮成功路径
+    nodeSelection.classed("success-path", d => successPathNodes.has(d));
+
+    linkSelection.classed("success-path", d => {
+      const edgeKey = `${d.v}->${d.w}`;
+      return successPathEdges.has(edgeKey);
+    });
+
+    // 自动聚焦到成功路径的目标节点
+    if (!state.userHasInteracted) {
+      const nodeData = dagreGraph.node(targetGoalNode.id);
+      if (nodeData) {
+        const svgWidth = state.svg.node().clientWidth || 800;
+        const svgHeight = state.svg.node().clientHeight || 600;
+
+        const focusScale = 0.75;
+        const targetX = svgWidth / 2 - nodeData.x * focusScale;
+        const targetY = svgHeight / 2 - nodeData.y * focusScale;
+
+        console.log('Focusing on success target:', targetGoalNode.id, 'at', nodeData.x, nodeData.y);
+
+        state.isProgrammaticZoom = true;
+        state.svg.transition()
+          .duration(500)
+          .call(state.zoom.transform, d3.zoomIdentity
+            .translate(targetX, targetY)
+            .scale(focusScale))
+          .on('end', () => {
+            state.isProgrammaticZoom = false;
+          });
+      }
     }
   }
 }
