@@ -40,26 +40,31 @@ async def get_db_session() -> AsyncSession:
 
 async def create_session(session_id: str, name: str, goal: str, config: Dict[str, Any] = None):
     async with AsyncSessionLocal() as session:
-        stmt = sqlite_insert(SessionModel).values(
-            id=session_id,
-            name=name,
-            goal=goal,
-            status="pending",
-            config=config or {},
-            created_at=datetime.now(),
-            updated_at=datetime.now()
+        # 首先检查 session 是否已存在
+        result = await session.execute(
+            select(SessionModel).where(SessionModel.id == session_id)
         )
-        # Handle conflict (e.g. restart same session) - update goal/config
-        stmt = stmt.on_conflict_do_update(
-            index_elements=['id'],
-            set_=dict(
+        existing = result.scalar_one_or_none()
+        
+        if existing:
+            # Session 已存在（由 web server 创建），只更新必要字段，但不覆盖 name
+            # 这样用户在 web 端输入的任务名称会被保留
+            existing.goal = goal  # 更新 goal（可能同步）
+            if config:
+                existing.config = {**(existing.config or {}), **config}  # 合并 config
+            existing.updated_at = datetime.now()
+        else:
+            # Session 不存在，创建新的
+            session.add(SessionModel(
+                id=session_id,
                 name=name,
                 goal=goal,
+                status="pending",
                 config=config or {},
+                created_at=datetime.now(),
                 updated_at=datetime.now()
-            )
-        )
-        await session.execute(stmt)
+            ))
+        
         await session.commit()
 
 async def update_session_status(session_id: str, status: str):
