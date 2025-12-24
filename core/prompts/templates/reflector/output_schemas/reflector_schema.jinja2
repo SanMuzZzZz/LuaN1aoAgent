@@ -1,6 +1,7 @@
   "audit_result": {
     "status": "必须是以下之一：'completed' (子任务目标已完全满足) | 'pending' (子任务有进展但未完全满足目标，需要进一步行动) | 'failed' (子任务陷入僵局或无法取得进展) | 'GOAL_ACHIEVED' (已找到最终目标产物)。",
     "completion_check": "对子任务完成条件是否满足的客观总结，必须基于执行日志中的证据。",
+    "critical_success_step_id": "（字符串或 null）如果子任务成功完成且有明确的关键执行步骤导致成功，填写该 step_id。例如：找到 flag 的那个步骤、获取 shell 的那个步骤、验证漏洞的那个步骤。如果没有明确的关键步骤或子任务失败，填 null。",
     "is_strategic_failure": "布尔值。如果失败归因是 L4 (假设被证伪) 或 L5 (战略失败)，则必须设置为 `true`，以触发 Planner 的战略级调整。注意：L3 (环境阻断) 通常由 Executor 局部处理，除非形成环境循环才升级为 L5。",
     "logic_issues": ["列举所有 COT 规范违反点（例如：冗余信息、信息缺失、前后矛盾、无引用等），并用 `step_id` / `node_id` 标注位置。例如：'thought.step2_hypothesis_formulation (step_1): 假设不具备可证伪性。'"],
     "methodology_issues": ["发现的方法论缺陷列表。例如：'Executor 未能遵循盲注验证矩阵，在未确认可读路径前尝试逐字符提取。'"]

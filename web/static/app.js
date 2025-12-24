@@ -315,8 +315,8 @@ function drawForceGraph(data) {
     dagreGraph.setGraph({
       rankdir: 'TB',  // Top-to-Bottom 布局 (更像攻击图/树)
       align: undefined,    // 不设置对齐方式，让算法自动平衡
-      nodesep: 40,    // 同层节点水平间距（适当增加以改善可读性）
-      ranksep: 80,    // 层级间垂直间距（增大以拉长纵向）
+      nodesep: 40,    // 同层节点水平间距
+      ranksep: 50,    // 层级间垂直间距（减小以让执行节点间连线更短）
       marginx: 40,
       marginy: 40,
       ranker: 'network-simplex'  // 使用网络单纯形算法，更好地平衡布局
@@ -368,7 +368,7 @@ function drawForceGraph(data) {
         height = 60;
       } else if (node.type === 'action') {
         width = 120;   // 动作节点：较窄
-        height = 50;   // 稍矮一些
+        height = 40;   // 更矮一些，让执行步骤更紧凑
       } else {
         width = 160;   // 其他类型：中等宽度
         height = 55;
@@ -1022,12 +1022,62 @@ function highlightSuccessPaths(dagreGraph, dataNodes, nodeSelection, linkSelecti
 
   let targetGoalNode = null;
 
-  // 策略：查找带有 is_goal_achieved 标记的节点（由后端 Planner 明确指定）
+  // 策略：查找带有 is_goal_achieved 标记的节点（由后端标记）
   const goalAchievedNode = dataNodes.find(n => n.is_goal_achieved === true);
 
   if (goalAchievedNode) {
-    console.log('🎯 Found goal-achieved node (marked by Planner):', goalAchievedNode.id);
-    targetGoalNode = goalAchievedNode;
+    console.log('🎯 Found goal-achieved node:', goalAchievedNode.id, 'type:', goalAchievedNode.type);
+
+    // 如果是 task/subtask 类型，需要继续向下找它下面最深的 completed action 节点
+    if (goalAchievedNode.type === 'task' || goalAchievedNode.type === 'subtask') {
+      console.log('Goal node is a subtask, finding deepest action underneath...');
+
+      // 递归寻找该子任务下最后完成的 action（按时间）
+      function findDeepestCompletedAction(nodeId) {
+        const successors = dagreGraph.successors(nodeId);
+        if (!successors || successors.length === 0) {
+          return nodeById.get(nodeId);
+        }
+
+        let latestNode = null;
+        let latestTime = 0;
+
+        for (const succId of successors) {
+          const succNode = nodeById.get(succId);
+          if (succNode && succNode.status === 'completed') {
+            // 如果是 action/execution_step，检查完成时间
+            if (succNode.type === 'action' || succNode.type === 'execution_step') {
+              const completedAt = succNode.completed_at || 0;
+              if (completedAt > latestTime) {
+                latestTime = completedAt;
+                latestNode = succNode;
+              }
+            }
+            // 递归检查子节点
+            const deeperNode = findDeepestCompletedAction(succId);
+            if (deeperNode && (deeperNode.type === 'action' || deeperNode.type === 'execution_step')) {
+              const deeperTime = deeperNode.completed_at || 0;
+              if (deeperTime > latestTime) {
+                latestTime = deeperTime;
+                latestNode = deeperNode;
+              }
+            }
+          }
+        }
+
+        return latestNode || nodeById.get(nodeId);
+      }
+
+      const deepestAction = findDeepestCompletedAction(goalAchievedNode.id);
+      if (deepestAction && deepestAction.id !== goalAchievedNode.id) {
+        console.log('Found deepest action under goal subtask:', deepestAction.id);
+        targetGoalNode = deepestAction;
+      } else {
+        targetGoalNode = goalAchievedNode;
+      }
+    } else {
+      targetGoalNode = goalAchievedNode;
+    }
   } else {
     // 策略1：尝试找到 result/observation 中包含 flag 标识的节点
     const flagKeywords = ['flag', 'FLAG', 'secret', 'success', 'accomplished', 'objective'];
