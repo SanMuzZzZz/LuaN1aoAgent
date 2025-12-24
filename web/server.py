@@ -30,7 +30,7 @@ _sse_logger = logging.getLogger("web.sse")
 # 用于在终止任务时直接kill进程
 _running_processes: Dict[str, subprocess.Popen] = {}
 
-app = FastAPI(title="鸾鸟Agent Web (DB Mode)")
+app = FastAPI(title="鸾鸟自主渗透系统 Web (DB Mode)")
 
 app.add_middleware(
     CORSMiddleware,

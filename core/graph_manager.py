@@ -1068,6 +1068,20 @@ class GraphManager:
         self.graph.nodes[subtask_id]["turn_counter"] = counter
         self._sync_node(subtask_id, 'task')
 
+    def get_subtask_last_step_ids(self, subtask_id: str) -> List[str]:
+        """获取子任务的最后执行步骤ID列表，用于恢复执行时续接执行链。"""
+        if not self.graph.has_node(subtask_id):
+            raise NodeNotFoundError(f"子任务 {subtask_id} 不存在于图中。")
+        self._ensure_node_defaults(subtask_id)
+        return self.graph.nodes[subtask_id].get("last_step_ids", [])
+
+    def update_subtask_last_step_ids(self, subtask_id: str, step_ids: List[str]):
+        """更新子任务的最后执行步骤ID列表，用于下次恢复执行时续接执行链。"""
+        if not self.graph.has_node(subtask_id):
+            raise NodeNotFoundError(f"子任务 {subtask_id} 不存在于图中。")
+        self.graph.nodes[subtask_id]["last_step_ids"] = step_ids
+        self._sync_node(subtask_id, 'task')
+
     def _build_execution_payload(self, parent_id: str, thought: str, action: Dict, status: str, hypothesis_update: Optional[Dict] = None) -> Dict[str, Any]:
         return {
             "type": "execution_step",
@@ -1104,6 +1118,7 @@ class GraphManager:
             node_data.setdefault("execution_summary_cache", None)
             node_data.setdefault("execution_summary_last_sequence", 0)
             node_data.setdefault("execution_summary_updated_at", None)
+            node_data.setdefault("last_step_ids", [])  # 持久化执行链，用于子任务恢复执行时续接
         elif node_type == "execution_step":
             node_data.setdefault("thought", "")
             node_data.setdefault("action", {})
