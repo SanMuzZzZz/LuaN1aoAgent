@@ -576,6 +576,27 @@ async def api_ops_create(payload: Dict[str, Any]):
     # Use subprocess.Popen to start agent.py as a detached process
     # This prevents the web server from being blocked by the agent task
     try:
+        # 先在数据库中创建 session 记录，这样前端刷新时能立即看到新任务
+        async with AsyncSessionLocal() as session:
+            new_session = SessionModel(
+                id=op_id,
+                name=task_name,
+                goal=goal,
+                status="pending",
+                created_at=datetime.now(),
+                updated_at=datetime.now(),
+                config={
+                    "human_in_the_loop": human_in_the_loop,
+                    "output_mode": output_mode,
+                    "llm_planner_model": llm_planner_model,
+                    "llm_executor_model": llm_executor_model,
+                    "llm_reflector_model": llm_reflector_model
+                }
+            )
+            session.add(new_session)
+            await session.commit()
+            _sse_logger.info(f"Session '{op_id}' created in database")
+
         # Use start_new_session=True to detach the child process from the current process group
         # This makes the child process independent of the web server's lifespan
         process = subprocess.Popen(command, start_new_session=True, 
@@ -588,7 +609,6 @@ async def api_ops_create(payload: Dict[str, Any]):
         
         _sse_logger.info(f"Agent task '{task_name}' (op_id: {op_id}) started with PID: {process.pid}, HITL: {human_in_the_loop}")
 
-        # The agent itself will create the session in the DB
         return {
             "ok": True, 
             "op_id": op_id, 

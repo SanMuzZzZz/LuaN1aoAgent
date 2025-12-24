@@ -1824,7 +1824,9 @@ async function submitCreateTask() {
     const r = await api('/api/ops', payload);
     if (r.ok) {
       closeModals();
-      loadOps();
+      // 等待任务列表刷新完成
+      await loadOps();
+      // 选择新任务并开始渲染
       selectOp(r.op_id);
       // 显示成功提示
       const msg = currentLang === 'zh'
