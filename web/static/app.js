@@ -29,7 +29,7 @@ const causalColors = {
   'KeyFact': '#fbbf24',
   'Flag': '#ef4444'
 };
-let state = { op_id: new URLSearchParams(location.search).get('op_id') || '', view: 'exec', simulation: null, svg: null, g: null, zoom: null, es: null, processedEvents: new Set(), pendingReq: null, isModifyMode: false, currentPhase: null, missionAccomplished: false };
+let state = { op_id: new URLSearchParams(location.search).get('op_id') || '', view: 'exec', simulation: null, svg: null, g: null, zoom: null, es: null, processedEvents: new Set(), pendingReq: null, isModifyMode: false, currentPhase: null, missionAccomplished: false, userHasInteracted: false, lastActiveNodeId: null, isProgrammaticZoom: false, renderDebounceTimer: null, lastRenderTime: 0, isLoadingHistory: false };
 const api = (p, b) => fetch(p + (p.includes('?') ? '&' : '?') + `op_id=${state.op_id}`, b ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) } : {}).then(r => r.json());
 
 // 显示阶段横幅
@@ -95,7 +95,7 @@ async function loadOps() {
               <span class="delete-btn" onclick="deleteOp(event, '${i.op_id}')" title="Delete Task">✕</span>
           </div>
       </div>
-      <div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${i.goal}</div>`;
+      <div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(i.goal)}</div>`;
       list.appendChild(li);
     });
   } catch (e) { }
@@ -122,13 +122,34 @@ function selectOp(id, refresh = true) {
   document.getElementById('llm-stream').innerHTML = '';
   state.processedEvents.clear(); // [Fix] Clear processed events history so they can be re-rendered
   state.missionAccomplished = false; // [Fix] Reset mission status when switching tasks
+  state.userHasInteracted = false; // 切换任务时重置用户交互标志，允许自动聚焦
+  state.lastActiveNodeId = null; // 重置上次活跃节点
+  state.lastRenderTime = 0; // 重置渲染时间，允许立即渲染
+  state.currentPhase = null; // 重置阶段状态
+  hidePhaseBanner(); // 隐藏阶段横幅，等待正确状态加载
   document.getElementById('node-detail-content').innerHTML = '<div style="padding:20px;text-align:center;color:#64748b">Loading...</div>';
   closeDetails();
-  if (state.es) state.es.close(); subscribe(); render(); if (refresh) loadOps();
+  if (state.es) state.es.close(); subscribe(); render(true); if (refresh) loadOps();
 }
 
 async function render(force) {
   if (!state.op_id) return;
+
+  // 防抖：如果上次渲染时间距现在不足 300ms 且非强制刷新，则跳过
+  const now = Date.now();
+  if (!force && state.missionAccomplished && (now - state.lastRenderTime) < 500) {
+    console.log('Skipping render: task completed, debounce active');
+    return;
+  }
+
+  // 清除已有的防抖定时器
+  if (state.renderDebounceTimer) {
+    clearTimeout(state.renderDebounceTimer);
+    state.renderDebounceTimer = null;
+  }
+
+  state.lastRenderTime = now;
+
   try {
     let data;
     if (state.view === 'exec') data = await api('/api/graph/execution');
@@ -144,9 +165,30 @@ function initD3() {
   const c = document.getElementById('main');
   state.svg = d3.select('#d3-graph').attr('viewBox', [0, 0, c.clientWidth, c.clientHeight]);
   state.g = state.svg.append('g');
-  state.zoom = d3.zoom().scaleExtent([0.1, 4]).on('zoom', e => state.g.attr('transform', e.transform));
+  // 创建 zoom 行为，并区分用户交互与程序化缩放
+  state.zoom = d3.zoom().scaleExtent([0.1, 4]).on('zoom', e => {
+    state.g.attr('transform', e.transform);
+    // 检测是否为用户主动交互（非程序化触发）
+    // sourceEvent 存在表示是用户操作（鼠标/触摸/滚轮）
+    if (e.sourceEvent && !state.isProgrammaticZoom) {
+      state.userHasInteracted = true;
+      updateTrackButton();
+      console.log('User interaction detected, auto-focus disabled');
+    }
+  });
   state.svg.call(state.zoom);
-  state.svg.append("defs").append("marker").attr("id", "arrow").attr("viewBox", "0 -5 10 10").attr("refX", 22).attr("refY", 0).attr("markerWidth", 6).attr("markerHeight", 6).attr("orient", "auto").append("path").attr("d", "M0,-5L10,0L0,5").attr("fill", "#475569");
+  // 定义箭头 marker - refX=0 使箭头紧贴路径末端
+  state.svg.append("defs").append("marker")
+    .attr("id", "arrow")
+    .attr("viewBox", "0 -4 8 8")
+    .attr("refX", 8)  // 箭头尖端位于路径末端
+    .attr("refY", 0)
+    .attr("markerWidth", 5)
+    .attr("markerHeight", 5)
+    .attr("orient", "auto")
+    .append("path")
+    .attr("d", "M0,-4L8,0L0,4")
+    .attr("fill", "#64748b");
 }
 
 function drawForceGraph(data) {
@@ -309,10 +351,7 @@ function drawForceGraph(data) {
       const points = dagreGraph.edge(d).points;
       return lineGen(points);
     })
-    .attr("marker-end", d => {
-      // 不要在连线上添加箭头，保持简洁
-      return null;
-    });
+    .attr("marker-end", "url(#arrow)");
 
   // 4. 绘制节点 (圆角矩形)
   const nodes = g.selectAll(".node")
@@ -534,19 +573,113 @@ function drawForceGraph(data) {
   const svgWidth = state.svg.node().clientWidth || 800;
   const svgHeight = state.svg.node().clientHeight || 600;
 
-  // 计算合适的缩放比例，确保图完全可见
-  const scaleX = (svgWidth * 0.9) / graphWidth;  // 留10%边距
-  const scaleY = (svgHeight * 0.9) / graphHeight;
-  const autoScale = Math.min(scaleX, scaleY, 1);  // 不超过1倍，避免放大过度
+  // 查找正在执行的节点（优先 action，其次 task，排除 root）
+  const activeNodes = data.nodes.filter(n => n.status === 'in_progress' || n.status === 'running');
+  // 按类型优先级排序：action > task > root
+  const typePriority = { 'action': 0, 'task': 1, 'root': 2 };
+  activeNodes.sort((a, b) => (typePriority[a.type] ?? 1) - (typePriority[b.type] ?? 1));
+  const activeNode = activeNodes.length > 0 ? activeNodes[0] : null;
+  const activeNodeId = activeNode ? activeNode.id : null;
 
-  // 计算居中偏移
-  const x = (svgWidth - graphWidth * autoScale) / 2;
-  const y = (svgHeight - graphHeight * autoScale) / 2;
+  // 判断是否需要自动聚焦：
+  // 1. 用户没有手动交互过视图
+  // 2. 或者活跃节点发生了变化（新的任务开始）
+  const shouldAutoFocus = !state.userHasInteracted ||
+    (activeNodeId && activeNodeId !== state.lastActiveNodeId);
 
-  // 应用变换
-  state.svg.call(state.zoom.transform, d3.zoomIdentity
-    .translate(x, y)
-    .scale(autoScale));
+  // 更新上次活跃节点 ID
+  if (activeNodeId) {
+    state.lastActiveNodeId = activeNodeId;
+  }
+
+  if (shouldAutoFocus) {
+    let targetX, targetY, targetScale;
+    let focusNode = null;
+
+    if (activeNode && activeNode.type !== 'root') {
+      // 优先聚焦到正在执行的节点（排除 root）
+      focusNode = dagreGraph.node(activeNode.id);
+      if (focusNode) {
+        console.log('Auto-focusing on active node:', activeNode.id, 'type:', activeNode.type);
+      }
+    }
+
+    // 如果没有活跃节点，根据视图类型选择不同的聚焦策略
+    if (!focusNode) {
+      if (state.view === 'causal') {
+        // 因果图：按类型优先级聚焦（Flag > ConfirmedVulnerability > Vulnerability > 其他）
+        const causalPriority = { 'Flag': 0, 'ConfirmedVulnerability': 1, 'Vulnerability': 2, 'Hypothesis': 3, 'Evidence': 4, 'KeyFact': 5 };
+        const sortedNodes = [...data.nodes].sort((a, b) => {
+          const typeA = a.node_type || a.type;
+          const typeB = b.node_type || b.type;
+          const priorityA = causalPriority[typeA] ?? 10;
+          const priorityB = causalPriority[typeB] ?? 10;
+          // 优先级相同时，按 created_at 降序（最新的优先）
+          if (priorityA === priorityB) {
+            return (b.created_at || 0) - (a.created_at || 0);
+          }
+          return priorityA - priorityB;
+        });
+
+        if (sortedNodes.length > 0) {
+          focusNode = dagreGraph.node(sortedNodes[0].id);
+          console.log('Causal graph: focusing on node:', sortedNodes[0].id, 'type:', sortedNodes[0].node_type || sortedNodes[0].type);
+        }
+      } else {
+        // 执行图：原有逻辑
+        // 优先找 in_progress 的 task
+        const inProgressTasks = data.nodes.filter(n => n.type === 'task' && (n.status === 'in_progress' || n.status === 'running'));
+        if (inProgressTasks.length > 0) {
+          focusNode = dagreGraph.node(inProgressTasks[0].id);
+          console.log('Auto-focusing on in_progress task:', inProgressTasks[0].id);
+        } else {
+          // 找最新完成的 action 或 task
+          const completedActions = data.nodes.filter(n => n.type === 'action' && n.status === 'completed' && n.completed_at);
+          if (completedActions.length > 0) {
+            completedActions.sort((a, b) => (b.completed_at || 0) - (a.completed_at || 0));
+            focusNode = dagreGraph.node(completedActions[0].id);
+            console.log('Auto-focusing on latest completed action:', completedActions[0].id);
+          } else {
+            // 找最新的 pending task
+            const pendingTasks = data.nodes.filter(n => n.type === 'task' && n.status === 'pending');
+            if (pendingTasks.length > 0) {
+              focusNode = dagreGraph.node(pendingTasks[pendingTasks.length - 1].id);
+              console.log('Auto-focusing on pending task:', pendingTasks[pendingTasks.length - 1].id);
+            }
+          }
+        }
+      }
+    }
+
+    if (focusNode) {
+      // 使用与成功路径相同的缩放比例（1.1倍）
+      targetScale = 0.75;
+      targetX = svgWidth / 2 - focusNode.x * targetScale;
+      targetY = svgHeight / 2 - focusNode.y * targetScale;
+    } else {
+      // 没有找到焦点节点，显示整体视图
+      const scaleX = (svgWidth * 0.9) / graphWidth;
+      const scaleY = (svgHeight * 0.9) / graphHeight;
+      targetScale = Math.min(scaleX, scaleY, 1);
+      targetX = (svgWidth - graphWidth * targetScale) / 2;
+      targetY = (svgHeight - graphHeight * targetScale) / 2;
+    }
+
+    // 设置程序化缩放标志，避免被误判为用户交互
+    state.isProgrammaticZoom = true;
+
+    // 使用平滑动画应用变换
+    state.svg.transition()
+      .duration(300)
+      .call(state.zoom.transform, d3.zoomIdentity
+        .translate(targetX, targetY)
+        .scale(targetScale))
+      .on('end', () => {
+        state.isProgrammaticZoom = false;
+      });
+  } else {
+    console.log('Skipping auto-focus: user has interacted with view');
+  }
 
   // 高亮当前执行路径
   highlightActivePath(dagreGraph, data.nodes, nodes, links);
@@ -575,6 +708,12 @@ function highlightActivePath(dagreGraph, dataNodes, nodeSelection, linkSelection
   const isGoalAchieved = rootCompleted || state.missionAccomplished;
 
   if (isGoalAchieved) {
+    // 确保 missionAccomplished 状态同步（首次渲染时可能还未设置）
+    if (!state.missionAccomplished) {
+      state.missionAccomplished = true;
+      showSuccessBanner();
+      console.log('🎉 Task completed detected from graph data, setting missionAccomplished');
+    }
     console.log('🎉 Goal achieved! Highlighting success path...');
     // 高亮所有成功完成的路径
     highlightSuccessPaths(dagreGraph, dataNodes, nodeSelection, linkSelection);
@@ -809,36 +948,179 @@ function highlightActivePath(dagreGraph, dataNodes, nodeSelection, linkSelection
 
 // 高亮成功路径（当全局任务完成时）
 function highlightSuccessPaths(dagreGraph, dataNodes, nodeSelection, linkSelection) {
-  console.log('🎉 Highlighting all success paths...');
+  console.log('🎉 Highlighting success path...');
 
   // 显示成功横幅
   showSuccessBanner();
 
-  // 找到所有成功完成的叶子节点（completed 状态且没有后继的节点）
-  const completedNodes = dataNodes.filter(n => n.status === 'completed');
+  // 新策略：从根节点开始DFS，沿着completed状态的节点向下遍历
+  // 找到完整的成功执行路径链
 
-  if (completedNodes.length === 0) {
-    console.log('No completed nodes found');
+  // 1. 找到根节点
+  const rootNode = dataNodes.find(n => n.type === 'root');
+  if (!rootNode) {
+    console.log('No root node found');
     return;
   }
 
-  // 找到所有叶子节点（没有后继节点的）
-  const completedNodeIds = new Set(completedNodes.map(n => n.id));
-  const leafNodes = completedNodes.filter(node => {
-    const successors = dagreGraph.successors(node.id);
-    // 没有后继，或者后继都不在已完成列表中
-    return !successors || successors.length === 0 ||
-      !successors.some(succ => completedNodeIds.has(succ));
-  });
+  // 构建节点ID到数据的映射
+  const nodeById = new Map(dataNodes.map(n => [n.id, n]));
 
-  console.log('Completed leaf nodes:', leafNodes.map(n => ({ id: n.id, type: n.type })));
+  // 2. DFS遍历，收集所有在成功路径上的节点
+  const successPathNodes = new Set();
+  const successPathEdges = new Set();
 
-  if (leafNodes.length === 0) {
-    console.log('No leaf nodes found, using all completed nodes');
-    leafNodes.push(...completedNodes);
+  function dfsSuccessPath(nodeId) {
+    if (successPathNodes.has(nodeId)) return; // 避免循环
+
+    const node = nodeById.get(nodeId);
+    if (!node) return;
+
+    // 只有completed状态的节点才算成功路径的一部分
+    // 注意：根节点和任务节点可能有不同的状态值
+    const isSuccess = node.status === 'completed' ||
+      (node.type === 'root' && node.status === 'completed');
+
+    if (!isSuccess && node.type !== 'root') {
+      // 如果当前节点不是成功状态，不继续向下遍历
+      // 除非是根节点（我们总是从根节点开始）
+      return;
+    }
+
+    successPathNodes.add(nodeId);
+
+    // 获取所有后继节点
+    const successors = dagreGraph.successors(nodeId);
+    if (successors && successors.length > 0) {
+      for (const succId of successors) {
+        const succNode = nodeById.get(succId);
+        if (succNode && succNode.status === 'completed') {
+          // 记录这条边
+          successPathEdges.add(`${nodeId}->${succId}`);
+          // 继续DFS
+          dfsSuccessPath(succId);
+        }
+      }
+    }
   }
 
-  // 从所有叶子节点追溯到根节点
+  // 从根节点开始DFS
+  dfsSuccessPath(rootNode.id);
+
+  // 3. 如果DFS没找到足够的节点，回退到原来的逻辑（找最后完成的叶子节点）
+  if (successPathNodes.size <= 1) {
+    console.log('DFS found only root, falling back to leaf-based approach');
+
+    // 找到所有已完成的 action 节点
+    const completedActions = dataNodes.filter(n =>
+      n.type === 'action' && n.status === 'completed'
+    );
+
+    if (completedActions.length > 0) {
+      // 找叶子节点：没有已完成后继的节点
+      const completedIds = new Set(completedActions.map(a => a.id));
+      const leafActions = completedActions.filter(action => {
+        const successors = dagreGraph.successors(action.id);
+        return !successors || successors.length === 0 ||
+          !successors.some(succ => completedIds.has(succ));
+      });
+
+      // 选择最后完成的叶子节点（如果有时间戳），否则选第一个
+      let targetAction = null;
+      if (leafActions.length > 0) {
+        const withTime = leafActions.filter(a => a.completed_at);
+        if (withTime.length > 0) {
+          withTime.sort((a, b) => (b.completed_at || 0) - (a.completed_at || 0));
+          targetAction = withTime[0];
+        } else {
+          targetAction = leafActions[0];
+        }
+      } else if (completedActions.length > 0) {
+        completedActions.sort((a, b) => (b.completed_at || 0) - (a.completed_at || 0));
+        targetAction = completedActions[0];
+      }
+
+      if (targetAction) {
+        console.log('Fallback: highlighting path from', targetAction.id);
+        highlightPathFromNode(dagreGraph, targetAction.id, nodeSelection, linkSelection);
+        return;
+      }
+    }
+
+    // 尝试已完成的任务节点
+    const completedTasks = dataNodes.filter(n =>
+      n.type === 'task' && n.status === 'completed'
+    );
+    if (completedTasks.length > 0) {
+      completedTasks.sort((a, b) => (b.completed_at || 0) - (a.completed_at || 0));
+      highlightPathFromNode(dagreGraph, completedTasks[0].id, nodeSelection, linkSelection);
+      return;
+    }
+
+    console.log('No success path found');
+    return;
+  }
+
+  console.log('✨ Success path found:', successPathNodes.size, 'nodes,', successPathEdges.size, 'edges');
+  console.log('Path nodes:', Array.from(successPathNodes));
+
+  // 4. 高亮成功路径
+  nodeSelection.classed("success-path", d => successPathNodes.has(d));
+
+  linkSelection.classed("success-path", d => {
+    const edgeKey = `${d.v}->${d.w}`;
+    return successPathEdges.has(edgeKey);
+  });
+
+  // 5. 自动聚焦到成功路径的叶子节点
+  // 找到成功路径上最深的节点（没有成功后继的节点）
+  let deepestNode = null;
+  let maxDepth = -1;
+
+  function getDepth(nodeId, depth = 0) {
+    if (depth > maxDepth && successPathNodes.has(nodeId)) {
+      maxDepth = depth;
+      deepestNode = nodeId;
+    }
+    const successors = dagreGraph.successors(nodeId);
+    if (successors) {
+      for (const succId of successors) {
+        if (successPathNodes.has(succId)) {
+          getDepth(succId, depth + 1);
+        }
+      }
+    }
+  }
+
+  getDepth(rootNode.id);
+
+  if (deepestNode && !state.userHasInteracted) {
+    const nodeData = dagreGraph.node(deepestNode);
+    if (nodeData) {
+      const svgWidth = state.svg.node().clientWidth || 800;
+      const svgHeight = state.svg.node().clientHeight || 600;
+
+      const focusScale = 0.75;
+      const targetX = svgWidth / 2 - nodeData.x * focusScale;
+      const targetY = svgHeight / 2 - nodeData.y * focusScale;
+
+      console.log('Focusing on deepest success node:', deepestNode, 'at', nodeData.x, nodeData.y);
+
+      state.isProgrammaticZoom = true;
+      state.svg.transition()
+        .duration(500)
+        .call(state.zoom.transform, d3.zoomIdentity
+          .translate(targetX, targetY)
+          .scale(focusScale))
+        .on('end', () => {
+          state.isProgrammaticZoom = false;
+        });
+    }
+  }
+}
+
+// 从指定节点回溯到根节点并高亮路径
+function highlightPathFromNode(dagreGraph, startNodeId, nodeSelection, linkSelection) {
   const pathToRoot = new Set();
   const edgesInPath = new Set();
 
@@ -856,11 +1138,10 @@ function highlightSuccessPaths(dagreGraph, dataNodes, nodeSelection, linkSelecti
     }
   }
 
-  leafNodes.forEach(leaf => {
-    findPathToRoot(leaf.id);
-  });
+  findPathToRoot(startNodeId);
 
   console.log('✨ Success path includes', pathToRoot.size, 'nodes and', edgesInPath.size, 'edges');
+  console.log('Path nodes:', Array.from(pathToRoot));
 
   // 使用 success-path 类高亮节点和边（绿色发光效果）
   nodeSelection.classed("success-path", d => pathToRoot.has(d));
@@ -869,14 +1150,70 @@ function highlightSuccessPaths(dagreGraph, dataNodes, nodeSelection, linkSelecti
     const edgeKey = `${d.v}->${d.w}`;
     return edgesInPath.has(edgeKey);
   });
+
+  // 自动聚焦到起始节点（最后完成的 action）
+  const nodeData = dagreGraph.node(startNodeId);
+  if (nodeData && !state.userHasInteracted) {
+    const svgWidth = state.svg.node().clientWidth || 800;
+    const svgHeight = state.svg.node().clientHeight || 600;
+
+    // 使用较大的缩放比例，让视图能看到周围几个节点
+    const focusScale = 0.75;
+    const targetX = svgWidth / 2 - nodeData.x * focusScale;
+    const targetY = svgHeight / 2 - nodeData.y * focusScale;
+
+    console.log('Focusing on success node:', startNodeId, 'at', nodeData.x, nodeData.y);
+
+    // 设置程序化缩放标志
+    state.isProgrammaticZoom = true;
+
+    // 使用平滑动画聚焦
+    state.svg.transition()
+      .duration(500)
+      .call(state.zoom.transform, d3.zoomIdentity
+        .translate(targetX, targetY)
+        .scale(focusScale))
+      .on('end', () => {
+        state.isProgrammaticZoom = false;
+      });
+  }
 }
 
 function dragstarted(e, d) { if (!e.active) state.simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; }
 function dragged(e, d) { d.fx = e.x; d.fy = e.y; }
 function dragended(e, d) { if (!e.active) state.simulation.alphaTarget(0); d.fx = null; d.fy = null; }
-function zoomIn() { state.svg.transition().call(state.zoom.scaleBy, 1.2); }
+function zoomIn() { state.svg.transition().call(state.zoom.scaleBy, 1.1); }
 function zoomOut() { state.svg.transition().call(state.zoom.scaleBy, 0.8); }
 function zoomReset() { state.svg.transition().call(state.zoom.transform, d3.zoomIdentity); }
+
+// 切换自动追踪模式
+function toggleAutoFocus() {
+  state.userHasInteracted = !state.userHasInteracted;
+  updateTrackButton();
+
+  if (!state.userHasInteracted) {
+    // 重新启用追踪时，立即聚焦到活跃节点
+    console.log('Auto-focus re-enabled, re-rendering...');
+    render();
+  } else {
+    console.log('Auto-focus disabled by user');
+  }
+}
+
+// 更新追踪按钮状态
+function updateTrackButton() {
+  const btn = document.getElementById('btn-track');
+  if (btn) {
+    if (state.userHasInteracted) {
+      btn.style.opacity = '0.5';
+      btn.title = currentLang === 'zh' ? '点击启用自动追踪' : 'Click to enable auto-tracking';
+    } else {
+      btn.style.opacity = '1';
+      btn.title = currentLang === 'zh' ? '自动追踪已启用' : 'Auto-tracking enabled';
+    }
+  }
+}
+
 function updateLegend() {
   const el = document.getElementById('legend-content');
   let h = '';
@@ -974,7 +1311,7 @@ function showDetails(d) {
       h += `<div class="detail-row" style="margin-bottom:4px;margin-top:8px;">
                   <span class="detail-key">${t('panel.observation')}:</span>
                 </div>
-                <div class="code-block" style="max-height:300px;overflow-y:auto;">${typeof d.observation === 'object' ? hlJson(d.observation) : d.observation}</div>`;
+                <div class="code-block" style="max-height:300px;overflow-y:auto;">${hlJson(d.observation)}</div>`;
     }
 
     h += `</div>`;
@@ -984,7 +1321,7 @@ function showDetails(d) {
   h += `<div class="detail-section"><div class="detail-header">${t('panel.description')}</div><table class="detail-table">`;
   Object.entries(d).forEach(([k, v]) => {
     if (!['x', 'y', 'fx', 'fy', 'vx', 'vy', 'index', 'children', 'width', 'height', 'tool_name', 'tool_args', 'result', 'observation', 'action', 'label', 'id', 'type', 'status', 'description', 'original_type'].includes(k)) {
-      h += `<tr><td class="detail-key">${k}</td><td class="detail-val">${typeof v === 'object' ? JSON.stringify(v, null, 2) : v}</td></tr>`;
+      h += `<tr><td class="detail-key">${escapeHtml(k)}</td><td class="detail-val">${typeof v === 'object' ? hlJson(v) : escapeHtml(String(v))}</td></tr>`;
     }
   });
   h += '</table></div>';
@@ -997,6 +1334,59 @@ function closeDetails() {
   document.getElementById('node-details-panel').classList.remove('show');
 }
 
+// 初始化节点详情窗口拖动功能
+function initPanelDrag() {
+  const panel = document.getElementById('node-details-panel');
+  const header = panel.querySelector('.panel-header');
+
+  let isDragging = false;
+  let offsetX = 0;
+  let offsetY = 0;
+
+  header.style.cursor = 'move';
+
+  header.addEventListener('mousedown', (e) => {
+    // 忽略按钮点击
+    if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+
+    isDragging = true;
+    const rect = panel.getBoundingClientRect();
+    offsetX = e.clientX - rect.left;
+    offsetY = e.clientY - rect.top;
+
+    // 防止选中文本
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+
+    const main = document.getElementById('main');
+    const mainRect = main.getBoundingClientRect();
+
+    // 计算新位置（相对于 main 容器）
+    let newLeft = e.clientX - mainRect.left - offsetX;
+    let newTop = e.clientY - mainRect.top - offsetY;
+
+    // 限制在 main 容器内
+    const panelRect = panel.getBoundingClientRect();
+    newLeft = Math.max(0, Math.min(newLeft, mainRect.width - panelRect.width));
+    newTop = Math.max(0, Math.min(newTop, mainRect.height - panelRect.height));
+
+    panel.style.left = newLeft + 'px';
+    panel.style.top = newTop + 'px';
+  });
+
+  document.addEventListener('mouseup', () => {
+    isDragging = false;
+  });
+}
+
+// 页面加载后初始化拖动
+document.addEventListener('DOMContentLoaded', () => {
+  initPanelDrag();
+});
+
 function subscribe() {
   state.es = new EventSource(`/api/events?op_id=${state.op_id}`);
   state.es.onmessage = e => {
@@ -1006,20 +1396,30 @@ function subscribe() {
       // 统一处理所有事件
       const eventType = msg.event || 'message';
 
-      if (eventType === 'graph.changed' || eventType === 'execution.step.completed') render();
+      // 对于已完成的任务，跳过图形刷新事件（减少不必要的渲染）
+      if (eventType === 'graph.changed' || eventType === 'execution.step.completed') {
+        if (!state.missionAccomplished) {
+          render();
+        }
+      }
       if (eventType === 'ping' || eventType === 'graph.ready') return;
 
-      // 分流渲染
+      // 分流渲染（实时事件）
       if (eventType.startsWith('llm.')) {
-        renderLLMResponse(msg);
+        renderLLMResponse(msg, false);
       } else {
         renderSystemEvent(msg);
       }
     } catch (x) { console.error('Parse error', x); }
   };
-  fetch(`/api/ops/${state.op_id}/llm-events`).then(r => r.json()).then(d => (d.events || []).forEach(e => {
-    if (e.event && e.event.startsWith('llm.')) renderLLMResponse(e); else renderSystemEvent(e);
-  }));
+  // 加载历史事件时设置标志，避免 phase banner 闪烁
+  fetch(`/api/ops/${state.op_id}/llm-events`).then(r => r.json()).then(d => {
+    state.isLoadingHistory = true;
+    (d.events || []).forEach(e => {
+      if (e.event && e.event.startsWith('llm.')) renderLLMResponse(e, true); else renderSystemEvent(e);
+    });
+    state.isLoadingHistory = false;
+  });
 }
 
 // 专门处理系统/执行事件 (execution.step.completed, graph.changed, etc)
@@ -1072,9 +1472,9 @@ function renderSystemEvent(msg) {
       }
     } else if (data.reason === 'confidence_update') {
       html += `<div style="color:#fbbf24;font-weight:bold;">📈 Confidence Update</div>`;
-      html += `<div style="color:#94a3b8">${data.message || 'No details'}</div>`;
+      html += `<div style="color:#94a3b8">${escapeHtml(data.message || 'No details')}</div>`;
     } else {
-      html += `<div style="color:#94a3b8">Graph updated: ${data.reason || 'Unknown reason'}</div>`;
+      html += `<div style="color:#94a3b8">Graph updated: ${escapeHtml(data.reason || 'Unknown reason')}</div>`;
     }
   }
   // 针对 Intervention
@@ -1094,7 +1494,7 @@ function renderSystemEvent(msg) {
 }
 
 // 专门处理 LLM 响应
-function renderLLMResponse(msg) {
+function renderLLMResponse(msg, isHistory = false) {
   const id = (msg.timestamp || Date.now()) + '_' + msg.event;
   if (state.processedEvents.has(id)) return;
   state.processedEvents.add(id);
@@ -1114,16 +1514,21 @@ function renderLLMResponse(msg) {
     try { const p = JSON.parse(data); role = p.role; } catch (e) { }
   }
 
+  // 只在实时事件（非历史回放）且任务未完成时显示 phase banner
+  const shouldShowPhase = !isHistory && !state.missionAccomplished;
+
   if (role === 'planner' || eventType.includes('planner') || (data.model && data.model.includes('planner'))) {
     roleClass = 'role-planner'; roleName = 'PLANNER';
-    showPhaseBanner('planning');
+    if (shouldShowPhase) showPhaseBanner('planning');
   } else if (role === 'executor' || eventType.includes('executor') || (data.model && data.model.includes('executor'))) {
     roleClass = 'role-executor'; roleName = 'EXECUTOR';
-    showPhaseBanner('executing');
-    setTimeout(() => { if (state.currentPhase === 'executing') hidePhaseBanner(); }, 2000);
+    if (shouldShowPhase) {
+      showPhaseBanner('executing');
+      setTimeout(() => { if (state.currentPhase === 'executing') hidePhaseBanner(); }, 2000);
+    }
   } else if (role === 'reflector' || eventType.includes('reflector') || (data.model && data.model.includes('reflector'))) {
     roleClass = 'role-reflector'; roleName = 'REFLECTOR';
-    showPhaseBanner('reflecting');
+    if (shouldShowPhase) showPhaseBanner('reflecting');
   }
 
   // 检测全局任务完成
@@ -1168,10 +1573,10 @@ function renderLLMResponse(msg) {
       let thoughtText = '';
       if (typeof remaining.thought === 'object') {
         for (const [key, val] of Object.entries(remaining.thought)) {
-          if (typeof val === 'string') thoughtText += `<div style="margin-bottom:6px;"><span class="detail-key">${key.replace(/_/g, ' ')}:</span> <span style="color:#e2e8f0">${val}</span></div>`;
+          if (typeof val === 'string') thoughtText += `<div style="margin-bottom:6px;"><span class="detail-key">${escapeHtml(key.replace(/_/g, ' '))}:</span> <span style="color:#e2e8f0">${escapeHtml(val)}</span></div>`;
         }
       } else {
-        thoughtText = `<div style="color:#e2e8f0">${remaining.thought}</div>`;
+        thoughtText = `<div style="color:#e2e8f0">${escapeHtml(String(remaining.thought))}</div>`;
       }
       htmlContent += `<div class="thought-card">${thoughtText}</div>`;
       delete remaining.thought;
@@ -1182,8 +1587,8 @@ function renderLLMResponse(msg) {
       const audit = remaining.audit_result;
       const statusColor = audit.status === 'passed' ? '#10b981' : (audit.status === 'failed' ? '#ef4444' : '#f59e0b');
       htmlContent += `<div class="thought-card" style="border-left-color:${statusColor}">
-              <div class="thought-title" style="color:${statusColor}">Audit: ${audit.status.toUpperCase()}</div>
-              <div style="margin-bottom:6px;">${audit.completion_check}</div>
+              <div class="thought-title" style="color:${statusColor}">Audit: ${escapeHtml(audit.status.toUpperCase())}</div>
+              <div style="margin-bottom:6px;">${escapeHtml(audit.completion_check || '')}</div>
           </div>`;
       delete remaining.audit_result;
     }
@@ -1258,8 +1663,156 @@ function hlJson(s) {
   });
 }
 
-async function createTask() { const g = document.getElementById('in-goal').value, t = document.getElementById('in-task').value; if (!g) return; await api('/api/ops', { goal: g, task_name: t }).then(r => { if (r.ok) { loadOps(); selectOp(r.op_id) } }); }
-async function abortOp() { if (confirm(t('msg.confirm_abort'))) await api(`/api/ops/${state.op_id}/abort`, {}); }
+// HTML 转义辅助函数
+function escapeHtml(str) {
+  if (typeof str !== 'string') str = String(str);
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+// 打开新建任务弹窗
+function openCreateTaskModal() {
+  document.getElementById('create-task-modal').classList.add('show');
+  document.getElementById('create-goal').value = '';
+  document.getElementById('create-taskname').value = '';
+  document.getElementById('create-hitl').checked = false;
+  document.getElementById('create-output-mode').value = 'default';
+  document.getElementById('create-llm-planner').value = '';
+  document.getElementById('create-llm-executor').value = '';
+  document.getElementById('create-llm-reflector').value = '';
+  document.getElementById('advanced-content').style.display = 'none';
+  document.getElementById('advanced-arrow').style.transform = 'rotate(0deg)';
+  updateHitlLabel();
+  // 聚焦到目标输入框
+  setTimeout(() => document.getElementById('create-goal').focus(), 100);
+}
+
+// 切换高级配置展开/折叠
+function toggleAdvancedConfig() {
+  const content = document.getElementById('advanced-content');
+  const arrow = document.getElementById('advanced-arrow');
+  if (content.style.display === 'none') {
+    content.style.display = 'block';
+    arrow.style.transform = 'rotate(180deg)';
+  } else {
+    content.style.display = 'none';
+    arrow.style.transform = 'rotate(0deg)';
+  }
+}
+
+// 更新人机协同模式标签
+function updateHitlLabel() {
+  const checkbox = document.getElementById('create-hitl');
+  const label = document.getElementById('hitl-label');
+  if (checkbox.checked) {
+    label.textContent = currentLang === 'zh' ? '开启' : 'On';
+    label.style.color = '#10b981';
+  } else {
+    label.textContent = currentLang === 'zh' ? '关闭' : 'Off';
+    label.style.color = '#94a3b8';
+  }
+}
+
+// 监听人机协同复选框变化
+document.addEventListener('DOMContentLoaded', () => {
+  const hitlCheckbox = document.getElementById('create-hitl');
+  if (hitlCheckbox) {
+    hitlCheckbox.addEventListener('change', updateHitlLabel);
+  }
+});
+
+// 提交创建任务
+async function submitCreateTask() {
+  const goal = document.getElementById('create-goal').value.trim();
+  const taskName = document.getElementById('create-taskname').value.trim();
+  const hitl = document.getElementById('create-hitl').checked;
+  const outputMode = document.getElementById('create-output-mode').value;
+  const plannerModel = document.getElementById('create-llm-planner').value.trim();
+  const executorModel = document.getElementById('create-llm-executor').value.trim();
+  const reflectorModel = document.getElementById('create-llm-reflector').value.trim();
+
+  if (!goal) {
+    alert(currentLang === 'zh' ? '请输入任务目标' : 'Please enter a task goal');
+    document.getElementById('create-goal').focus();
+    return;
+  }
+
+  const payload = {
+    goal: goal,
+    task_name: taskName || undefined,
+    human_in_the_loop: hitl,
+    output_mode: outputMode
+  };
+
+  // 添加可选的LLM模型配置
+  if (plannerModel) payload.llm_planner_model = plannerModel;
+  if (executorModel) payload.llm_executor_model = executorModel;
+  if (reflectorModel) payload.llm_reflector_model = reflectorModel;
+
+  try {
+    const r = await api('/api/ops', payload);
+    if (r.ok) {
+      closeModals();
+      loadOps();
+      selectOp(r.op_id);
+      // 显示成功提示
+      const msg = currentLang === 'zh'
+        ? `任务已启动！${hitl ? '（人机协同模式）' : ''}`
+        : `Task started!${hitl ? ' (HITL mode)' : ''}`;
+      console.log(msg, r);
+    }
+  } catch (e) {
+    alert(currentLang === 'zh' ? `创建任务失败: ${e}` : `Failed to create task: ${e}`);
+  }
+}
+
+// 兼容旧版调用（如果有地方还用着旧的createTask）
+async function createTask() {
+  openCreateTaskModal();
+}
+
+async function abortOp() {
+  if (confirm(t('msg.confirm_abort'))) {
+    try {
+      const r = await api(`/api/ops/${state.op_id}/abort`, {});
+      if (r.ok) {
+        // 隐藏 phase banner
+        hidePhaseBanner();
+
+        // 更新状态，防止继续显示执行中状态
+        state.missionAccomplished = false;
+        state.currentPhase = null;
+
+        // 显示终止横幅
+        const banner = document.getElementById('phase-banner');
+        const text = document.getElementById('phase-text');
+        if (banner && text) {
+          text.textContent = currentLang === 'zh' ? '⛔ 任务已终止' : '⛔ Task Aborted';
+          banner.style.background = 'rgba(239, 68, 68, 0.95)';
+          banner.style.display = 'block';
+          // 3秒后隐藏
+          setTimeout(() => {
+            banner.style.display = 'none';
+            banner.style.background = 'rgba(59,130,246,0.95)';
+          }, 3000);
+        }
+
+        // 刷新任务列表
+        loadOps();
+        // 重新渲染图表
+        render(true);
+
+        console.log('Task aborted:', r.message, 'process_killed:', r.process_killed);
+      }
+    } catch (e) {
+      console.error('Abort failed:', e);
+    }
+  }
+}
 
 async function checkPendingIntervention() {
   if (!state.op_id) return;

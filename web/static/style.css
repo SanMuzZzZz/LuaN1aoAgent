@@ -305,3 +305,105 @@ input:focus, textarea:focus { border-color: var(--accent-primary); }
 .toast { position: fixed; top: 20px; left: 50%; transform: translateX(-50%) translateY(-100%); background: var(--bg-card); border: 1px solid var(--border-highlight); padding: 8px 16px; border-radius: 50px; display: flex; align-items: center; gap: 8px; z-index: 200; transition: 0.3s; }
 .toast.show { transform: translateX(-50%) translateY(0); }
 .json-number { color: #79c0ff; } .json-key { color: #7ee787; } .json-string { color: #a5d6ff; } .json-boolean { color: #ff7b72; }
+
+/* Toggle Switch 样式 */
+.toggle-switch-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #475569;
+  transition: 0.3s;
+  border-radius: 24px;
+}
+
+.toggle-slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: 0.3s;
+  border-radius: 50%;
+}
+
+.toggle-switch input:checked + .toggle-slider {
+  background-color: #10b981;
+}
+
+.toggle-switch input:checked + .toggle-slider:before {
+  transform: translateX(20px);
+}
+
+.toggle-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #94a3b8;
+}
+
+/* 高级配置折叠区域 */
+.advanced-config {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.advanced-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  padding: 8px 0;
+  transition: color 0.2s;
+}
+
+.advanced-header:hover {
+  color: var(--text-main);
+}
+
+/* 新建任务弹窗特定样式 */
+#create-task-modal .modal-box {
+  overflow: hidden;
+}
+
+#create-task-modal textarea,
+#create-task-modal input,
+#create-task-modal select {
+  font-size: 13px;
+}
+
+#create-task-modal textarea::placeholder,
+#create-task-modal input::placeholder {
+  color: #64748b;
+}
+
+#create-task-modal select option {
+  background: #1e293b;
+  color: white;
+}

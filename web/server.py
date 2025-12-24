@@ -26,6 +26,10 @@ from core.intervention import intervention_manager # Added this line
 # 配置 SSE 日志
 _sse_logger = logging.getLogger("web.sse")
 
+# 进程跟踪字典: {op_id -> subprocess.Popen}
+# 用于在终止任务时直接kill进程
+_running_processes: Dict[str, subprocess.Popen] = {}
+
 app = FastAPI(title="鸾鸟Agent Web (DB Mode)")
 
 app.add_middleware(
@@ -305,19 +309,55 @@ async def api_submit_intervention_decision(op_id: str, payload: Dict[str, Any]):
 
 @app.post("/api/ops/{op_id}/abort")
 async def api_ops_abort(op_id: str):
+    import signal
+    
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(SessionModel).where(SessionModel.id == op_id))
         s = result.scalar_one_or_none()
         if not s:
             raise HTTPException(status_code=404, detail="Session not found")
         
+        # 1. 更新数据库状态
         await session.execute(
             update(SessionModel)
             .where(SessionModel.id == op_id)
             .values(status="aborted", updated_at=datetime.now())
         )
         await session.commit()
-    return {"ok": True}
+        
+    # 2. 直接kill进程
+    process_killed = False
+    if op_id in _running_processes:
+        proc = _running_processes[op_id]
+        try:
+            # 检查进程是否还在运行
+            if proc.poll() is None:
+                # 发送SIGTERM信号优雅终止
+                proc.terminate()
+                # 等待最多3秒让进程退出
+                try:
+                    proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    # 如果还没退出，强制kill
+                    proc.kill()
+                    proc.wait()
+                process_killed = True
+                _sse_logger.info(f"Process for op_id '{op_id}' terminated (PID: {proc.pid})")
+            else:
+                _sse_logger.info(f"Process for op_id '{op_id}' already exited")
+        except Exception as e:
+            _sse_logger.error(f"Failed to kill process for op_id '{op_id}': {e}")
+        finally:
+            # 从跟踪字典中移除
+            del _running_processes[op_id]
+    else:
+        _sse_logger.warning(f"No tracked process found for op_id '{op_id}'")
+        
+    return {
+        "ok": True, 
+        "message": "Task aborted successfully",
+        "process_killed": process_killed
+    }
 
 @app.delete("/api/ops/{op_id}")
 async def api_ops_delete(op_id: str):
@@ -466,6 +506,15 @@ async def api_ops_create(payload: Dict[str, Any]):
     goal = (payload.get("goal") or "").strip()
     task_name = (payload.get("task_name") or f"web_task_{int(time.time())}").strip()
     
+    # 新增配置选项
+    human_in_the_loop = payload.get("human_in_the_loop", False)  # 人机协同模式
+    output_mode = payload.get("output_mode", "default")  # 输出模式: simple, default, debug
+    
+    # LLM模型配置（可选）
+    llm_planner_model = payload.get("llm_planner_model", "").strip()
+    llm_executor_model = payload.get("llm_executor_model", "").strip()
+    llm_reflector_model = payload.get("llm_reflector_model", "").strip()
+    
     if not goal:
         raise HTTPException(status_code=400, detail="Goal is required to create a task.")
 
@@ -480,8 +529,24 @@ async def api_ops_create(payload: Dict[str, Any]):
         "--goal", goal,
         "--task-name", task_name,
         "--op-id", op_id, # Pass the generated op_id to the agent
-        "--web" # To ensure agent prints web URL for debug if needed, but no web server will be started.
+        "--web", # To ensure agent prints web URL for debug if needed, but no web server will be started.
+        "--output-mode", output_mode,
     ]
+    
+    # 添加可选的LLM模型配置
+    if llm_planner_model:
+        command.extend(["--llm-planner-model", llm_planner_model])
+    if llm_executor_model:
+        command.extend(["--llm-executor-model", llm_executor_model])
+    if llm_reflector_model:
+        command.extend(["--llm-reflector-model", llm_reflector_model])
+
+    # 设置环境变量传递人机协同配置
+    env = os.environ.copy()
+    if human_in_the_loop:
+        env["HUMAN_IN_THE_LOOP"] = "true"
+    else:
+        env["HUMAN_IN_THE_LOOP"] = "false"
 
     # Use subprocess.Popen to start agent.py as a detached process
     # This prevents the web server from being blocked by the agent task
@@ -490,12 +555,25 @@ async def api_ops_create(payload: Dict[str, Any]):
         # This makes the child process independent of the web server's lifespan
         process = subprocess.Popen(command, start_new_session=True, 
                                    stdout=subprocess.DEVNULL, # Redirect stdout to /dev/null
-                                   stderr=subprocess.DEVNULL) # Redirect stderr to /dev/null
+                                   stderr=subprocess.DEVNULL, # Redirect stderr to /dev/null
+                                   env=env)  # 传递环境变量
         
-        _sse_logger.info(f"Agent task '{task_name}' (op_id: {op_id}) started with PID: {process.pid}")
+        # 保存进程引用到跟踪字典，以便后续可以直接kill
+        _running_processes[op_id] = process
+        
+        _sse_logger.info(f"Agent task '{task_name}' (op_id: {op_id}) started with PID: {process.pid}, HITL: {human_in_the_loop}")
 
         # The agent itself will create the session in the DB
-        return {"ok": True, "op_id": op_id, "message": "Agent task started successfully."}
+        return {
+            "ok": True, 
+            "op_id": op_id, 
+            "pid": process.pid,
+            "message": "Agent task started successfully.",
+            "config": {
+                "human_in_the_loop": human_in_the_loop,
+                "output_mode": output_mode
+            }
+        }
     except Exception as e:
         _sse_logger.error(f"Failed to start agent task: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to start agent task: {e}")

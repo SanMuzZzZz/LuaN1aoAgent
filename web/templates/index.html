@@ -1,10 +1,13 @@
 <!doctype html>
 <html lang="zh-CN">
+
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>鸾鸟Agent Operation Center</title>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link
+    href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Inter:wght@300;400;500;600;700&display=swap"
+    rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <!-- [新增] 引入 dagre 用于计算 DAG 布局 -->
@@ -13,144 +16,282 @@
   <script src="https://unpkg.com/tippy.js@6"></script>
   <link rel="stylesheet" href="https://unpkg.com/tippy.js@6/dist/tippy.css" />
   <link rel="stylesheet" href="https://unpkg.com/tippy.js@6/themes/light.css" />
-  <link rel="stylesheet" href="/static/style.css" />
-  <script src="/static/i18n.js"></script>
+  <link rel="stylesheet" href="/static/style.css?v=20241224" />
+  <script src="/static/i18n.js?v=20241224"></script>
 </head>
+
 <body>
 
-<div id="app">
-  <header id="topbar">
-    <div class="brand">
-      <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
-      <span data-i18n="brand">鸾鸟Agent</span>
-    </div>
-    <div style="width:1px;height:24px;background:var(--border-color)"></div>
-    <div class="flex gap-2">
-      <button class="btn active" data-view="exec" data-i18n="view.exec" onclick="switchView('exec')">攻击图</button>
-      <button class="btn" data-view="causal" data-i18n="view.causal" onclick="switchView('causal')">因果图</button>
-    </div>
-    <div style="flex:1"></div>
-    <div class="flex gap-2 items-center">
-      <input id="in-goal" data-i18n="input.goal" placeholder="输入目标..." style="width: 200px;">
-      <input id="in-task" data-i18n="input.taskid" placeholder="任务ID" style="width: 80px;">
-      <button class="btn btn-primary" data-i18n="btn.create" onclick="createTask()">新建</button>
-    </div>
-    <div style="width:1px;height:24px;background:var(--border-color);margin:0 10px;"></div>
-    <div class="flex gap-2">
-      <button class="btn" data-i18n="btn.mcp" onclick="openMCPModal()">MCP</button>
-      <button class="btn" data-i18n="btn.inject" onclick="openInjectModal()">Inject</button>
-      <button class="btn" data-i18n="btn.refresh" onclick="render(true)">刷新</button>
-      <button class="btn btn-danger" data-i18n="btn.stop" onclick="abortOp()">终止</button>
-    </div>
-    <div style="width:1px;height:24px;background:var(--border-color);margin:0 10px;"></div>
-    <div class="flex gap-2">
-      <button class="btn" onclick="switchLanguage('zh')" title="中文">中</button>
-      <button class="btn" onclick="switchLanguage('en')" title="English">EN</button>
-    </div>
-  </header>
-
-  <div id="layout">
-    <aside id="sidebar">
-      <div class="panel-header" data-i18n="sidebar.operations">操作列表</div>
-      <ul id="ops"></ul>
-    </aside>
-
-    <main id="main">
-      <!-- Agent Phase Status Banner -->
-      <div id="phase-banner" style="display:none;position:absolute;top:20px;left:50%;transform:translateX(-50%);z-index:100;background:rgba(59,130,246,0.95);color:white;padding:12px 24px;border-radius:8px;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,0.3);backdrop-filter:blur(8px);">
-        <div style="display:flex;align-items:center;gap:12px;">
-          <div class="spinner" style="width:16px;height:16px;border:2px solid rgba(255,255,255,0.3);border-top-color:white;border-radius:50%;animation:spin 1s linear infinite;"></div>
-          <span id="phase-text">处理中...</span>
-        </div>
+  <div id="app">
+    <header id="topbar">
+      <div class="brand">
+        <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+        </svg>
+        <span data-i18n="brand">鸾鸟Agent</span>
       </div>
-      
-      <svg id="d3-graph" width="100%" height="100%"></svg>
-      <div id="controls" class="floating-panel">
-        <button class="btn" onclick="zoomIn()">+</button>
-        <button class="btn" onclick="zoomOut()">-</button>
-        <button class="btn" onclick="zoomReset()">Fit</button>
+      <div style="width:1px;height:24px;background:var(--border-color)"></div>
+      <div class="flex gap-2">
+        <button class="btn active" data-view="exec" data-i18n="view.exec" onclick="switchView('exec')">攻击图</button>
+        <button class="btn" data-view="causal" data-i18n="view.causal" onclick="switchView('causal')">因果图</button>
       </div>
-      <div id="legend" class="floating-panel">
-        <div style="font-weight:600;margin-bottom:6px;font-size:10px;text-transform:uppercase" data-i18n="legend.title">图例</div>
-        <div id="legend-content"></div>
-      </div>
-      
-      <div id="node-details-panel" class="floating-details" style="top: 20px; left: 20px;">
-        <div class="panel-header">
-          <span data-i18n="panel.details">节点详情</span>
-          <button class="btn" style="height:24px;padding:0 6px;background:transparent;border:none;" onclick="closeDetails()">
-            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-          </button>
-        </div>
-        <div id="node-detail-content" class="panel-content">
-          <div style="padding:20px;color:var(--text-muted);text-align:center" data-i18n="panel.notselected">未选择节点</div>
-        </div>
-      </div>
-    </main>
-
-    <aside id="right-panel">
-      <div id="llm-output-container">
-        <div class="panel-header">
-          <span>Agent Logs (Output Only)</span>
-          <span id="typing-indicator" style="display:none;color:var(--success)">● Live</span>
-        </div>
-        <div id="llm-stream" class="panel-content"></div>
-      </div>
-    </aside>
-  </div>
-</div>
-
-<div id="inject-modal" class="modal-overlay">
-  <div class="modal-box">
-    <div class="panel-header" style="background:transparent;border:none;padding:24px 24px 0;">
-      <h2 style="font-size:16px;">Inject Task</h2>
-    </div>
-    <div class="modal-body">
-      <div class="mb-4"><label class="block text-xs text-gray-400 mb-1">Description</label><textarea id="inject-desc" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-24"></textarea></div>
-      <div class="mb-4"><label class="block text-xs text-gray-400 mb-1">Dependencies (IDs)</label><input id="inject-deps" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div>
-    </div>
-    <div class="modal-footer"><button class="btn" onclick="closeModals()">Cancel</button><button class="btn btn-primary" onclick="submitInjection()">Inject</button></div>
-  </div>
-</div>
-
-<div id="mcp-modal" class="modal-overlay">
-  <div class="modal-box">
-    <div class="panel-header" style="background:transparent;border:none;padding:24px 24px 0;">
-      <h2 style="font-size:16px;" data-i18n="mcp.title">Manage MCP Servers</h2>
-    </div>
-    <div class="modal-body">
-      <div class="mb-4">
-        <div class="text-xs text-gray-400 mb-2 uppercase font-bold" data-i18n="mcp.current">Current Servers</div>
-        <div id="mcp-list" class="bg-slate-800 border border-slate-600 rounded p-2 text-white text-xs" style="min-height:50px; max-height:150px; overflow-y:auto;" data-i18n="mcp.loading">Loading...</div>
-      </div>
-      <hr class="border-slate-700 my-4">
-      <div class="mb-2 text-xs text-gray-400 uppercase font-bold" data-i18n="mcp.add_new">Add New Server</div>
-      <div class="mb-2"><label class="block text-xs text-gray-400 mb-1" data-i18n="mcp.name">Name</label><input id="mcp-name" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div>
-      <div class="mb-2"><label class="block text-xs text-gray-400 mb-1" data-i18n="mcp.command">Command</label><input id="mcp-cmd" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div>
-      <div class="mb-2"><label class="block text-xs text-gray-400 mb-1" data-i18n="mcp.args">Args (comma separated)</label><input id="mcp-args" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div>
-      <div class="mb-2"><label class="block text-xs text-gray-400 mb-1" data-i18n="mcp.env">Env (JSON)</label><textarea id="mcp-env" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-16" placeholder='{"KEY": "VALUE"}'></textarea></div>
-    </div>
-    <div class="modal-footer"><button class="btn" onclick="closeModals()" data-i18n="btn.close">Close</button><button class="btn btn-primary" onclick="addMCPServer()" data-i18n="mcp.add_reload">Add & Reload</button></div>
-  </div>
-</div>
-
-<div id="approval-modal" class="modal-overlay">
-  <div class="modal-box" style="width:700px;">
-    <div class="panel-header" style="background:var(--warning);color:#000;border:none;">HITL Approval Required</div>
-    <div class="modal-body">
-      <div style="margin-bottom:12px;color:var(--text-muted)">Agent proposed plan:</div>
-      <div id="approval-list" style="max-height:300px;overflow-y:auto;"></div>
-      <div id="approval-edit-area" style="display:none;"><textarea id="approval-json-editor" style="width:100%;height:300px;font-family:var(--font-code);background:var(--bg-app);color:var(--text-main);border:1px solid var(--border-color);padding:10px;"></textarea></div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-danger" onclick="submitDecision('REJECT')">Reject</button>
       <div style="flex:1"></div>
-      <button class="btn" id="btn-modify-mode" onclick="toggleModifyMode()">Modify</button>
-      <button class="btn btn-primary" onclick="submitDecision('APPROVE')">Approve</button>
+      <div class="flex gap-2 items-center">
+        <button class="btn btn-primary" data-i18n="btn.create" onclick="openCreateTaskModal()">新建</button>
+      </div>
+      <div style="width:1px;height:24px;background:var(--border-color);margin:0 10px;"></div>
+      <div class="flex gap-2">
+        <button class="btn" data-i18n="btn.mcp" onclick="openMCPModal()">MCP</button>
+        <button class="btn" data-i18n="btn.inject" onclick="openInjectModal()">Inject</button>
+        <button class="btn" data-i18n="btn.refresh" onclick="render(true)">刷新</button>
+        <button class="btn btn-danger" data-i18n="btn.stop" onclick="abortOp()">终止</button>
+      </div>
+      <div style="width:1px;height:24px;background:var(--border-color);margin:0 10px;"></div>
+      <div class="flex gap-2">
+        <button class="btn" onclick="switchLanguage('zh')" title="中文">中</button>
+        <button class="btn" onclick="switchLanguage('en')" title="English">EN</button>
+      </div>
+    </header>
+
+    <div id="layout">
+      <aside id="sidebar">
+        <div class="panel-header" data-i18n="sidebar.operations">操作列表</div>
+        <ul id="ops"></ul>
+      </aside>
+
+      <main id="main">
+        <!-- Agent Phase Status Banner -->
+        <div id="phase-banner"
+          style="display:none;position:absolute;top:20px;left:50%;transform:translateX(-50%);z-index:100;background:rgba(59,130,246,0.95);color:white;padding:12px 24px;border-radius:8px;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,0.3);backdrop-filter:blur(8px);">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div class="spinner"
+              style="width:16px;height:16px;border:2px solid rgba(255,255,255,0.3);border-top-color:white;border-radius:50%;animation:spin 1s linear infinite;">
+            </div>
+            <span id="phase-text">处理中...</span>
+          </div>
+        </div>
+
+        <svg id="d3-graph" width="100%" height="100%"></svg>
+        <div id="controls" class="floating-panel">
+          <button class="btn" onclick="zoomIn()">+</button>
+          <button class="btn" onclick="zoomOut()">-</button>
+          <button class="btn" onclick="zoomReset()">Fit</button>
+          <button class="btn" id="btn-track" onclick="toggleAutoFocus()" title="追踪活跃节点"
+            data-i18n-title="btn.track_title">🎯</button>
+        </div>
+        <div id="legend" class="floating-panel">
+          <div style="font-weight:600;margin-bottom:6px;font-size:10px;text-transform:uppercase"
+            data-i18n="legend.title">图例</div>
+          <div id="legend-content"></div>
+        </div>
+
+        <div id="node-details-panel" class="floating-details" style="top: 20px; left: 20px;">
+          <div class="panel-header">
+            <span data-i18n="panel.details">节点详情</span>
+            <button class="btn" style="height:24px;padding:0 6px;background:transparent;border:none;"
+              onclick="closeDetails()">
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <div id="node-detail-content" class="panel-content">
+            <div style="padding:20px;color:var(--text-muted);text-align:center" data-i18n="panel.notselected">未选择节点
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <aside id="right-panel">
+        <div id="llm-output-container">
+          <div class="panel-header">
+            <span>Agent Logs (Output Only)</span>
+            <span id="typing-indicator" style="display:none;color:var(--success)">● Live</span>
+          </div>
+          <div id="llm-stream" class="panel-content"></div>
+        </div>
+      </aside>
     </div>
   </div>
-</div>
 
-<script src="/static/app.js"></script>
+  <div id="inject-modal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="panel-header" style="background:transparent;border:none;padding:24px 24px 0;">
+        <h2 style="font-size:16px;">Inject Task</h2>
+      </div>
+      <div class="modal-body">
+        <div class="mb-4"><label class="block text-xs text-gray-400 mb-1">Description</label><textarea id="inject-desc"
+            class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-24"></textarea></div>
+        <div class="mb-4"><label class="block text-xs text-gray-400 mb-1">Dependencies (IDs)</label><input
+            id="inject-deps" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div>
+      </div>
+      <div class="modal-footer"><button class="btn" onclick="closeModals()">Cancel</button><button
+          class="btn btn-primary" onclick="submitInjection()">Inject</button></div>
+    </div>
+  </div>
+
+  <div id="mcp-modal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="panel-header" style="background:transparent;border:none;padding:24px 24px 0;">
+        <h2 style="font-size:16px;" data-i18n="mcp.title">Manage MCP Servers</h2>
+      </div>
+      <div class="modal-body">
+        <div class="mb-4">
+          <div class="text-xs text-gray-400 mb-2 uppercase font-bold" data-i18n="mcp.current">Current Servers</div>
+          <div id="mcp-list" class="bg-slate-800 border border-slate-600 rounded p-2 text-white text-xs"
+            style="min-height:50px; max-height:150px; overflow-y:auto;" data-i18n="mcp.loading">Loading...</div>
+        </div>
+        <hr class="border-slate-700 my-4">
+        <div class="mb-2 text-xs text-gray-400 uppercase font-bold" data-i18n="mcp.add_new">Add New Server</div>
+        <div class="mb-2"><label class="block text-xs text-gray-400 mb-1" data-i18n="mcp.name">Name</label><input
+            id="mcp-name" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div>
+        <div class="mb-2"><label class="block text-xs text-gray-400 mb-1" data-i18n="mcp.command">Command</label><input
+            id="mcp-cmd" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div>
+        <div class="mb-2"><label class="block text-xs text-gray-400 mb-1" data-i18n="mcp.args">Args (comma
+            separated)</label><input id="mcp-args"
+            class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div>
+        <div class="mb-2"><label class="block text-xs text-gray-400 mb-1" data-i18n="mcp.env">Env
+            (JSON)</label><textarea id="mcp-env"
+            class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-16"
+            placeholder='{"KEY": "VALUE"}'></textarea></div>
+      </div>
+      <div class="modal-footer"><button class="btn" onclick="closeModals()" data-i18n="btn.close">Close</button><button
+          class="btn btn-primary" onclick="addMCPServer()" data-i18n="mcp.add_reload">Add & Reload</button></div>
+    </div>
+  </div>
+
+  <div id="approval-modal" class="modal-overlay">
+    <div class="modal-box" style="width:700px;">
+      <div class="panel-header" style="background:var(--warning);color:#000;border:none;">HITL Approval Required</div>
+      <div class="modal-body">
+        <div style="margin-bottom:12px;color:var(--text-muted)">Agent proposed plan:</div>
+        <div id="approval-list" style="max-height:300px;overflow-y:auto;"></div>
+        <div id="approval-edit-area" style="display:none;"><textarea id="approval-json-editor"
+            style="width:100%;height:300px;font-family:var(--font-code);background:var(--bg-app);color:var(--text-main);border:1px solid var(--border-color);padding:10px;"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-danger" onclick="submitDecision('REJECT')">Reject</button>
+        <div style="flex:1"></div>
+        <button class="btn" id="btn-modify-mode" onclick="toggleModifyMode()">Modify</button>
+        <button class="btn btn-primary" onclick="submitDecision('APPROVE')">Approve</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 新建任务弹窗 -->
+  <div id="create-task-modal" class="modal-overlay">
+    <div class="modal-box" style="width:600px;">
+      <div class="panel-header"
+        style="background:linear-gradient(135deg, #3b82f6, #8b5cf6);color:white;border:none;padding:20px 24px;">
+        <h2 style="font-size:18px;margin:0;display:flex;align-items:center;gap:8px;">
+          <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+          </svg>
+          <span data-i18n="modal.create.title">新建任务</span>
+        </h2>
+      </div>
+      <div class="modal-body" style="padding:24px;">
+        <!-- 基础配置 -->
+        <div class="mb-4">
+          <label class="block text-xs text-gray-400 mb-2 uppercase font-bold" data-i18n="modal.create.goal">任务目标
+            *</label>
+          <textarea id="create-goal"
+            class="w-full bg-slate-800 border border-slate-600 rounded p-3 text-white h-24 focus:border-blue-500 focus:outline-none transition-colors"
+            placeholder="描述你的渗透测试目标，例如：对 http://example.com 进行全面的安全测试，找出可能的漏洞..."></textarea>
+        </div>
+
+        <div class="mb-4">
+          <label class="block text-xs text-gray-400 mb-2 uppercase font-bold"
+            data-i18n="modal.create.taskname">任务名称</label>
+          <input id="create-taskname"
+            class="w-full bg-slate-800 border border-slate-600 rounded p-3 text-white focus:border-blue-500 focus:outline-none transition-colors"
+            placeholder="可选，用于日志和识别">
+        </div>
+
+        <!-- 模式配置 -->
+        <div class="mb-4" style="display:flex;gap:24px;">
+          <div style="flex:1;">
+            <label class="block text-xs text-gray-400 mb-2 uppercase font-bold"
+              data-i18n="modal.create.hitl">人机协同模式</label>
+            <div class="toggle-switch-container">
+              <label class="toggle-switch">
+                <input type="checkbox" id="create-hitl">
+                <span class="toggle-slider"></span>
+              </label>
+              <span class="toggle-label" id="hitl-label" data-i18n="modal.create.hitl_off">关闭</span>
+            </div>
+            <div class="text-xs text-gray-500 mt-1" data-i18n="modal.create.hitl_desc">开启后Agent的关键决策需经您批准</div>
+          </div>
+
+          <div style="flex:1;">
+            <label class="block text-xs text-gray-400 mb-2 uppercase font-bold"
+              data-i18n="modal.create.output_mode">输出模式</label>
+            <select id="create-output-mode"
+              class="w-full bg-slate-800 border border-slate-600 rounded p-3 text-white focus:border-blue-500 focus:outline-none">
+              <option value="default">默认 (Default)</option>
+              <option value="simple">精简 (Simple)</option>
+              <option value="debug">调试 (Debug)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- 高级配置（折叠） -->
+        <div class="advanced-config">
+          <div class="advanced-header" onclick="toggleAdvancedConfig()">
+            <span data-i18n="modal.create.advanced">高级配置</span>
+            <svg id="advanced-arrow" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+              style="transition:transform 0.2s;">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+            </svg>
+          </div>
+          <div id="advanced-content" style="display:none;margin-top:12px;">
+            <div class="text-xs text-gray-400 mb-3" data-i18n="modal.create.llm_hint">自定义各角色的LLM模型（留空使用默认配置）</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+              <div>
+                <label class="block text-xs text-gray-500 mb-1">Planner</label>
+                <input id="create-llm-planner"
+                  class="w-full bg-slate-700 border border-slate-600 rounded p-2 text-white text-sm"
+                  placeholder="qwen3-max">
+              </div>
+              <div>
+                <label class="block text-xs text-gray-500 mb-1">Executor</label>
+                <input id="create-llm-executor"
+                  class="w-full bg-slate-700 border border-slate-600 rounded p-2 text-white text-sm"
+                  placeholder="qwen3-max">
+              </div>
+              <div>
+                <label class="block text-xs text-gray-500 mb-1">Reflector</label>
+                <input id="create-llm-reflector"
+                  class="w-full bg-slate-700 border border-slate-600 rounded p-2 text-white text-sm"
+                  placeholder="qwen3-max">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer"
+        style="padding:16px 24px;background:var(--bg-sidebar);border-top:1px solid var(--border-color);">
+        <button class="btn" onclick="closeModals()" data-i18n="btn.cancel">取消</button>
+        <div style="flex:1"></div>
+        <button class="btn btn-primary" onclick="submitCreateTask()" style="padding:10px 24px;"
+          data-i18n="btn.create_start">
+          <span style="display:flex;align-items:center;gap:6px;">
+            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            启动任务
+          </span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js?v=20241224v2"></script>
 </body>
+
 </html>
