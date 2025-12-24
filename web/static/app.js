@@ -1022,11 +1022,11 @@ function highlightSuccessPaths(dagreGraph, dataNodes, nodeSelection, linkSelecti
 
   let targetGoalNode = null;
 
-  // 策略0（最优先）：查找带有 is_goal_achieved 标记的节点（由后端标记的真正成功节点）
+  // 策略：查找带有 is_goal_achieved 标记的节点（由后端 Planner 明确指定）
   const goalAchievedNode = dataNodes.find(n => n.is_goal_achieved === true);
 
   if (goalAchievedNode) {
-    console.log('🎯 Found goal-achieved node (backend marked):', goalAchievedNode.id);
+    console.log('🎯 Found goal-achieved node (marked by Planner):', goalAchievedNode.id);
     targetGoalNode = goalAchievedNode;
   } else {
     // 策略1：尝试找到 result/observation 中包含 flag 标识的节点

@@ -1243,10 +1243,15 @@ async def main():
                     console.print(Panel("🎉 Planner已宣布全局任务目标达成！任务结束。", title="[bold green]任务完成[/bold green]"))
                     metrics["success_info"] = {"found": True, "reason": "Global mission accomplished signal received from Planner."}
                     
-                    # 标记导致成功的子任务节点
-                    # 从 completed_reflections 中找到最近完成的子任务
-                    if completed_reflections:
-                        # 按完成时间排序，取最新的
+                    # 标记导致成功的节点：使用 Planner 返回的 goal_achieved_by 字段
+                    goal_achieved_by = plan_data.get("goal_achieved_by")
+                    
+                    if goal_achieved_by and graph_manager.graph.has_node(goal_achieved_by):
+                        # Planner 明确指定了成功节点
+                        graph_manager.update_node(goal_achieved_by, {"is_goal_achieved": True})
+                        console.print(Panel(f"✨ 节点 {goal_achieved_by} 被标记为目标达成节点 (由 Planner 指定)", style="green"))
+                    elif completed_reflections:
+                        # 回退方案：如果 Planner 没有指定，标记最近完成的子任务
                         sorted_reflections = sorted(
                             completed_reflections.items(),
                             key=lambda x: x[1].get('completed_at', 0) if isinstance(x[1], dict) else 0,
@@ -1254,9 +1259,8 @@ async def main():
                         )
                         if sorted_reflections:
                             goal_subtask_id = sorted_reflections[0][0]
-                            # 标记该子任务为目标达成节点
                             graph_manager.update_node(goal_subtask_id, {"is_goal_achieved": True})
-                            console.print(Panel(f"✨ 子任务 {goal_subtask_id} 被标记为目标达成节点", style="green"))
+                            console.print(Panel(f"✨ 子任务 {goal_subtask_id} 被标记为目标达成节点（回退）", style="yellow"))
                     
                     # Process final graph operations (if any)
                     dynamic_ops = plan_data.get('graph_operations', [])
