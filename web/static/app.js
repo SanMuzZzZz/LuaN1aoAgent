@@ -29,7 +29,7 @@ const causalColors = {
   'KeyFact': '#fbbf24',
   'Flag': '#ef4444'
 };
-let state = { op_id: new URLSearchParams(location.search).get('op_id') || '', view: 'exec', simulation: null, svg: null, g: null, zoom: null, es: null, processedEvents: new Set(), pendingReq: null, isModifyMode: false, currentPhase: null, missionAccomplished: false, userHasInteracted: false, lastActiveNodeId: null, isProgrammaticZoom: false, renderDebounceTimer: null, lastRenderTime: 0, isLoadingHistory: false, collapsedNodes: new Set() };
+let state = { op_id: new URLSearchParams(location.search).get('op_id') || '', view: 'exec', simulation: null, svg: null, g: null, zoom: null, es: null, processedEvents: new Set(), pendingReq: null, isModifyMode: false, currentPhase: null, missionAccomplished: false, userHasInteracted: false, lastActiveNodeId: null, isProgrammaticZoom: false, renderDebounceTimer: null, lastRenderTime: 0, isLoadingHistory: false, collapsedNodes: new Set(), userExpandedNodes: new Set() };
 const api = (p, b) => fetch(p + (p.includes('?') ? '&' : '?') + `op_id=${state.op_id}`, b ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) } : {}).then(r => r.json());
 
 // 显示阶段横幅
@@ -186,6 +186,8 @@ function selectOp(id, refresh = true) {
   document.getElementById('llm-stream').innerHTML = '';
   state.processedEvents.clear(); // [Fix] Clear processed events history so they can be re-rendered
   state.missionAccomplished = false; // [Fix] Reset mission status when switching tasks
+  state.collapsedNodes.clear(); // 重置折叠节点
+  state.userExpandedNodes.clear(); // 重置用户展开节点
   state.userHasInteracted = false; // 切换任务时重置用户交互标志，允许自动聚焦
   state.lastActiveNodeId = null; // 重置上次活跃节点
   state.lastRenderTime = 0; // 重置渲染时间，允许立即渲染
@@ -297,6 +299,68 @@ function drawForceGraph(data) {
   });
   // 使用去重后的节点列表覆盖原始数据
   data.nodes = Array.from(uniqueNodesMap.values());
+  // -------------------------------------
+
+  // --- [智能自动折叠] 当横向宽度过大时自动折叠非关键任务 ---
+  if (state.view === 'exec') {
+    const parentToTasks = new Map();
+    const taskById = new Map();
+
+    // 找出所有 task 节点及其父节点关系
+    if (data.edges) {
+      const nodeTypes = new Map(data.nodes.map(n => [n.id, n.type]));
+      data.edges.forEach(edge => {
+        if (nodeTypes.get(edge.target) === 'task') {
+          if (!parentToTasks.has(edge.source)) parentToTasks.set(edge.source, []);
+          parentToTasks.get(edge.source).push(edge.target);
+        }
+      });
+    }
+    data.nodes.forEach(n => { if (n.type === 'task') taskById.set(n.id, n); });
+
+    // 对每个父节点下的子任务进行分析
+    parentToTasks.forEach((childrenIds, parentId) => {
+      const children = childrenIds.map(id => taskById.get(id)).filter(Boolean);
+
+      // 如果并行的子任务超过 2 个，启动自动折叠
+      if (children.length > 2) {
+        // 找出需要保留（不自动折叠）的节点
+        const preserved = new Set();
+
+        // 1. 保留成功路径节点
+        const goalNode = children.find(c => c.is_goal_achieved);
+        if (goalNode) preserved.add(goalNode.id);
+
+        // 2. 保留正在运行的节点
+        children.forEach(c => {
+          if (c.status === 'in_progress' || c.status === 'running') preserved.add(c.id);
+        });
+
+        // 3. 保留用户手动展开的节点
+        children.forEach(c => {
+          if (state.userExpandedNodes.has(c.id)) preserved.add(c.id);
+        });
+
+        // 4. 保留最近完成的一个节点（如果没有 preserved 活跃节点）
+        const completed = children.filter(c => c.status === 'completed' && !preserved.has(c.id))
+          .sort((a, b) => (b.completed_at || 0) - (a.completed_at || 0));
+
+        if (preserved.size === 0 && completed.length > 0) {
+          preserved.add(completed[0].id);
+        }
+
+        // 自动折叠非保留节点
+        children.forEach(c => {
+          if (!preserved.has(c.id) && (c.status === 'completed' || c.status === 'failed')) {
+            // 只有当用户没有手动展开它时，才自动将其加入折叠集
+            if (!state.userExpandedNodes.has(c.id)) {
+              state.collapsedNodes.add(c.id);
+            }
+          }
+        });
+      }
+    });
+  }
   // -------------------------------------
 
   // --- [折叠功能] 过滤掉被折叠子任务下的执行步骤 ---
@@ -703,42 +767,105 @@ function drawForceGraph(data) {
     // 切换折叠状态
     if (state.collapsedNodes.has(d)) {
       state.collapsedNodes.delete(d);
-      console.log('Expanded subtask:', d);
+      state.userExpandedNodes.add(d); // 记录用户主动展开
+      console.log('Expanded subtask (manual):', d);
     } else {
       state.collapsedNodes.add(d);
-      console.log('Collapsed subtask:', d);
+      state.userExpandedNodes.delete(d); // 如果收起，移除主动展开标记
+      console.log('Collapsed subtask (manual):', d);
     }
 
     // 重新渲染
     render(true);
   });
 
-  // [折叠功能] 为可折叠的子任务节点添加折叠指示器
-  nodes.filter(d => {
+  // [折叠功能] 折叠按钮和状态指示器
+  const taskNodes = nodes.filter(d => {
     const n = dagreGraph.node(d);
-    return n.type === 'task';  // 只有子任务显示折叠指示器
-  }).append("text")
-    .attr("x", d => {
+    return n.type === 'task';
+  });
+
+  // 1. 折叠状态徽章 (Pill Badge) - 仅在折叠时显示
+  const badgeGroup = taskNodes.filter(d => state.collapsedNodes.has(d))
+    .append("g")
+    .attr("transform", d => {
       const n = dagreGraph.node(d);
-      return n.width / 2 - 12;  // 右上角
-    })
-    .attr("y", d => {
-      const n = dagreGraph.node(d);
-      return -n.height / 2 + 14;  // 右上角
-    })
-    .attr("fill", "#94a3b8")
-    .style("font-size", "10px")
-    .style("cursor", "pointer")
+      return `translate(0, ${n.height / 2 + 12})`; // 位于节点下方
+    });
+
+  badgeGroup.append("rect")
+    .attr("x", -30)
+    .attr("y", -10)
+    .attr("width", 60)
+    .attr("height", 20)
+    .attr("rx", 10)
+    .attr("ry", 10)
+    .attr("fill", "#e2e8f0")
+    .attr("stroke", "#cbd5e1")
+    .attr("stroke-width", 1);
+
+  badgeGroup.append("text")
+    .attr("text-anchor", "middle")
+    .attr("dy", 4)
+    .attr("fill", "#64748b")
+    .style("font-size", "11px")
+    .style("font-weight", "500")
     .text(d => {
       const n = dagreGraph.node(d);
-      if (state.collapsedNodes.has(d)) {
-        // 折叠状态：显示隐藏数量
-        const count = n._collapsedChildCount || 0;
-        return count > 0 ? `▶ ${count}` : '▶';
-      }
-      return '▼';  // 展开状态
+      const count = n._collapsedChildCount || 0;
+      return `${count} steps`;
+    });
+
+  // 2. 折叠切换按钮 (底部圆形按钮)
+  const toggleBtn = taskNodes.append("g")
+    .attr("class", "toggle-btn")
+    .attr("transform", d => {
+      const n = dagreGraph.node(d);
+      // 如果已折叠，按钮位于徽章下方；否则紧贴节点底部
+      const offset = state.collapsedNodes.has(d) ? (n.height / 2 + 35) : (n.height / 2);
+      return `translate(0, ${offset})`;
     })
-    .attr("title", d => state.collapsedNodes.has(d) ? "双击展开" : "双击折叠");
+    .style("cursor", "pointer")
+    .on("click", function (event, d) {
+      event.stopPropagation();
+      // 切换状态
+      if (state.collapsedNodes.has(d)) {
+        state.collapsedNodes.delete(d);
+        state.userExpandedNodes.add(d); // 记录用户主动展开
+      } else {
+        state.collapsedNodes.add(d);
+        state.userExpandedNodes.delete(d); // 移除主动展开标记
+      }
+      render(true);
+    });
+
+  // 按钮背景圆
+  toggleBtn.append("circle")
+    .attr("r", 8)
+    .attr("fill", "#fff")
+    .attr("stroke", "#94a3b8")
+    .attr("stroke-width", 1.5)
+    .on("mouseenter", function () {
+      d3.select(this).attr("stroke", "#3b82f6").attr("fill", "#eff6ff");
+      d3.select(this.parentNode).select("path").attr("stroke", "#3b82f6");
+    })
+    .on("mouseleave", function () {
+      d3.select(this).attr("stroke", "#94a3b8").attr("fill", "#fff");
+      d3.select(this.parentNode).select("path").attr("stroke", "#64748b");
+    });
+
+  // 按钮图标 (Chevron)
+  toggleBtn.append("path")
+    .attr("d", d => state.collapsedNodes.has(d)
+      ? "M-3.5,-1.5 L0,2 L3.5,-1.5" // 向下箭头 (展开意图)
+      : "M-3.5,1.5 L0,-2 L3.5,1.5"  // 向上箭头 (折叠意图)
+    )
+    .attr("fill", "none")
+    .attr("stroke", "#64748b")
+    .attr("stroke-width", 1.5)
+    .attr("stroke-linecap", "round")
+    .attr("stroke-linejoin", "round")
+    .style("pointer-events", "none"); // 让点击穿透到 circle
 
 
   // 自适应缩放和居中
