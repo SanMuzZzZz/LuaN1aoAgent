@@ -180,6 +180,24 @@
     </div>
   </div>
 
+  <!-- 通用确认弹窗 -->
+  <div id="confirm-modal" class="modal-overlay">
+    <div class="modal-box" style="max-width:420px;">
+      <div class="panel-header" style="background:transparent;border:none;padding:20px 24px 12px;">
+        <h2 id="confirm-title" style="font-size:16px;margin:0;color:var(--text-main);">确认操作</h2>
+      </div>
+      <div class="modal-body" style="padding:0 24px 20px;">
+        <p id="confirm-message" style="font-size:14px;color:var(--text-main);line-height:1.6;margin:0;">
+          确认要执行该操作吗？
+        </p>
+      </div>
+      <div class="modal-footer" style="padding:12px 24px 20px;display:flex;justify-content:flex-end;gap:8px;">
+        <button class="btn" id="confirm-cancel-btn">取消</button>
+        <button class="btn btn-danger" id="confirm-ok-btn">确定</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 新建任务弹窗 -->
   <div id="create-task-modal" class="modal-overlay">
     <div class="modal-box" style="width:600px;">

@@ -182,7 +182,19 @@ async function saveOpsOrder(order) {
 
 async function deleteOp(e, id) {
   e.stopPropagation();
-  if (!confirm('Are you sure you want to delete this task?')) return;
+  
+  const isZh = (window.currentLang || 'zh') === 'zh';
+  const ok = await showConfirmModal({
+    title: isZh ? '删除任务' : 'Delete Task',
+    message: isZh
+      ? '确定要删除这个任务吗？此操作不可恢复。'
+      : 'Are you sure you want to delete this task? This action cannot be undone.',
+    confirmText: isZh ? '删除' : 'Delete',
+    cancelText: isZh ? '取消' : 'Cancel',
+    danger: true
+  });
+  if (!ok) return;
+  
   await fetch(`/api/ops/${id}`, { method: 'DELETE' });
   if (state.op_id === id) {
     state.op_id = '';
@@ -2219,41 +2231,49 @@ async function createTask() {
 }
 
 async function abortOp() {
-  if (confirm(t('msg.confirm_abort'))) {
-    try {
-      const r = await api(`/api/ops/${state.op_id}/abort`, {});
-      if (r.ok) {
-        // 隐藏 phase banner
-        hidePhaseBanner();
+  const isZh = (window.currentLang || 'zh') === 'zh';
+  const ok = await showConfirmModal({
+    title: isZh ? '终止任务' : 'Abort Operation',
+    message: t('msg.confirm_abort'),
+    confirmText: isZh ? '终止' : 'Abort',
+    cancelText: isZh ? '取消' : 'Cancel',
+    danger: true
+  });
+  if (!ok) return;
+  
+  try {
+    const r = await api(`/api/ops/${state.op_id}/abort`, {});
+    if (r.ok) {
+      // 隐藏 phase banner
+      hidePhaseBanner();
 
-        // 更新状态，防止继续显示执行中状态
-        state.missionAccomplished = false;
-        state.currentPhase = null;
+      // 更新状态，防止继续显示执行中状态
+      state.missionAccomplished = false;
+      state.currentPhase = null;
 
-        // 显示终止横幅
-        const banner = document.getElementById('phase-banner');
-        const text = document.getElementById('phase-text');
-        if (banner && text) {
-          text.textContent = currentLang === 'zh' ? '⛔ 任务已终止' : '⛔ Task Aborted';
-          banner.style.background = 'rgba(239, 68, 68, 0.95)';
-          banner.style.display = 'block';
-          // 3秒后隐藏
-          setTimeout(() => {
-            banner.style.display = 'none';
-            banner.style.background = 'rgba(59,130,246,0.95)';
-          }, 3000);
-        }
-
-        // 刷新任务列表
-        loadOps();
-        // 重新渲染图表
-        render(true);
-
-        console.log('Task aborted:', r.message, 'process_killed:', r.process_killed);
+      // 显示终止横幅
+      const banner = document.getElementById('phase-banner');
+      const text = document.getElementById('phase-text');
+      if (banner && text) {
+        text.textContent = currentLang === 'zh' ? '⛔ 任务已终止' : '⛔ Task Aborted';
+        banner.style.background = 'rgba(239, 68, 68, 0.95)';
+        banner.style.display = 'block';
+        // 3秒后隐藏
+        setTimeout(() => {
+          banner.style.display = 'none';
+          banner.style.background = 'rgba(59,130,246,0.95)';
+        }, 3000);
       }
-    } catch (e) {
-      console.error('Abort failed:', e);
+
+      // 刷新任务列表
+      loadOps();
+      // 重新渲染图表
+      render(true);
+
+      console.log('Task aborted:', r.message, 'process_killed:', r.process_killed);
     }
+  } catch (e) {
+    console.error('Abort failed:', e);
   }
 }
 
@@ -2293,6 +2313,57 @@ async function submitDecision(a) {
 function openInjectModal() { document.getElementById('inject-modal').classList.add('show') }
 function closeModals() { document.querySelectorAll('.modal-overlay').forEach(e => e.classList.remove('show')) }
 async function submitInjection() { const d = document.getElementById('inject-desc').value, dp = document.getElementById('inject-deps').value; if (d) await api(`/api/ops/${state.op_id}/inject_task`, { description: d, dependencies: dp ? dp.split(',') : [] }); closeModals(); }
+
+// 通用确认弹窗
+function showConfirmModal({ title, message, confirmText, cancelText, danger = false }) {
+  return new Promise(resolve => {
+    const modal = document.getElementById('confirm-modal');
+    const titleEl = document.getElementById('confirm-title');
+    const msgEl = document.getElementById('confirm-message');
+    const cancelBtn = document.getElementById('confirm-cancel-btn');
+    const okBtn = document.getElementById('confirm-ok-btn');
+
+    // 清理旧的事件
+    cancelBtn.onclick = null;
+    okBtn.onclick = null;
+
+    // 设置文案
+    const isZh = (window.currentLang || 'zh') === 'zh';
+    titleEl.textContent = title || (isZh ? '确认操作' : 'Confirm');
+    msgEl.textContent = message || (isZh ? '确认要执行该操作吗？' : 'Are you sure to proceed?');
+    cancelBtn.textContent = cancelText || (isZh ? '取消' : 'Cancel');
+    okBtn.textContent = confirmText || (isZh ? '确定' : 'OK');
+
+    // 按钮风格：删除/终止用危险色
+    if (danger) {
+      okBtn.classList.add('btn-danger');
+      okBtn.classList.remove('btn-primary');
+    } else {
+      okBtn.classList.remove('btn-danger');
+      okBtn.classList.add('btn-primary');
+    }
+
+    // 绑定事件
+    cancelBtn.onclick = () => {
+      modal.classList.remove('show');
+      resolve(false);
+    };
+    okBtn.onclick = () => {
+      modal.classList.remove('show');
+      resolve(true);
+    };
+
+    // 点击遮罩关闭
+    modal.onclick = (e) => {
+      if (e.target === modal) {
+        modal.classList.remove('show');
+        resolve(false);
+      }
+    };
+
+    modal.classList.add('show');
+  });
+}
 
 function openMCPModal() {
   document.getElementById('mcp-modal').classList.add('show');
