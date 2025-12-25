@@ -17,7 +17,8 @@ from core.database.utils import (
     delete_node, 
     add_edge, 
     update_session_status,
-    create_session
+    create_session,
+    atomic_upsert_graph_data
 )
 
 try:
@@ -119,6 +120,53 @@ class GraphManager:
             if self.causal_graph.has_edge(source, target):
                 data = self.causal_graph.edges[source, target]
                 schedule_coroutine(add_edge(self.op_id, source, target, graph_type, dict(data)))
+
+    def _sync_nodes_and_edges_atomic(
+        self,
+        node_ids: List[str],
+        edges: List[tuple],
+        graph_type: str = 'task'
+    ):
+        """
+        原子同步多个节点和边到数据库。
+        
+        Args:
+            node_ids: 需要同步的节点ID列表
+            edges: 需要同步的边列表，每个元素是 (source, target) 元组
+            graph_type: 图类型 ('task' 或 'causal')
+        """
+        if not self.op_id:
+            return
+        
+        graph = self.graph if graph_type == 'task' else self.causal_graph
+        
+        # 收集节点数据
+        nodes_data = []
+        for node_id in node_ids:
+            if graph.has_node(node_id):
+                data = dict(graph.nodes[node_id])
+                data['node_id'] = node_id
+                nodes_data.append(data)
+        
+        # 收集边数据
+        edges_data = []
+        for source, target in edges:
+            if graph.has_edge(source, target):
+                data = dict(graph.edges[source, target])
+                data['source'] = source
+                data['target'] = target
+                edges_data.append(data)
+        
+        # 原子写入
+        if nodes_data or edges_data:
+            schedule_coroutine(
+                atomic_upsert_graph_data(
+                    self.op_id,
+                    nodes=nodes_data,
+                    edges=edges_data,
+                    graph_type=graph_type
+                )
+            )
 
     def add_key_fact(self, fact: str) -> str:
         if not fact or not isinstance(fact, str):
