@@ -279,6 +279,10 @@ function selectOp(id, refresh = true) {
   state.lastActiveNodeId = null; // 重置上次活跃节点
   state.lastRenderTime = 0; // 重置渲染时间，允许立即渲染
   state.currentPhase = null; // 重置阶段状态
+  // 清除占位节点（切换任务时）
+  if (state.placeholderRootNode && state.placeholderRootNode.id !== id) {
+    state.placeholderRootNode = null;
+  }
   hidePhaseBanner(); // 隐藏阶段横幅，等待正确状态加载
   document.getElementById('node-detail-content').innerHTML = '<div style="padding:20px;text-align:center;color:#64748b">Loading...</div>';
   closeDetails();
@@ -319,6 +323,15 @@ async function render(force) {
 
     drawForceGraph(data);
     updateLegend();
+    
+    // 检测规划完成：如果有子任务且当前处于 planning 阶段，切换为 executing
+    if (state.currentPhase === 'planning' && data && data.nodes) {
+      const hasSubTasks = data.nodes.some(n => n.type === 'task' && n.id !== state.op_id);
+      if (hasSubTasks) {
+        showPhaseBanner('executing');
+        console.log('Planning completed, detected subtasks, switching to executing phase');
+      }
+    }
   } catch (e) { console.error(e); }
 }
 
@@ -360,7 +373,26 @@ function drawForceGraph(data) {
 
   const g = state.g;
 
-  if (!data || !data.nodes) return;
+  if (!data || !data.nodes || data.nodes.length === 0) {
+    // 如果有占位节点，渲染它
+    if (state.placeholderRootNode && state.placeholderRootNode.id === state.op_id) {
+      console.log('Rendering placeholder root node');
+      data = {
+        nodes: [state.placeholderRootNode],
+        edges: []
+      };
+      // 继续往下渲染
+    } else {
+      console.log('Skipping render: no data or empty nodes');
+      return;
+    }
+  } else if (data.nodes.length > 0 && !data.nodes[0].placeholder) {
+    // 真实数据到达，清除占位节点
+    if (state.placeholderRootNode) {
+      console.log('Real data arrived, clearing placeholder node');
+      state.placeholderRootNode = null;
+    }
+  }
 
   // --- [新增] 节点去重与状态清洗逻辑 ---
   const uniqueNodesMap = new Map();
@@ -536,7 +568,10 @@ function drawForceGraph(data) {
   }
 
   // 添加节点 (根据节点类型设置不同尺寸)
-  if (!data || !data.nodes) return;
+  if (!data || !data.nodes || data.nodes.length === 0) {
+    console.log('No nodes to render, skipping layout');
+    return;
+  }
 
   // 调试：打印因果图节点类型
   if (state.view === 'causal' && data.nodes.length > 0) {
@@ -606,6 +641,21 @@ function drawForceGraph(data) {
 
   // 2. 执行布局计算 (确定性坐标)
   dagre.layout(dagreGraph);
+
+  // 修复孤立节点的 NaN 坐标（防止跳动闪烁）
+  dagreGraph.nodes().forEach(nodeId => {
+    const node = dagreGraph.node(nodeId);
+    if (isNaN(node.x) || isNaN(node.y)) {
+      // 将孤立节点放在布局空间的顶部中心（考虑 margin）
+      const graphConfig = dagreGraph.graph();
+      const marginx = graphConfig.marginx || 40;
+      const marginy = graphConfig.marginy || 40;
+      // 默认将单节点放在距离顶部 150px 的位置（较靠上）
+      node.x = 400;  // 水平居中
+      node.y = 150;  // 靠近顶部
+      console.warn(`Fixed NaN coordinates for isolated node ${nodeId}, set to (${node.x}, ${node.y})`);
+    }
+  });
 
   // 3. 绘制连线 (使用贝塞尔曲线)
   // 生成曲线路径生成器
@@ -2212,8 +2262,21 @@ async function submitCreateTask() {
       closeModals();
       // 等待任务列表刷新完成
       await loadOps();
+      
+      // 创建占位主任务节点（立即显示）
+      state.placeholderRootNode = {
+        id: r.op_id,
+        type: 'root',
+        status: 'in_progress',
+        label: goal.length > 50 ? goal.substring(0, 50) + '...' : goal,
+        description: goal,
+        placeholder: true
+      };
+      
       // 选择新任务并开始渲染
       selectOp(r.op_id);
+      // 立即显示规划中横幅（在 selectOp 之后，避免被重置）
+      showPhaseBanner('planning');
       // 显示成功提示
       const msg = currentLang === 'zh'
         ? `任务已启动！${hitl ? '（人机协同模式）' : ''}`
