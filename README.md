@@ -57,10 +57,7 @@ From information gathering to vulnerability exploitation, LuaN1ao elevates penet
 
 ## 🖼️ Showcase
 
-<p align="center">
-  <img src="imgs/console.png" alt="Console Interface" width="45%" />
-  <img src="imgs/web.png" alt="Graph Visualization" width="45%" />
-</p>
+https://github.com/user-attachments/assets/f717f725-f4a6-4508-8806-c5a66027aae5
 
 > 💡 _More demos coming soon!_
 
