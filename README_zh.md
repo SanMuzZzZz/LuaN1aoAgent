@@ -57,10 +57,7 @@
 
 ## 🖼️ 展示
 
-<p align="center">
-  <img src="imgs/console.png" alt="控制台界面" width="45%" />
-  <img src="imgs/web.png" alt="图谱可视化" width="45%" />
-</p>
+https://github.com/user-attachments/assets/f717f725-f4a6-4508-8806-c5a66027aae5
 
 > 💡 _更多演示内容即将推出！_
 
