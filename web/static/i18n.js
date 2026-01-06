@@ -12,10 +12,10 @@ const i18n = {
     'btn.inject': '注入',
     'btn.refresh': '刷新',
     'btn.stop': '终止',
-    
+
     // Sidebar
     'sidebar.operations': '操作列表',
-    
+
     // Right Panel
     'panel.details': '节点详情',
     'panel.notselected': '未选择节点',
@@ -28,7 +28,7 @@ const i18n = {
     'panel.args': '参数',
     'panel.result': '结果',
     'panel.observation': '观察',
-    
+
     // Modals
     'modal.mcp.title': 'MCP服务配置',
     'modal.mcp.name': '服务名',
@@ -40,7 +40,7 @@ const i18n = {
     'modal.inject.subtask': '子任务 (JSON)',
     'btn.submit': '提交',
     'btn.cancel': '取消',
-    
+
     // Status
     'status.completed': '已完成',
     'status.failed': '失败',
@@ -49,29 +49,29 @@ const i18n = {
     'status.deprecated': '已废弃',
     'status.running': '运行中',
     'status.mission_accomplished': '全局任务目标达成！',
-    
+
     // Node Types
     'type.root': '主任务',
     'type.task': '子任务',
     'type.action': '执行步骤',
-    
+
     // Legend
     'legend.title': '图例',
     'legend.node_types': '节点类型',
     'legend.node_status': '节点状态',
-    
+
     // Messages
     'msg.no_opid': '请先选择一个 Operation',
     'msg.confirm_abort': '确认要终止当前操作吗？',
     'msg.task_created': '任务创建成功',
     'msg.task_injected': '任务注入成功',
     'msg.operation_aborted': '操作已终止',
-    
+
     // Phase Status
     'phase.reflecting': '🤔 反思中...',
     'phase.planning': '📋 规划中...',
     'phase.executing': '⚡ 执行中...',
-    
+
     // MCP Modal
     'mcp.title': '管理 MCP 服务器',
     'mcp.current': '当前服务器',
@@ -87,8 +87,23 @@ const i18n = {
     'mcp.invalid_json': '环境变量 JSON 格式无效',
     'mcp.success': '服务器已添加并重载！',
     'mcp.error': '错误',
+
+    // Create Task Modal
+    'modal.create.title': '新建任务',
+    'modal.create.goal': '任务目标 *',
+    'modal.create.taskname': '任务名称',
+    'modal.create.hitl': '人机协同模式',
+    'modal.create.hitl_on': '开启',
+    'modal.create.hitl_off': '关闭',
+    'modal.create.hitl_desc': '开启后Agent的关键决策需经您批准',
+    'modal.create.output_mode': '输出模式',
+    'modal.create.advanced': '高级配置',
+    'modal.create.llm_hint': '自定义各角色的LLM模型（留空使用默认配置）',
+    'btn.cancel': '取消',
+    'btn.close': '关闭',
+    'btn.create_start': '启动任务',
   },
-  
+
   en: {
     // Topbar
     'brand': 'LuanNiao Agent',
@@ -101,10 +116,10 @@ const i18n = {
     'btn.inject': 'Inject',
     'btn.refresh': 'Refresh',
     'btn.stop': 'Stop',
-    
+
     // Sidebar
     'sidebar.operations': 'Operations',
-    
+
     // Right Panel
     'panel.details': 'Node Details',
     'panel.notselected': 'No node selected',
@@ -117,7 +132,7 @@ const i18n = {
     'panel.args': 'Arguments',
     'panel.result': 'Result',
     'panel.observation': 'Observation',
-    
+
     // Modals
     'modal.mcp.title': 'MCP Service Config',
     'modal.mcp.name': 'Service Name',
@@ -129,7 +144,7 @@ const i18n = {
     'modal.inject.subtask': 'Subtask (JSON)',
     'btn.submit': 'Submit',
     'btn.cancel': 'Cancel',
-    
+
     // Status
     'status.completed': 'Completed',
     'status.failed': 'Failed',
@@ -138,29 +153,29 @@ const i18n = {
     'status.deprecated': 'Deprecated',
     'status.running': 'Running',
     'status.mission_accomplished': 'Global Mission Accomplished!',
-    
+
     // Node Types
     'type.root': 'Root Task',
     'type.task': 'Subtask',
     'type.action': 'Action',
-    
+
     // Legend
     'legend.title': 'Legend',
     'legend.node_types': 'Node Types',
     'legend.node_status': 'Node Status',
-    
+
     // Messages
     'msg.no_opid': 'Please select an operation first',
     'msg.confirm_abort': 'Are you sure to abort current operation?',
     'msg.task_created': 'Task created successfully',
     'msg.task_injected': 'Task injected successfully',
     'msg.operation_aborted': 'Operation aborted',
-    
+
     // Phase Status
     'phase.reflecting': '🤔 Reflecting...',
     'phase.planning': '📋 Planning...',
     'phase.executing': '⚡ Executing...',
-    
+
     // MCP Modal
     'mcp.title': 'Manage MCP Servers',
     'mcp.current': 'Current Servers',
@@ -176,6 +191,21 @@ const i18n = {
     'mcp.invalid_json': 'Invalid JSON for Env',
     'mcp.success': 'Server added & reloaded!',
     'mcp.error': 'Error',
+
+    // Create Task Modal
+    'modal.create.title': 'Create Task',
+    'modal.create.goal': 'Task Goal *',
+    'modal.create.taskname': 'Task Name',
+    'modal.create.hitl': 'Human-in-the-Loop',
+    'modal.create.hitl_on': 'On',
+    'modal.create.hitl_off': 'Off',
+    'modal.create.hitl_desc': 'Agent\'s key decisions require your approval',
+    'modal.create.output_mode': 'Output Mode',
+    'modal.create.advanced': 'Advanced Configuration',
+    'modal.create.llm_hint': 'Customize LLM models for each role (leave empty for defaults)',
+    'btn.cancel': 'Cancel',
+    'btn.close': 'Close',
+    'btn.create_start': 'Start Task',
   }
 };
 
@@ -203,7 +233,7 @@ function updateUITexts() {
   document.querySelectorAll('[data-i18n]').forEach(el => {
     const key = el.getAttribute('data-i18n');
     const translation = t(key);
-    
+
     if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
       el.placeholder = translation;
     } else {

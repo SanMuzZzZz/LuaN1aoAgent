@@ -26,7 +26,11 @@ from core.intervention import intervention_manager # Added this line
 # 配置 SSE 日志
 _sse_logger = logging.getLogger("web.sse")
 
-app = FastAPI(title="鸾鸟Agent Web (DB Mode)")
+# 进程跟踪字典: {op_id -> subprocess.Popen}
+# 用于在终止任务时直接kill进程
+_running_processes: Dict[str, subprocess.Popen] = {}
+
+app = FastAPI(title="鸾鸟自主渗透系统 Web (DB Mode)")
 
 app.add_middleware(
     CORSMiddleware,
@@ -111,6 +115,7 @@ def _reconstruct_graph_data(nodes: List[GraphNodeModel], edges: List[GraphEdgeMo
             "thought": data.get("thought"),
             "goal": data.get("goal"),
             "completed_at": data.get("completed_at"),
+            "is_goal_achieved": data.get("is_goal_achieved", False),  # 标记成功路径终点
         }
         node_entry.update(tool_info)
         frontend_nodes.append(node_entry)
@@ -172,7 +177,11 @@ def _reconstruct_causal_data(nodes: List[GraphNodeModel], edges: List[GraphEdgeM
 async def api_ops():
     async with AsyncSessionLocal() as session:
         result = await session.execute(
-            select(SessionModel).order_by(desc(SessionModel.updated_at))
+            select(SessionModel).order_by(
+                SessionModel.sort_index.is_(None),
+                SessionModel.sort_index,
+                desc(SessionModel.created_at),
+            )
         )
         sessions = result.scalars().all()
         
@@ -192,6 +201,24 @@ async def api_ops():
                 }
             })
         return {"items": items}
+
+@app.post("/api/ops/reorder")
+async def api_ops_reorder(payload: Dict[str, Any]):
+    """持久化保存任务列表顺序"""
+    order = payload.get("order") or []
+    if not isinstance(order, list):
+        raise HTTPException(status_code=400, detail="order must be a list of op_ids")
+
+    async with AsyncSessionLocal() as session:
+        for idx, op_id in enumerate(order):
+            await session.execute(
+                update(SessionModel)
+                .where(SessionModel.id == op_id)
+                .values(sort_index=idx)
+            )
+        await session.commit()
+
+    return {"ok": True}
 
 @app.get("/api/ops/{op_id}")
 async def api_ops_detail(op_id: str):
@@ -271,10 +298,15 @@ async def api_tree_execution(op_id: str):
 
 @app.get("/api/ops/{op_id}/llm-events")
 async def api_llm_events(op_id: str):
+    """
+    Fetch event history. 
+    Note: Despite the name, this now returns ALL events, not just llm.*, 
+    to ensure the frontend renders the full history (including system events) on load.
+    """
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             select(EventLogModel)
-            .where(EventLogModel.session_id == op_id, EventLogModel.event_type.like("llm.%"))
+            .where(EventLogModel.session_id == op_id)
             .order_by(EventLogModel.timestamp)
         )
         events = result.scalars().all()
@@ -300,6 +332,64 @@ async def api_submit_intervention_decision(op_id: str, payload: Dict[str, Any]):
 
 @app.post("/api/ops/{op_id}/abort")
 async def api_ops_abort(op_id: str):
+    import signal
+    
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(SessionModel).where(SessionModel.id == op_id))
+        s = result.scalar_one_or_none()
+        if not s:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # 1. 更新数据库状态
+        await session.execute(
+            update(SessionModel)
+            .where(SessionModel.id == op_id)
+            .values(status="aborted", updated_at=datetime.now())
+        )
+        await session.commit()
+        
+    # 2. 直接kill进程
+    process_killed = False
+    if op_id in _running_processes:
+        proc = _running_processes[op_id]
+        try:
+            # 检查进程是否还在运行
+            if proc.poll() is None:
+                # 发送SIGTERM信号优雅终止
+                proc.terminate()
+                # 等待最多3秒让进程退出
+                try:
+                    proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    # 如果还没退出，强制kill
+                    proc.kill()
+                    proc.wait()
+                process_killed = True
+                _sse_logger.info(f"Process for op_id '{op_id}' terminated (PID: {proc.pid})")
+            else:
+                _sse_logger.info(f"Process for op_id '{op_id}' already exited")
+        except Exception as e:
+            _sse_logger.error(f"Failed to kill process for op_id '{op_id}': {e}")
+        finally:
+            # 从跟踪字典中移除
+            del _running_processes[op_id]
+    else:
+        _sse_logger.warning(f"No tracked process found for op_id '{op_id}'")
+        
+    return {
+        "ok": True, 
+        "message": "Task aborted successfully",
+        "process_killed": process_killed
+    }
+
+@app.patch("/api/ops/{op_id}")
+async def api_ops_rename(op_id: str, payload: Dict[str, Any]):
+    """重命名任务（更新显示名称）"""
+    new_name = (payload.get("name") or "").strip()
+    
+    if not new_name:
+        raise HTTPException(status_code=400, detail="Name is required")
+    
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(SessionModel).where(SessionModel.id == op_id))
         s = result.scalar_one_or_none()
@@ -309,10 +399,12 @@ async def api_ops_abort(op_id: str):
         await session.execute(
             update(SessionModel)
             .where(SessionModel.id == op_id)
-            .values(status="aborted", updated_at=datetime.now())
+            .values(name=new_name, updated_at=datetime.now())
         )
         await session.commit()
-    return {"ok": True}
+        
+    _sse_logger.info(f"Task '{op_id}' renamed to '{new_name}'")
+    return {"ok": True, "name": new_name}
 
 @app.delete("/api/ops/{op_id}")
 async def api_ops_delete(op_id: str):
@@ -461,6 +553,15 @@ async def api_ops_create(payload: Dict[str, Any]):
     goal = (payload.get("goal") or "").strip()
     task_name = (payload.get("task_name") or f"web_task_{int(time.time())}").strip()
     
+    # 新增配置选项
+    human_in_the_loop = payload.get("human_in_the_loop", False)  # 人机协同模式
+    output_mode = payload.get("output_mode", "default")  # 输出模式: simple, default, debug
+    
+    # LLM模型配置（可选）
+    llm_planner_model = payload.get("llm_planner_model", "").strip()
+    llm_executor_model = payload.get("llm_executor_model", "").strip()
+    llm_reflector_model = payload.get("llm_reflector_model", "").strip()
+    
     if not goal:
         raise HTTPException(status_code=400, detail="Goal is required to create a task.")
 
@@ -475,22 +576,71 @@ async def api_ops_create(payload: Dict[str, Any]):
         "--goal", goal,
         "--task-name", task_name,
         "--op-id", op_id, # Pass the generated op_id to the agent
-        "--web" # To ensure agent prints web URL for debug if needed, but no web server will be started.
+        "--web", # To ensure agent prints web URL for debug if needed, but no web server will be started.
+        "--output-mode", output_mode,
     ]
+    
+    # 添加可选的LLM模型配置
+    if llm_planner_model:
+        command.extend(["--llm-planner-model", llm_planner_model])
+    if llm_executor_model:
+        command.extend(["--llm-executor-model", llm_executor_model])
+    if llm_reflector_model:
+        command.extend(["--llm-reflector-model", llm_reflector_model])
+
+    # 设置环境变量传递人机协同配置
+    env = os.environ.copy()
+    if human_in_the_loop:
+        env["HUMAN_IN_THE_LOOP"] = "true"
+    else:
+        env["HUMAN_IN_THE_LOOP"] = "false"
 
     # Use subprocess.Popen to start agent.py as a detached process
     # This prevents the web server from being blocked by the agent task
     try:
+        # 先在数据库中创建 session 记录，这样前端刷新时能立即看到新任务
+        async with AsyncSessionLocal() as session:
+            new_session = SessionModel(
+                id=op_id,
+                name=task_name,
+                goal=goal,
+                status="pending",
+                created_at=datetime.now(),
+                updated_at=datetime.now(),
+                config={
+                    "human_in_the_loop": human_in_the_loop,
+                    "output_mode": output_mode,
+                    "llm_planner_model": llm_planner_model,
+                    "llm_executor_model": llm_executor_model,
+                    "llm_reflector_model": llm_reflector_model
+                }
+            )
+            session.add(new_session)
+            await session.commit()
+            _sse_logger.info(f"Session '{op_id}' created in database")
+
         # Use start_new_session=True to detach the child process from the current process group
         # This makes the child process independent of the web server's lifespan
         process = subprocess.Popen(command, start_new_session=True, 
                                    stdout=subprocess.DEVNULL, # Redirect stdout to /dev/null
-                                   stderr=subprocess.DEVNULL) # Redirect stderr to /dev/null
+                                   stderr=subprocess.DEVNULL, # Redirect stderr to /dev/null
+                                   env=env)  # 传递环境变量
         
-        _sse_logger.info(f"Agent task '{task_name}' (op_id: {op_id}) started with PID: {process.pid}")
+        # 保存进程引用到跟踪字典，以便后续可以直接kill
+        _running_processes[op_id] = process
+        
+        _sse_logger.info(f"Agent task '{task_name}' (op_id: {op_id}) started with PID: {process.pid}, HITL: {human_in_the_loop}")
 
-        # The agent itself will create the session in the DB
-        return {"ok": True, "op_id": op_id, "message": "Agent task started successfully."}
+        return {
+            "ok": True, 
+            "op_id": op_id, 
+            "pid": process.pid,
+            "message": "Agent task started successfully.",
+            "config": {
+                "human_in_the_loop": human_in_the_loop,
+                "output_mode": output_mode
+            }
+        }
     except Exception as e:
         _sse_logger.error(f"Failed to start agent task: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to start agent task: {e}")
