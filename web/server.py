@@ -621,9 +621,16 @@ async def api_ops_create(payload: Dict[str, Any]):
 
         # Use start_new_session=True to detach the child process from the current process group
         # This makes the child process independent of the web server's lifespan
+        
+        # Create log files for stdout and stderr to help debug issues
+        log_base_dir = os.path.join(os.path.dirname(__file__), "..", "logs", task_name)
+        os.makedirs(log_base_dir, exist_ok=True)
+        stdout_log = open(os.path.join(log_base_dir, f"{op_id}_stdout.log"), "w")
+        stderr_log = open(os.path.join(log_base_dir, f"{op_id}_stderr.log"), "w")
+        
         process = subprocess.Popen(command, start_new_session=True, 
-                                   stdout=subprocess.DEVNULL, # Redirect stdout to /dev/null
-                                   stderr=subprocess.DEVNULL, # Redirect stderr to /dev/null
+                                   stdout=stdout_log,  # Log stdout to file
+                                   stderr=stderr_log,  # Log stderr to file
                                    env=env)  # 传递环境变量
         
         # 保存进程引用到跟踪字典，以便后续可以直接kill
