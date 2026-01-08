@@ -19,3 +19,8 @@ pydantic
 sqlalchemy
 aiosqlite
 greenlet
+rich
+psutil
+httpx
+mcp
+fastmcp
