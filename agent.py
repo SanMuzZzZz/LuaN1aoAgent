@@ -1095,6 +1095,14 @@ async def main():
         # Initialize GraphManager with op_id for DB sync
         graph_manager = GraphManager(task_id, goal, op_id=op_id)
         
+        # Update session status to running immediately after GraphManager is ready
+        try:
+            from core.database.utils import update_session_status
+            await update_session_status(op_id, "running")
+            console.print(Panel(f"Session {op_id} 状态已更新到数据库: running", style="green"))
+        except Exception as e:
+            console.print(Panel(f"更新数据库状态失败: {e}", style="yellow"))
+        
         # Record deployment time (considered complete upon GraphManager initialization)
         metrics["deployment_time"] = time.time() - metrics["start_time"]
         
@@ -1131,8 +1139,19 @@ async def main():
         # 1. Planning (Plan)
         console.print(Panel("进入规划阶段...", title="Planner", style="bold blue"))
 
-        causal_graph_summary = graph_manager.get_causal_graph_summary()
-        initial_ops, call_metrics = await planner.plan(goal, causal_graph_summary)
+        try:
+            causal_graph_summary = graph_manager.get_causal_graph_summary()
+            initial_ops, call_metrics = await planner.plan(goal, causal_graph_summary)
+        except Exception as e:
+            console.print(Panel(f"规划阶段出现错误: {str(e)}", title="Planner Error", style="bold red"))
+            import traceback
+            console.print(traceback.format_exc())
+            # Update session status to failed
+            try:
+                await update_session_status(op_id, "failed")
+            except Exception:
+                pass
+            raise
         # Increment plan steps
         if call_metrics:
             call_metrics["plan_steps"] = call_metrics.get("plan_steps", 0) + 1
