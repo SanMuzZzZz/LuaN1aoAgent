@@ -520,9 +520,14 @@ def process_causal_graph_commands(
 
         if source_perm_id and target_perm_id:
             label = edge_data.pop("label", "SUPPORTS")
+            evidence_strength = edge_data.pop("evidence_strength", None)  # LLM 输出的证据强度
             graph_manager.add_causal_edge(source_perm_id, target_perm_id, label, **edge_data)
-            # Trigger confidence propagation
-            graph_manager.update_hypothesis_confidence(target_perm_id, edge_data.get("label"))
+            # Trigger confidence propagation with LLM-driven evidence strength
+            graph_manager.update_hypothesis_confidence(
+                target_perm_id, 
+                label,
+                evidence_strength=evidence_strength
+            )
         else:
             console.print(f"⚠️  无法创建因果链关系边，源或目标ID未找到: {source_temp_id} -> {target_temp_id}", style="yellow")
 
@@ -1257,6 +1262,77 @@ async def main():
                     console.print(Panel("🎉 Planner已宣布全局任务目标达成！任务结束。", title="[bold green]任务完成[/bold green]"))
                     metrics["success_info"] = {"found": True, "reason": "Global mission accomplished signal received from Planner."}
                     
+                    # 标记导致成功的节点（分层策略）
+                    # 1. 从 Planner 获取成功子任务 ID
+                    # 2. 从子任务节点读取 Reflector 标记的 critical_success_step_id
+                    # 3. 回退：如果没有标记，使用该子任务下最后完成的步骤
+                    
+                    goal_subtask_id = None
+                    goal_step_id = None
+                    
+                    # Step 1: 获取成功子任务 ID
+                    goal_achieved_by = plan_data.get("goal_achieved_by")
+                    if goal_achieved_by and graph_manager.graph.has_node(goal_achieved_by):
+                        goal_subtask_id = goal_achieved_by
+                        console.print(Panel(f"Planner 指定成功子任务: {goal_subtask_id}", style="blue"))
+                    elif completed_reflections:
+                        # 回退：从最近完成的反思中找子任务
+                        # 优先找 GOAL_ACHIEVED 状态的子任务
+                        for subtask_id, reflection_data in completed_reflections.items():
+                            audit = reflection_data.get("audit_result", {})
+                            if audit.get("status") == "GOAL_ACHIEVED":
+                                goal_subtask_id = subtask_id
+                                console.print(Panel(f"找到 GOAL_ACHIEVED 子任务: {goal_subtask_id}", style="blue"))
+                                break
+                        
+                        if not goal_subtask_id:
+                            # 再回退：最近完成的子任务
+                            sorted_reflections = sorted(
+                                completed_reflections.items(),
+                                key=lambda x: x[1].get('completed_at', 0) if isinstance(x[1], dict) else 0,
+                                reverse=True
+                            )
+                            if sorted_reflections:
+                                goal_subtask_id = sorted_reflections[0][0]
+                    
+                    if goal_subtask_id and graph_manager.graph.has_node(goal_subtask_id):
+                        subtask_data = graph_manager.graph.nodes[goal_subtask_id]
+                        
+                        # Step 2: 从子任务节点读取 Reflector 标记的 critical_success_step_id
+                        critical_step = subtask_data.get("critical_success_step_id")
+                        if critical_step and graph_manager.graph.has_node(critical_step):
+                            goal_step_id = critical_step
+                            console.print(Panel(f"Reflector 标记的关键成功步骤: {goal_step_id}", style="green"))
+                        else:
+                            # Step 3 回退: 找该子任务下最后完成的 execution_step
+                            last_step_id = None
+                            last_step_time = 0
+                            
+                            for node_id in graph_manager.graph.nodes():
+                                node_data = graph_manager.graph.nodes[node_id]
+                                node_type = node_data.get("type", "")
+                                parent = node_data.get("parent", "")
+                                
+                                if node_type == "execution_step" and parent == goal_subtask_id:
+                                    if node_data.get("status") == "completed":
+                                        completed_at = node_data.get("completed_at", 0)
+                                        if completed_at and completed_at > last_step_time:
+                                            last_step_time = completed_at
+                                            last_step_id = node_id
+                            
+                            if last_step_id:
+                                goal_step_id = last_step_id
+                                console.print(Panel(f"回退：使用最后完成的步骤 {goal_step_id}", style="yellow"))
+                        
+                        # 标记成功节点
+                        if goal_step_id:
+                            graph_manager.update_node(goal_step_id, {"is_goal_achieved": True})
+                            console.print(Panel(f"✨ 执行步骤 {goal_step_id} 被标记为目标达成节点", style="green"))
+                        else:
+                            # 没找到 execution_step，标记子任务本身
+                            graph_manager.update_node(goal_subtask_id, {"is_goal_achieved": True})
+                            console.print(Panel(f"✨ 子任务 {goal_subtask_id} 被标记为目标达成节点", style="yellow"))
+                    
                     # Process final graph operations (if any)
                     dynamic_ops = plan_data.get('graph_operations', [])
                     if dynamic_ops:
@@ -1460,6 +1536,13 @@ async def main():
                         console.print(Panel(safe_reflection_json, style="cyan"))
                     # Check if branch replanning is triggered
                     audit_result = reflection_output.get("audit_result", {})
+                    
+                    # 保存 Reflector 标记的关键成功步骤到子任务节点
+                    critical_success_step = audit_result.get("critical_success_step_id")
+                    if critical_success_step and graph_manager.graph.has_node(critical_success_step):
+                        graph_manager.update_node(subtask_id, {"critical_success_step_id": critical_success_step})
+                        console.print(Panel(f"子任务 {subtask_id} 的关键成功步骤: {critical_success_step}", style="green"))
+                    
                     if audit_result.get("is_strategic_failure"):
                         console.print(Panel(f"检测到子任务 {subtask_id} 的战略性失败。触发该分支的即时重新规划...", title="🚨 分支重新规划", style="bold red"))
                         branches_to_replan.append((subtask_id, reflection_output))

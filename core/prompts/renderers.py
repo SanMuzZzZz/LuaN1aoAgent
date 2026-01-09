@@ -135,18 +135,65 @@ def _render_relevant_causal_context(causal_context: Dict[str, Any]) -> str:
 
 def render_failure_patterns(patterns: Dict[str, Any]) -> str:
     """
-    统一的失败模式渲染。
+    统一的失败模式渲染（含竞争假设消解）。
 
     Args:
-        patterns: 失败模式数据字典
+        patterns: 失败模式数据字典，可能包含：
+            - contradiction_clusters: 矛盾证据簇
+            - stalled_hypotheses: 停滞假设
+            - competing_hypotheses: 竞争假设（需消歧）
 
     Returns:
         格式化的失败模式文本
     """
     if not patterns:
         return "无已知的失败模式。"
+    
+    # 兼容旧版调用：如果传入的是字符串，直接返回
+    if isinstance(patterns, str):
+        return f"### ⚠️ 历史失败模式\n{patterns}"
 
-    return f"### ⚠️ 历史失败模式\n```json\n{json.dumps(patterns, indent=2, ensure_ascii=False)}\n```"
+    lines = ["### ⚠️ 因果图问题检测 (Causal Graph Issues)"]
+
+    # 1. 矛盾簇
+    contradiction_clusters = patterns.get("contradiction_clusters", [])
+    if contradiction_clusters:
+        lines.append("\n#### 🔴 矛盾证据簇 (Contradiction Clusters)")
+        for cluster in contradiction_clusters:
+            hypo_id = cluster.get("hypothesis_id", "unknown")
+            count = cluster.get("contradicting_evidence_count", 0)
+            desc = cluster.get("hypothesis_description", "")[:60]
+            lines.append(f"- 假设 `{hypo_id}`: \"{desc}...\" 有 **{count}** 条矛盾证据")
+
+    # 2. 停滞假设
+    stalled_hypotheses = patterns.get("stalled_hypotheses", [])
+    if stalled_hypotheses:
+        lines.append("\n#### 🟡 停滞假设 (Stalled Hypotheses)")
+        for hypo in stalled_hypotheses[:5]:  # 限制显示数量
+            hypo_id = hypo.get("id", "unknown")
+            desc = hypo.get("description", "")[:50]
+            age = int(hypo.get("age_seconds", 0))
+            reason = hypo.get("reason", "")
+            lines.append(f"- `{hypo_id}`: \"{desc}...\" (停滞 {age}s, 原因: {reason})")
+
+    # 3. 竞争假设（溯因推理核心）
+    competing_hypotheses = patterns.get("competing_hypotheses", [])
+    if competing_hypotheses:
+        lines.append("\n#### 🔀 竞争假设 (Competing Hypotheses - Abductive Disambiguation Needed)")
+        lines.append("**以下证据支持多个相互竞争的假设，需生成区分性探测任务来确定最佳解释：**")
+        for comp in competing_hypotheses:
+            evidence_id = comp.get("evidence_id", "unknown")
+            evidence_desc = comp.get("evidence_description", "")[:40]
+            hypotheses = comp.get("hypotheses", [])
+            hypo_list = ", ".join([f"`{h.get('id', '')}`({h.get('edge_label', '')})" for h in hypotheses[:3]])
+            lines.append(f"- 证据 `{evidence_id}`: \"{evidence_desc}...\"")
+            lines.append(f"  → 竞争假设: {hypo_list}")
+
+    # 如果没有任何问题，显示简洁信息
+    if len(lines) == 1:
+        return "无已知的失败模式。"
+
+    return "\n".join(lines)
 
 
 def render_key_facts(key_facts: List[Any]) -> str:

@@ -40,26 +40,31 @@ async def get_db_session() -> AsyncSession:
 
 async def create_session(session_id: str, name: str, goal: str, config: Dict[str, Any] = None):
     async with AsyncSessionLocal() as session:
-        stmt = sqlite_insert(SessionModel).values(
-            id=session_id,
-            name=name,
-            goal=goal,
-            status="pending",
-            config=config or {},
-            created_at=datetime.now(),
-            updated_at=datetime.now()
+        # 首先检查 session 是否已存在
+        result = await session.execute(
+            select(SessionModel).where(SessionModel.id == session_id)
         )
-        # Handle conflict (e.g. restart same session) - update goal/config
-        stmt = stmt.on_conflict_do_update(
-            index_elements=['id'],
-            set_=dict(
+        existing = result.scalar_one_or_none()
+        
+        if existing:
+            # Session 已存在（由 web server 创建），只更新必要字段，但不覆盖 name
+            # 这样用户在 web 端输入的任务名称会被保留
+            existing.goal = goal  # 更新 goal（可能同步）
+            if config:
+                existing.config = {**(existing.config or {}), **config}  # 合并 config
+            existing.updated_at = datetime.now()
+        else:
+            # Session 不存在，创建新的
+            session.add(SessionModel(
+                id=session_id,
                 name=name,
                 goal=goal,
+                status="pending",
                 config=config or {},
+                created_at=datetime.now(),
                 updated_at=datetime.now()
-            )
-        )
-        await session.execute(stmt)
+            ))
+        
         await session.commit()
 
 async def update_session_status(session_id: str, status: str):
@@ -188,6 +193,113 @@ async def add_edge(session_id: str, source: str, target: str, graph_type: str, e
             )
             
             await session.commit()
+
+async def atomic_upsert_graph_data(
+    session_id: str,
+    nodes: list[Dict[str, Any]] = None,
+    edges: list[Dict[str, Any]] = None,
+    graph_type: str = 'task'
+):
+    """
+    原子写入多个节点和边，保证在同一个事务中完成。
+    
+    Args:
+        session_id: 会话ID
+        nodes: 节点列表，每个节点是包含 node_id 和其他属性的字典
+        edges: 边列表，每个边是包含 source, target 和其他属性的字典
+        graph_type: 图类型 ('task' 或 'causal')
+    """
+    nodes = nodes or []
+    edges = edges or []
+    
+    if not nodes and not edges:
+        return
+    
+    async with AsyncSessionLocal() as session:
+        try:
+            # 1. 处理所有节点的 upsert
+            for node_data in nodes:
+                node_id = node_data.get('node_id') or node_data.get('id')
+                if not node_id:
+                    continue
+                    
+                n_type = node_data.get("type") or node_data.get("node_type")
+                status = node_data.get("status")
+                
+                result = await session.execute(
+                    select(GraphNodeModel).where(
+                        GraphNodeModel.session_id == session_id,
+                        GraphNodeModel.node_id == node_id,
+                        GraphNodeModel.graph_type == graph_type
+                    )
+                )
+                existing_records = result.scalars().all()
+                
+                if existing_records:
+                    # 更新第一条记录
+                    target_record = existing_records[0]
+                    target_record.type = n_type
+                    target_record.status = status
+                    target_record.data = node_data
+                    target_record.updated_at = datetime.now()
+                    
+                    # 删除重复记录
+                    if len(existing_records) > 1:
+                        for duplicate in existing_records[1:]:
+                            await session.delete(duplicate)
+                else:
+                    session.add(GraphNodeModel(
+                        session_id=session_id,
+                        node_id=node_id,
+                        graph_type=graph_type,
+                        type=n_type,
+                        status=status,
+                        data=node_data
+                    ))
+            
+            # 2. 处理所有边的添加
+            for edge_data in edges:
+                source = edge_data.get('source') or edge_data.get('source_id')
+                target = edge_data.get('target') or edge_data.get('target_id')
+                if not source or not target:
+                    continue
+                    
+                relation = edge_data.get("type") or edge_data.get("label") or "unknown"
+                
+                result = await session.execute(
+                    select(GraphEdgeModel).where(
+                        GraphEdgeModel.session_id == session_id,
+                        GraphEdgeModel.source_node_id == source,
+                        GraphEdgeModel.target_node_id == target,
+                        GraphEdgeModel.graph_type == graph_type,
+                        GraphEdgeModel.relation_type == relation
+                    )
+                )
+                if not result.scalar_one_or_none():
+                    session.add(GraphEdgeModel(
+                        session_id=session_id,
+                        source_node_id=source,
+                        target_node_id=target,
+                        graph_type=graph_type,
+                        relation_type=relation,
+                        data=edge_data
+                    ))
+            
+            # 3. 更新 session 的 updated_at
+            await session.execute(
+                update(SessionModel)
+                .where(SessionModel.id == session_id)
+                .values(updated_at=datetime.now())
+            )
+            
+            # 4. 统一提交事务
+            await session.commit()
+            
+        except Exception as e:
+            await session.rollback()
+            logging.error(f"Atomic upsert failed, transaction rolled back: {e}")
+            raise
+
 
 async def add_log(session_id: str, event_type: str, content: Dict[str, Any]):
     try:

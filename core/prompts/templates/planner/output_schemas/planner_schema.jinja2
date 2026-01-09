@@ -25,10 +25,12 @@
       }
     }
   ],
-  "global_mission_accomplished": false
+  "global_mission_accomplished": false,
+  "goal_achieved_by": null
 
 **⚠️ 关键要求**:
 - `global_mission_accomplished`: **(布尔值, 默认 false)** 仅当所有分析 (包括 Intelligence Summary) 明确、无歧义地证明顶层 `goal` 已完全达成时，才将此标志设置为 `true`。这是终止整个任务的唯一信号。
+- `goal_achieved_by`: **(字符串或 null)** 当 `global_mission_accomplished` 为 `true` 时，**必须**填写提供成功证据的 step_id 或节点 ID。这是导致任务成功的关键执行步骤。如果是从 Intelligence Summary 中获知成功，填写Summary中提及的关键 step_id。
 - `graph_operations` 数组**必须**至少包含一个 `ADD_NODE` 操作, 除非 `global_mission_accomplished` 为 `true`。
 - CTF 场景下，初始规划应立即创建具体的侦察或攻击子任务，不要等待。
 - `id` 字段必须是唯一的字符串标识符。

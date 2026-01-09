@@ -496,7 +496,8 @@ async def run_executor_cycle(
     if log_dir:
         console_output_path = os.path.join(log_dir, "console_output.log")
     consecutive_no_new_artifacts = 0
-    last_step_ids = []
+    # 从子任务节点读取持久化的执行链，确保子任务恢复执行时能续接上一次的执行链
+    last_step_ids = graph_manager.get_subtask_last_step_ids(subtask_id)
     failure_counts_per_parent = {}
 
     while True:
@@ -701,6 +702,8 @@ async def run_executor_cycle(
                 pass
 
         last_step_ids = current_cycle_step_ids
+        # 持久化执行链到子任务节点，确保子任务被中断后恢复时能续接执行链
+        graph_manager.update_subtask_last_step_ids(subtask_id, current_cycle_step_ids)
 
         if execution_tasks:
             tool_results = await asyncio.gather(*execution_tasks, return_exceptions=True)
