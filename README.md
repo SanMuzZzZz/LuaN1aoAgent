@@ -249,8 +249,6 @@ source venv/bin/activate  # Linux/macOS
 pip install -r requirements.txt
 ```
 
-> 💡 For complete installation and troubleshooting guide, please refer to [QUICKSTART.md](QUICKSTART.md)
-
 ### Step 2: Configuration
 
 #### 2.1 Environment Variables Configuration
@@ -289,7 +287,8 @@ git clone https://github.com/swisskyrepo/PayloadsAllTheThings \
     knowledge_base/PayloadsAllTheThings
 
 # 2. Build vector index (takes a few minutes)
-python -m rag.rag_kdprepare
+cd rag
+python -m rag_kdprepare
 ```
 
 > **Knowledge Base Description**: PayloadsAllTheThings contains rich attack payloads, bypass techniques, and vulnerability exploitation methods, making it a valuable resource for penetration testing.

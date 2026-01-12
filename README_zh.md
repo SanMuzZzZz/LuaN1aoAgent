@@ -245,8 +245,6 @@ source venv/bin/activate  # Linux/macOS
 pip install -r requirements.txt
 ```
 
-> 💡 完整的安装与故障排查指南，请参阅 [QUICKSTART.md](QUICKSTART.md)
-
 ### 步骤 2：配置
 
 #### 2.1 环境变量配置
@@ -285,7 +283,8 @@ git clone https://github.com/swisskyrepo/PayloadsAllTheThings \
     knowledge_base/PayloadsAllTheThings
 
 # 2. 构建向量索引（需要几分钟）
-python -m rag.rag_kdprepare
+cd rag
+python -m rag_kdprepare
 ```
 
 > **知识库说明**：PayloadsAllTheThings 包含丰富的攻击载荷、绕过技巧和漏洞利用方法，是渗透测试的宝贵资源。
