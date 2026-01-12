@@ -484,37 +484,85 @@ function drawForceGraph(data) {
 
   // --- [折叠功能] 过滤掉被折叠子任务下的执行步骤 ---
   if (state.view === 'exec' && state.collapsedNodes.size > 0) {
-    // 从边构建父子关系映射：找出每个 action 节点的直接父 task 节点
     const nodeTypes = new Map(data.nodes.map(n => [n.id, n.type]));
-    const parentMap = new Map(); // action_id -> task_id
+    const parentMap = new Map(); // action_id -> direct_task_id
 
+    // 构建邻接表用于遍历执行链
+    const actionChainGraph = new Map(); // node_id -> Set(child_node_ids)
+    data.nodes.forEach(n => actionChainGraph.set(n.id, new Set()));
     if (data.edges) {
       data.edges.forEach(edge => {
+        const edgeType = edge.type || edge.relation_type;
+        // 只处理 execution 类型的边（用于执行链遍历）
+        if (edgeType === 'execution') {
+          if (actionChainGraph.has(edge.source)) {
+            actionChainGraph.get(edge.source).add(edge.target);
+          }
+        }
+        // 同时记录直接父子关系（task/root -> action）
         const sourceType = nodeTypes.get(edge.source);
         const targetType = nodeTypes.get(edge.target);
-        // 如果边是从 task 指向 action，则记录父子关系
-        if (sourceType === 'task' && targetType === 'action') {
+        if ((sourceType === 'task' || sourceType === 'root') && targetType === 'action' && edgeType === 'execution') {
           parentMap.set(edge.target, edge.source);
         }
       });
     }
 
-    // 计算每个折叠子任务下隐藏的节点数量
-    const collapsedChildCounts = new Map();
-    state.collapsedNodes.forEach(id => collapsedChildCounts.set(id, 0));
+    // 递归收集执行链中的所有 action 节点
+    function collectExecutionChain(startNodeId, visited = new Set()) {
+      const result = new Set();
+      const toVisit = [startNodeId];
 
-    // 过滤节点：隐藏被折叠子任务下的 action 节点
-    data.nodes = data.nodes.filter(node => {
-      if (node.type === 'action') {
-        const parentId = parentMap.get(node.id);
-        if (parentId && state.collapsedNodes.has(parentId)) {
-          // 统计隐藏的子节点数量
-          collapsedChildCounts.set(parentId, (collapsedChildCounts.get(parentId) || 0) + 1);
-          return false; // 不显示
+      while (toVisit.length > 0) {
+        const nodeId = toVisit.pop();
+        if (visited.has(nodeId)) continue;
+        visited.add(nodeId);
+
+        const nodeType = nodeTypes.get(nodeId);
+        // 如果是 action 节点，添加到结果中
+        if (nodeType === 'action') {
+          result.add(nodeId);
+        }
+
+        // 遍历子节点（沿着 execution 边）
+        const children = actionChainGraph.get(nodeId);
+        if (children) {
+          children.forEach(childId => {
+            if (!visited.has(childId)) {
+              toVisit.push(childId);
+            }
+          });
         }
       }
-      return true;
+      return result;
+    }
+
+    // 计算每个折叠节点需要隐藏的所有 action（包括执行链中的）
+    const actionsToHide = new Set();
+    const collapsedChildCounts = new Map();
+    const chainVisited = new Set();
+
+    state.collapsedNodes.forEach(collapsedId => {
+      const actions = collectExecutionChain(collapsedId, chainVisited);
+      collapsedChildCounts.set(collapsedId, actions.size);
+      actions.forEach(actionId => actionsToHide.add(actionId));
     });
+
+    // 调试日志
+    if (state.collapsedNodes.size > 0) {
+      console.log('[Collapse] Collapsed nodes:', Array.from(state.collapsedNodes));
+      console.log('[Collapse] Actions to hide:', actionsToHide.size, Array.from(actionsToHide).slice(0, 10));
+    }
+
+    // 过滤节点：隐藏被折叠节点下的所有 action（包括执行链中的）
+    const beforeFilterCount = data.nodes.length;
+    data.nodes = data.nodes.filter(node => {
+      return !actionsToHide.has(node.id);
+    });
+    const afterFilterCount = data.nodes.length;
+    if (state.collapsedNodes.size > 0 && beforeFilterCount !== afterFilterCount) {
+      console.log('[Collapse] Filtered', beforeFilterCount - afterFilterCount, 'action nodes');
+    }
 
     // 将隐藏数量存储到节点数据中，供渲染时使用
     data.nodes.forEach(node => {
@@ -898,8 +946,8 @@ function drawForceGraph(data) {
     event.stopPropagation();
     const n = dagreGraph.node(d);
 
-    // 只有 task 类型的节点（子任务）可以折叠
-    if (n.type !== 'task') return;
+    // 只有 task/root 类型的节点可以折叠
+    if (n.type !== 'task' && n.type !== 'root') return;
 
     // 切换折叠状态
     if (state.collapsedNodes.has(d)) {
@@ -919,7 +967,7 @@ function drawForceGraph(data) {
   // [折叠功能] 折叠按钮和状态指示器
   const taskNodes = nodes.filter(d => {
     const n = dagreGraph.node(d);
-    return n.type === 'task';
+    return n.type === 'task' || n.type === 'root';
   });
 
   // 1. 折叠状态徽章 (Pill Badge) - 仅在折叠时显示
