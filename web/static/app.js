@@ -2191,7 +2191,7 @@ function renderLLMResponse(msg, isHistory = false) {
     }
 
   } else {
-    htmlContent += `<div style="white-space:pre-wrap;color:#e2e8f0;">${content}</div>`;
+    htmlContent += `<div style="white-space:pre-wrap;color:#e2e8f0;">${escapeHtml(content)}</div>`;
   }
 
   div.innerHTML = htmlContent;
