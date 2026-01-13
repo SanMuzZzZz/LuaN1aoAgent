@@ -230,6 +230,16 @@ body {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+  will-change: transform;
+  transform: translateX(0);
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+#sidebar.collapsed {
+  transform: translateX(-100%);
+  width: 0;
+  min-width: 0;
+  border-right: none;
 }
 
 #main {
@@ -248,6 +258,71 @@ body {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+  will-change: transform;
+  transform: translateX(0);
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+#right-panel.collapsed {
+  transform: translateX(100%);
+  width: 0;
+  min-width: 0;
+  border-left: none;
+}
+
+/* Sidebar toggle buttons - positioned inside main area at edges */
+.sidebar-toggle-btn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 56px;
+  background: rgba(30, 41, 59, 0.95);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 30;
+  transition: all 0.2s ease;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.sidebar-toggle-btn:hover {
+  background: rgba(51, 65, 85, 0.95);
+  color: var(--accent-primary);
+  box-shadow: 0 2px 12px rgba(59, 130, 246, 0.3);
+}
+
+.sidebar-toggle-btn:active {
+  transform: translateY(-50%) scale(0.95);
+}
+
+.sidebar-toggle-btn svg {
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sidebar-toggle-btn.left {
+  left: 0;
+  border-radius: 0 6px 6px 0;
+  border-left: none;
+}
+
+.sidebar-toggle-btn.right {
+  right: 0;
+  border-radius: 6px 0 0 6px;
+  border-right: none;
+}
+
+/* Button rotation when sidebar is collapsed */
+.sidebar-toggle-btn.left.collapsed svg {
+  transform: rotate(180deg);
+}
+
+.sidebar-toggle-btn.right.collapsed svg {
+  transform: rotate(180deg);
 }
 
 .resizer {

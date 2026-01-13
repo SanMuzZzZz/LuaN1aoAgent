@@ -29,7 +29,7 @@ const causalColors = {
   'KeyFact': '#fbbf24',
   'Flag': '#ef4444'
 };
-let state = { op_id: new URLSearchParams(location.search).get('op_id') || '', view: 'exec', simulation: null, svg: null, g: null, zoom: null, es: null, processedEvents: new Set(), pendingReq: null, isModifyMode: false, currentPhase: null, missionAccomplished: false, userHasInteracted: false, lastActiveNodeId: null, isProgrammaticZoom: false, renderDebounceTimer: null, lastRenderTime: 0, isLoadingHistory: false, collapsedNodes: new Set(), userExpandedNodes: new Set() };
+let state = { op_id: new URLSearchParams(location.search).get('op_id') || '', view: 'exec', simulation: null, svg: null, g: null, zoom: null, es: null, processedEvents: new Set(), pendingReq: null, isModifyMode: false, currentPhase: null, missionAccomplished: false, userHasInteracted: false, lastActiveNodeId: null, isProgrammaticZoom: false, renderDebounceTimer: null, lastRenderTime: 0, isLoadingHistory: false, collapsedNodes: new Set(), userExpandedNodes: new Set(), leftSidebarCollapsed: false, rightSidebarCollapsed: false };
 const api = (p, b) => fetch(p + (p.includes('?') ? '&' : '?') + `op_id=${state.op_id}`, b ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) } : {}).then(r => r.json());
 
 // 显示阶段横幅
@@ -2523,4 +2523,54 @@ async function addMCPServer() {
     document.getElementById('mcp-args').value = '';
     document.getElementById('mcp-env').value = '';
   } catch (e) { alert(t('mcp.error') + ': ' + e); }
+}
+
+// Toggle left sidebar (operations list)
+function toggleLeftSidebar() {
+  state.leftSidebarCollapsed = !state.leftSidebarCollapsed;
+  const sidebar = document.getElementById('sidebar');
+  const toggleBtn = document.getElementById('sidebar-toggle');
+
+  if (state.leftSidebarCollapsed) {
+    sidebar.classList.add('collapsed');
+    toggleBtn.classList.add('collapsed');
+  } else {
+    sidebar.classList.remove('collapsed');
+    toggleBtn.classList.remove('collapsed');
+  }
+
+  // Trigger graph resize after sidebar animation completes
+  requestAnimationFrame(() => {
+    setTimeout(() => {
+      if (state.svg) {
+        const c = document.getElementById('main');
+        state.svg.attr('viewBox', [0, 0, c.clientWidth, c.clientHeight]);
+      }
+    }, 280);
+  });
+}
+
+// Toggle right sidebar (Agent Logs)
+function toggleRightSidebar() {
+  state.rightSidebarCollapsed = !state.rightSidebarCollapsed;
+  const rightPanel = document.getElementById('right-panel');
+  const toggleBtn = document.getElementById('right-panel-toggle');
+
+  if (state.rightSidebarCollapsed) {
+    rightPanel.classList.add('collapsed');
+    toggleBtn.classList.add('collapsed');
+  } else {
+    rightPanel.classList.remove('collapsed');
+    toggleBtn.classList.remove('collapsed');
+  }
+
+  // Trigger graph resize after sidebar animation completes
+  requestAnimationFrame(() => {
+    setTimeout(() => {
+      if (state.svg) {
+        const c = document.getElementById('main');
+        state.svg.attr('viewBox', [0, 0, c.clientWidth, c.clientHeight]);
+      }
+    }, 280);
+  });
 }
