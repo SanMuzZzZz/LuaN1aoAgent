@@ -156,8 +156,24 @@ def get_llm_client():
     """获取全局 LLM 客户端实例（延迟加载）"""
     global _llm_client
     if _llm_client is None:
-        from llm.llm_client import LLMClient
-
+        try:
+            from llm.llm_client import LLMClient
+        except ImportError as e:
+            # 如果相对导入失败,尝试绝对导入
+            import sys
+            from pathlib import Path
+            project_root = Path(__file__).parent.parent
+            if str(project_root) not in sys.path:
+                sys.path.insert(0, str(project_root))
+            try:
+                from llm.llm_client import LLMClient
+            except ImportError:
+                raise ImportError(
+                    f"无法导入 LLMClient: {e}. "
+                    f"请检查项目结构和 PYTHONPATH 配置。"
+                    f"当前 sys.path: {sys.path}"
+                )
+        
         _llm_client = LLMClient()
     return _llm_client
 
