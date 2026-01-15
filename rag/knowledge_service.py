@@ -15,7 +15,19 @@ from pydantic import BaseModel
 try:
     from rag.rag_client import get_rag_client
 except ImportError:
-    get_rag_client = None
+    # 如果相对导入失败,尝试添加项目根目录到路径
+    import sys
+    from pathlib import Path
+    current_dir = Path(__file__).parent
+    project_root = current_dir.parent
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+    try:
+        from rag.rag_client import get_rag_client
+    except ImportError as e:
+        print(f"⚠️ 无法导入 get_rag_client: {e}")
+        print(f"当前 sys.path: {sys.path}")
+        get_rag_client = None
 
 # RAG客户端（统一知识库）
 _rag_client = None
