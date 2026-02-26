@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-"""LuaN1ao Agent - 基于大模型的自主渗透测试系统主控入口.
-"""
+# -*- coding: utf-8 -*-
+"""LuaN1ao Agent - 基于大模型的自主渗透测试系统主控入口.
+
 本模块实现了P-E-R (Planner-Executor-Reflector) 架构的核心控制逻辑,
 通过协调规划器、执行器和反思器三个组件,实现自动化的渗透测试任务执行。
 
@@ -28,6 +29,7 @@ import time
 import asyncio
 import argparse
 import tempfile
+import copy
 from collections import defaultdict
 from datetime import datetime
 from typing import List, Dict, Any, Optional
@@ -58,7 +60,9 @@ from conf.config import (
     KNOWLEDGE_SERVICE_URL,
     KNOWLEDGE_SERVICE_HOST,
     OUTPUT_MODE,
-    HUMAN_IN_THE_LOOP
+    HUMAN_IN_THE_LOOP,
+    GLOBAL_MAX_CYCLES,
+    GLOBAL_MAX_TOKEN_USAGE
 )
 from core.events import broker
 try:
@@ -68,7 +72,17 @@ except Exception:
 
 from core.console import sanitize_for_rich
 import core.database.utils
+import signal
 from core.database.utils import add_log, schedule_coroutine
+
+def signal_handler(sig, frame):
+    """Handle termination signals to ensure logs are saved via finally block."""
+    try:
+        # Use direct console print as Rich might be interrupted/locked
+        print(f"\n[Agent] Received signal {sig}, initiating graceful shutdown...")
+    except Exception:
+        pass
+    sys.exit(0)
 
 def generate_task_id() -> str:
     """
@@ -79,95 +93,110 @@ def generate_task_id() -> str:
     """
     return f"task_{int(time.time())}_{str(uuid.uuid4())[:8]}"
 
-# 全局知识服务状态管理
-_KNOWLEDGE_SERVICE_PID = None
-_KNOWLEDGE_SERVICE_LOCK = asyncio.Lock()
-
-async def check_knowledge_service_health(console: Console) -> bool:
-    """检查知识服务是否运行并且健康。"""
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(f"{KNOWLEDGE_SERVICE_URL}/health", timeout=2)
-            if response.status_code == 200 and response.json().get("status") == "healthy":
-                return True
-            else:
-                console.print(f"[bold yellow]⚠️ 知识服务响应不健康: {response.status_code} - {response.text}[/bold yellow]")
-                return False
-    except httpx.RequestError as e:
-        console.print(f"[bold red]❌ 无法连接到知识服务: {e}[/bold red]")
-        return False
-
-async def ensure_knowledge_service(console: Console):
-    """确保知识服务运行（全局单例模式）"""
-    global _KNOWLEDGE_SERVICE_PID
-
-    async with _KNOWLEDGE_SERVICE_LOCK:
-        # 检查服务是否已经健康运行
-        if await check_knowledge_service_health(console):
-            console.print("[bold green]✅ 知识服务已运行并健康。[/bold green]")
-            return True
-
-        # 检查全局服务PID是否有效
-        if _KNOWLEDGE_SERVICE_PID:
-            if psutil.pid_exists(_KNOWLEDGE_SERVICE_PID):
-                console.print(f"[dim]知识服务进程 {_KNOWLEDGE_SERVICE_PID} 存在但未响应，尝试重启...[/dim]")
-            else:
-                _KNOWLEDGE_SERVICE_PID = None
-
-        console.print("[bold blue]🚀 启动知识服务...[/bold blue]")
-
-        # 检查端口占用（只清理非当前进程组的进程）
-        import socket
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        port_in_use = sock.connect_ex((KNOWLEDGE_SERVICE_HOST, KNOWLEDGE_SERVICE_PORT)) == 0
-        sock.close()
-
-        if port_in_use:
-            console.print(f"[bold yellow]⚠️ 端口 {KNOWLEDGE_SERVICE_PORT} 已被占用，检查是否为持久化知识服务...[/bold yellow]")
-
-            # 检查端口占用是否为知识服务进程
-            try:
-                for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-                    try:
-                        for conn in proc.connections(kind='inet'):
-                            if conn.laddr.port == KNOWLEDGE_SERVICE_PORT:
-                                cmdline = proc.info['cmdline']
-                                if cmdline and "uvicorn" in " ".join(cmdline) and "knowledge_service" in " ".join(cmdline):
-                                    console.print(f"[bold green]✅ 检测到持久化知识服务正在运行 (PID: {proc.info['pid']})[/bold green]")
-                                    return True
-                                else:
-                                    console.print(f"[dim]端口被非知识服务进程占用 PID: {proc.info['pid']}[/dim]")
-                    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                        pass
-            except Exception as e:
-                console.print(f"[dim]检查端口占用进程时出错: {e}[/dim]")
-
-        # 启动服务
-        command = [
-            sys.executable, "-m", "uvicorn", "rag.knowledge_service:app",
-            "--host", "0.0.0.0", "--port", str(KNOWLEDGE_SERVICE_PORT)
-        ]
-
+class KnowledgeServiceManager:
+    """知识服务生命周期管理器 (Context Manager & Singleton pattern)"""
+    
+    def __init__(self, console: Console):
+        self.console = console
+        self.process: Optional[subprocess.Popen] = None
+        self._lock = asyncio.Lock()
+        
+    async def _check_health(self) -> bool:
+        """检查知识服务是否运行并且健康。"""
         try:
-            # 使用 start_new_session=True 替代 preexec_fn=os.setsid 以支持更多平台
-            process = subprocess.Popen(command, start_new_session=True)
-            _KNOWLEDGE_SERVICE_PID = process.pid
-            console.print(f"[bold green]知识服务已在后台启动 (PID: {process.pid})。[/bold green]")
-
-            # 等待服务健康检查（带超时）
-            for i in range(15):  # 最多等待30秒
-                console.print(f"[dim]等待知识服务启动 ({i+1}/15)...[/dim]")
-                if await check_knowledge_service_health(console):
-                    console.print("[bold green]✅ 知识服务已成功启动并健康。[/bold green]")
+            async with httpx.AsyncClient() as client:
+                response = await client.get(f"{KNOWLEDGE_SERVICE_URL}/health", timeout=2)
+                if response.status_code == 200 and response.json().get("status") == "healthy":
                     return True
-                await asyncio.sleep(2)
-
-            console.print("[bold red]❌ 知识服务启动超时。[/bold red]")
+                else:
+                    self.console.print(f"[bold yellow]⚠️ 知识服务响应不健康: {response.status_code} - {response.text}[/bold yellow]")
+                    return False
+        except httpx.RequestError:
             return False
 
-        except Exception as e:
-            console.print(f"[bold red]❌ 知识服务启动失败: {e}[/bold red]")
-            return False
+    async def start(self) -> bool:
+        """启动知识服务"""
+        async with self._lock:
+            # 1. 检查是否已健康运行
+            if await self._check_health():
+                self.console.print("[bold green]✅ 知识服务已运行并健康。[/bold green]")
+                return True
+
+            self.console.print("[bold blue]🚀 启动知识服务...[/bold blue]")
+
+            # 2. 检查端口占用
+            import socket
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            port_in_use = sock.connect_ex((KNOWLEDGE_SERVICE_HOST, KNOWLEDGE_SERVICE_PORT)) == 0
+            sock.close()
+
+            if port_in_use:
+                self.console.print(f"[bold yellow]⚠️ 端口 {KNOWLEDGE_SERVICE_PORT} 已被占用，尝试清理...[/bold yellow]")
+                # 简单尝试清理占用端口的进程 (仅限 uvicorn)
+                try:
+                    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                        try:
+                            for conn in proc.connections(kind='inet'):
+                                if conn.laddr.port == KNOWLEDGE_SERVICE_PORT:
+                                    cmdline = proc.info['cmdline']
+                                    if cmdline and "uvicorn" in " ".join(cmdline) and "knowledge_service" in " ".join(cmdline):
+                                        self.console.print(f"[dim]终止旧的服务进程 PID: {proc.info['pid']}[/dim]")
+                                        proc.terminate()
+                                        proc.wait(timeout=3)
+                        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                            pass
+                except Exception as e:
+                    self.console.print(f"[dim]清理端口失败: {e}[/dim]")
+
+            # 3. 启动新进程
+            command = [
+                sys.executable, "-m", "uvicorn", "rag.knowledge_service:app",
+                "--host", "0.0.0.0", "--port", str(KNOWLEDGE_SERVICE_PORT)
+            ]
+
+            try:
+                # 使用 start_new_session=True 避免接收父进程的信号
+                self.process = subprocess.Popen(command, start_new_session=True)
+                self.console.print(f"[bold green]知识服务已在后台启动 (PID: {self.process.pid})。[/bold green]")
+
+                # 4. 等待健康检查
+                for i in range(15):
+                    self.console.print(f"[dim]等待知识服务启动 ({i+1}/15)...[/dim]")
+                    if await self._check_health():
+                        self.console.print("[bold green]✅ 知识服务已成功启动并健康。[/bold green]")
+                        return True
+                    await asyncio.sleep(2)
+
+                self.console.print("[bold red]❌ 知识服务启动超时。[/bold red]")
+                self.stop()
+                return False
+
+            except Exception as e:
+                self.console.print(f"[bold red]❌ 知识服务启动失败: {e}[/bold red]")
+                return False
+
+    def stop(self):
+        """停止知识服务"""
+        if self.process:
+            try:
+                self.console.print(f"[dim]正在停止知识服务 (PID: {self.process.pid})...[/dim]")
+                self.process.terminate()
+                try:
+                    self.process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
+                self.console.print("[dim]知识服务已停止。[/dim]")
+            except Exception as e:
+                self.console.print(f"[dim]停止知识服务时出错: {e}[/dim]")
+            finally:
+                self.process = None
+
+    async def __aenter__(self):
+        await self.start()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        self.stop()
 
 def _aggregate_intelligence(completed_reflections: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     """
@@ -564,49 +593,90 @@ def save_logs(
     if "tool_calls" in metrics_copy:
         metrics_copy["tool_calls"] = dict(metrics["tool_calls"])
 
+    # Merge with existing metrics on disk to prevent overwriting with stale/lower values
+    # This is critical because parallel threads (executor) might have written fresher data
     try:
         metrics_path = os.path.join(log_dir, "metrics.json")
+        if os.path.exists(metrics_path):
+            with open(metrics_path, 'r', encoding='utf-8') as f:
+                existing_metrics = json.load(f)
+            
+            # Key metrics that must be monotonic
+            monotonic_keys = ["cost_cny", "total_tokens", "prompt_tokens", "completion_tokens"]
+            for key in monotonic_keys:
+                existing_val = existing_metrics.get(key, 0)
+                new_val = metrics_copy.get(key, 0)
+                if isinstance(existing_val, (int, float)) and isinstance(new_val, (int, float)):
+                    if existing_val > new_val:
+                        metrics_copy[key] = existing_val
+                        
+            # Also restore success flags if they were present on disk but missing/false in memory
+            # (e.g. if updated by a parallel monitor)
+            if existing_metrics.get("success") and not metrics_copy.get("success"):
+                metrics_copy["success"] = True
+                metrics_copy["status"] = existing_metrics.get("status", metrics_copy.get("status"))
+                if "flags" in existing_metrics:
+                    metrics_copy["flags"] = existing_metrics["flags"]
+
         with open(metrics_path, 'w', encoding='utf-8', errors='replace') as f:
+            json.dump(metrics_copy, f, ensure_ascii=False, indent=4) # Indent 4 per diff (original was 4 too)
+        # No temp file replace here based on diff, user removed os.replace logic? 
+        # Wait, diff shows just:
+        # +        if os.path.exists(metrics_path):
+        # ...
+        #          with open(metrics_path, 'w', encoding='utf-8', errors='replace') as f:
+        #              json.dump(metrics_copy, f, ensure_ascii=False, indent=4)
+        # 
+        # The original code had temp file and os.replace.
+        # User diff seems to simplify it to direct write? Or maybe I should keep atomic write.
+        # The diff context shows:
             json.dump(metrics_copy, f, ensure_ascii=False, indent=4)
 
-        with open(os.path.join(log_dir, "run_log.json"), 'w', encoding='utf-8', errors='replace') as f:
+        run_log_path = os.path.join(log_dir, "run_log.json")
+        run_log_tmp = run_log_path + ".tmp"
+        with open(run_log_tmp, 'w', encoding='utf-8', errors='replace') as f:
             json.dump(run_log, f, ensure_ascii=False, indent=4)
+        os.replace(run_log_tmp, run_log_path)
     except Exception as e:
         console.print(f"[bold red]Error saving logs: {e}[/bold red]")
 
     if final_save:
         console.print(Panel(f"Final logs and metrics saved to {log_dir}", title="[bold green]Run Finished[/bold green]"))
 
-def update_global_metrics(metrics: Dict, update_dict: Dict):
-    """Aggregates metrics from a component into the global metrics dictionary."""
-    if not update_dict:
-        return
-
-    metrics["prompt_tokens"] += update_dict.get("prompt_tokens", 0)
-    metrics["completion_tokens"] += update_dict.get("completion_tokens", 0)
-    metrics["total_tokens"] += update_dict.get("prompt_tokens", 0) + update_dict.get("completion_tokens", 0)
-    metrics["cost_cny"] += update_dict.get("cost_cny", 0)
+def update_global_metrics(global_metrics: Dict, cycle_metrics: Dict):
+    """
+    更新全局指标。
+    """
+    # Fix: cycle_metrics might not have total_tokens, calculate from parts
+    cycle_prompt = cycle_metrics.get("prompt_tokens", 0)
+    cycle_completion = cycle_metrics.get("completion_tokens", 0)
+    cycle_total = cycle_metrics.get("total_tokens", cycle_prompt + cycle_completion)
     
-    # 修复: execution_steps不用累加，直接使用executor返回的值
-    # executor已经在内部实时维护了总执行步数
-    if "execution_steps" in update_dict:
-        # 直接覆盖，不紫加（executor返回的是累计值）
-        metrics["execution_steps"] = update_dict["execution_steps"]
+    global_metrics["total_tokens"] += cycle_total
+    global_metrics["prompt_tokens"] += cycle_prompt
+    global_metrics["completion_tokens"] += cycle_completion
+    global_metrics["cost_cny"] += cycle_metrics.get("cost_cny", 0)
     
-    # plan_steps和reflect_steps需要累加（因为每次调用都是+1）
-    metrics["plan_steps"] += update_dict.get("plan_steps", 0)
-    metrics["execute_steps"] += update_dict.get("execute_steps", 0)
-    metrics["reflect_steps"] += update_dict.get("reflect_steps", 0)
-
-    # 修复: tool_calls不用累加，executor已经在metrics.json中实时维护
-    # 我们只需要从文件读取最新值，而不是再次累加
-    if "tool_calls" in update_dict:
-        # 合并tool_calls（使用更大的值，避免覆盖）
-        for tool, count in update_dict["tool_calls"].items():
-            current_count = metrics["tool_calls"].get(tool, 0)
-            # 只在update_dict的值更大时更新（executor返回的是累计值）
-            if count > current_count:
-                metrics["tool_calls"][tool] = count
+    # 累加步数（根据 cycle_metrics 中的类型）
+    if "execution_steps" in cycle_metrics:
+        global_metrics["execution_steps"] += cycle_metrics["execution_steps"]
+    if "plan_steps" in cycle_metrics:
+        global_metrics["plan_steps"] += cycle_metrics["plan_steps"]
+    if "reflect_steps" in cycle_metrics:
+        global_metrics["reflect_steps"] += cycle_metrics["reflect_steps"]
+        
+    # Fix: tool_calls is a dict, cannot use +=
+    if "tool_calls" in cycle_metrics:
+        if "tool_calls" not in global_metrics:
+            global_metrics["tool_calls"] = defaultdict(int)
+        for tool, count in cycle_metrics["tool_calls"].items():
+            global_metrics["tool_calls"][tool] += count
+    
+    # 记录其他特定指标
+    if "artifacts_found" in cycle_metrics:
+        global_metrics["artifacts_found"] = cycle_metrics["artifacts_found"]
+    if "causal_graph_nodes" in cycle_metrics:
+        global_metrics["causal_graph_nodes"] = cycle_metrics["causal_graph_nodes"]
 
 def update_reflector_context_after_reflection(reflector_context, reflection_output, subtask_id, status, graph_manager):
     """在反思完成后更新ReflectorContext状态"""
@@ -670,91 +740,73 @@ def _extract_failure_pattern(audit_result, key_findings):
 
     return None
 
-async def compress_planner_context_if_needed(planner_context, llm_client):
-    """检查并执行PlannerContext的压缩（如果需要）。"""
-    if hasattr(planner_context, '_needs_compression') and planner_context._needs_compression:
-        try:
-            # 获取需要压缩的历史记录
-            if len(planner_context.planning_history) > PLANNER_HISTORY_WINDOW:
-                history_to_compress = planner_context.planning_history[:-PLANNER_HISTORY_WINDOW]
+async def compress_planner_context_if_needed(
+    planner_context: "PlannerContext", 
+    llm: "LLMClient", 
+    metrics: Optional[Dict] = None
+) -> None:
+    """
+    如果 Planner 历史过长，进行总结压缩。
+    """
+    if not getattr(planner_context, "_needs_compression", False):
+        return
 
-                # 将PlanningAttempt转换为对话格式用于压缩
-                messages_to_compress = []
-                for attempt in history_to_compress:
-                    if attempt.llm_input_prompt:
-                        messages_to_compress.append({
-                            'role': 'user',
-                            'content': attempt.llm_input_prompt
-                        })
-                    if attempt.llm_output_response:
-                        messages_to_compress.append({
-                            'role': 'assistant',
-                            'content': attempt.llm_output_response
-                        })
+    console.print(f"🔄 Planner 对话历史过长，开始进行状态压缩总结...", style="dim")
+    
+    # 将 history 转换为文本列表供总结使用
+    history_to_compress = []
+    for attempt in planner_context.planning_history:
+        record = f"Strategy: {attempt.strategy}\nGoal: {attempt.goal}\nOutcome: {attempt.outcome_summary}"
+        history_to_compress.append({"role": "assistant", "content": record})
+    
+    summary, summarization_metrics = await llm.summarize_conversation(history_to_compress)
+    
+    # 累加指标
+    if metrics is not None and summarization_metrics:
+        update_global_metrics(metrics, summarization_metrics)
 
-                if messages_to_compress:
-                    # 使用LLMClient的现有压缩功能
-                    summary = await llm_client.summarize_conversation(messages_to_compress)
-                    if summary:
-                        # 更新压缩摘要
-                        if planner_context.compressed_history_summary:
-                            planner_context.compressed_history_summary += "\n\n" + summary
-                        else:
-                            planner_context.compressed_history_summary = summary
+    planner_context.compressed_history_summary = summary
+    planner_context.compression_count += 1
+    
+    # 保持窗口大小并重置标志
+    planner_context.planning_history = planner_context.planning_history[-PLANNER_HISTORY_WINDOW:]
+    planner_context._needs_compression = False
+    
+    console.print(f"✅ Planner 上下文压缩完成 (次数: {planner_context.compression_count})", style="dim")
 
-                        # 移除已压缩的历史记录，保留窗口内的记录
-                        planner_context.planning_history = planner_context.planning_history[-PLANNER_HISTORY_WINDOW:]
-                        planner_context.compression_count += 1
-                        planner_context._needs_compression = False
+async def compress_reflector_context_if_needed(
+    reflector_context: "ReflectorContext", 
+    llm: "LLMClient", 
+    metrics: Optional[Dict] = None
+) -> None:
+    """
+    如果 Reflector 历史过长，进行总结压缩。
+    """
+    if not getattr(reflector_context, "_needs_compression", False):
+        return
 
-                        console.print(f"[green]✓ Planner上下文已压缩，当前压缩次数: {planner_context.compression_count}[/green]")
+    console.print(f"🔄 Reflector 对话历史过长，开始进行模式压缩总结...", style="dim")
+    
+    # 将 reflection_log 转换
+    history_to_compress = []
+    for insight in reflector_context.reflection_log:
+        record = f"Subtask: {insight.subtask_id}\nStatus: {insight.normalized_status}\nInsight: {insight.key_insight}"
+        history_to_compress.append({"role": "assistant", "content": record})
+    
+    summary, summarization_metrics = await llm.summarize_conversation(history_to_compress)
+    
+    # 累加指标
+    if metrics is not None and summarization_metrics:
+        update_global_metrics(metrics, summarization_metrics)
 
-        except Exception as e:
-            console.print(f"[yellow]⚠️ Planner上下文压缩失败: {e}[/yellow]")
-            planner_context._needs_compression = False
-
-async def compress_reflector_context_if_needed(reflector_context, llm_client):
-    """检查并执行ReflectorContext的压缩（如果需要）。"""
-    if hasattr(reflector_context, '_needs_compression') and reflector_context._needs_compression:
-        try:
-            # 获取需要压缩的反思记录
-            if len(reflector_context.reflection_log) > REFLECTOR_HISTORY_WINDOW:
-                insights_to_compress = reflector_context.reflection_log[:-REFLECTOR_HISTORY_WINDOW]
-
-                # 将ReflectionInsight转换为对话格式用于压缩
-                messages_to_compress = []
-                for insight in insights_to_compress:
-                    if insight.llm_reflection_prompt:
-                        messages_to_compress.append({
-                            'role': 'user',
-                            'content': insight.llm_reflection_prompt
-                        })
-                    if insight.llm_reflection_response:
-                        messages_to_compress.append({
-                            'role': 'assistant',
-                            'content': insight.llm_reflection_response
-                        })
-
-                if messages_to_compress:
-                    # 使用LLMClient的现有压缩功能
-                    summary = await llm_client.summarize_conversation(messages_to_compress)
-                    if summary:
-                        # 更新压缩摘要
-                        if reflector_context.compressed_reflection_summary:
-                            reflector_context.compressed_reflection_summary += "\n\n" + summary
-                        else:
-                            reflector_context.compressed_reflection_summary = summary
-
-                        # 移除已压缩的反思记录，保留窗口内的记录
-                        reflector_context.reflection_log = reflector_context.reflection_log[-REFLECTOR_HISTORY_WINDOW:]
-                        reflector_context.compression_count += 1
-                        reflector_context._needs_compression = False
-
-                        console.print(f"[green]✓ Reflector上下文已压缩，当前压缩次数: {reflector_context.compression_count}[/green]")
-
-        except Exception as e:
-            console.print(f"[yellow]⚠️ Reflector上下文压缩失败: {e}[/yellow]")
-            reflector_context._needs_compression = False
+    reflector_context.compressed_reflection_summary = summary
+    reflector_context.compression_count += 1
+    
+    # 保持窗口大小并重置标志
+    reflector_context.reflection_log = reflector_context.reflection_log[-REFLECTOR_HISTORY_WINDOW:]
+    reflector_context._needs_compression = False
+    
+    console.print(f"✅ Reflector 上下文压缩完成 (次数: {reflector_context.compression_count})", style="dim")
 
 def verify_and_handle_orphans(operations: List[Dict], graph_manager: GraphManager, console: Console) -> List[Dict]:
     """
@@ -923,6 +975,103 @@ async def handle_cli_approval(op_id: str, plan_data: List[Dict[str, Any]]):
         console.print("\n[dim]Web 端已提交决策，CLI 审批取消。[/dim]")
 
 
+async def run_standalone_react(goal: str, task_name: str, log_dir: str, args: argparse.Namespace, llm: LLMClient, op_id: str):
+    """
+    运行纯 ReAct 模式 (消融实验 - Mode C)
+    绕过 P-E-R 架构，直接使用 Executor 执行全局任务。
+    """
+    console.print(Panel("启动纯 ReAct 模式 (Ablation Mode C)...", style="bold magenta"))
+    
+    graph_manager = GraphManager(task_name, goal, op_id=op_id)
+    
+    # 将整个任务封装为一个可以直接执行的子任务
+    subtask_id = "global_react_execution"
+    graph_manager.graph.add_node(subtask_id, 
+        type="subtask", 
+        goal=goal, 
+        status="ready", 
+        description="Global Execution in ReAct Mode"
+    )
+    
+    # 增加最大步数限制 (因为没有子任务拆分)
+    # 不再修改全局配置，而是直接传递参数
+    react_max_steps = 50 
+    console.print(f"ReAct 模式：设置最大步数为 {react_max_steps}", style="dim")
+    
+    metrics = {
+        "start_time": time.time(),
+        "task_name": task_name,
+        "total_tokens": 0,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "cost_cny": 0.0,
+        "tool_calls": {},
+        "execution_steps": 0,
+        "plan_steps": 0,
+        "reflect_steps": 0,
+        "execute_steps": 1, # Single execution phase
+        "ablation_mode": "react"
+    }
+    
+    run_log = []
+    effective_output_mode = args.output_mode
+
+    try:
+        # Save initial log
+        save_logs(log_dir, metrics, run_log)
+        
+        # Run single executor cycle
+        console.print(Panel(f"开始执行全局 ReAct 循环...", title="Executor", style="bold blue"))
+        
+        # Use graph_manager's root goal description as briefing
+        global_mission_briefing = f"Mission Goal: {goal}"
+        
+        # Define real-time save callback to capture in-progress cost
+        def realtime_save(current_cycle_metrics: Dict = None):
+            # Create snapshot of global metrics
+            # Use deepcopy to avoid polluting the main metrics accumulator with partial cycle data
+            snapshot_metrics = copy.deepcopy(metrics) 
+            if current_cycle_metrics:
+                update_global_metrics(snapshot_metrics, current_cycle_metrics)
+            save_logs(log_dir, snapshot_metrics, run_log)
+        
+        from core.executor import run_executor_cycle
+        _, status, cycle_metrics = await run_executor_cycle(
+            goal, 
+            subtask_id, 
+            llm, 
+            graph_manager,
+            global_mission_briefing, 
+            log_dir=log_dir,
+            save_callback=lambda: save_logs(log_dir, metrics, run_log),
+            output_mode=effective_output_mode,
+            max_steps=react_max_steps, # Explicitly pass max steps
+            disable_artifact_check=True # React mode should not stop on no new artifacts
+        )
+        
+        update_global_metrics(metrics, cycle_metrics)
+        
+        # Check if success_info was updated by a tool or monitor during execution
+        # React mode only succeeds if the flag is actually found/submitted, not just by finishing steps
+        if metrics.get("success_info", {}).get("found"):
+            metrics["success"] = True
+            console.print(Panel("ReAct 模式执行成功完成且Flag已找到！", style="bold green"))
+        else:
+            metrics["success"] = False
+            if status == "completed":
+                # Completed steps but no flag -> Fail
+                 console.print(Panel("ReAct 模式执行结束，但未找到 Flag。", style="yellow"))
+            else:
+                console.print(Panel(f"ReAct 模式执行结束，状态: {status}", style="yellow"))
+            
+    except Exception as e:
+        console.print(Panel(f"ReAct 模式执行发生错误: {e}", style="bold red"))
+        metrics["error"] = str(e)
+    finally:
+        metrics["end_time"] = time.time()
+        metrics["total_time_seconds"] = metrics["end_time"] - metrics["start_time"]
+        save_logs(log_dir, metrics, run_log, final_save=True)
+
 async def main():
     parser = argparse.ArgumentParser(description="LuaN1ao Agent")
     parser.add_argument("--goal", required=True, help="The penetration testing goal for the agent.")
@@ -947,8 +1096,16 @@ async def main():
         default=OUTPUT_MODE, # Use OUTPUT_MODE from config as default
         help="控制台输出模式: simple, default, debug"
     )
+    # 消融实验参数
+    parser.add_argument("--mode", type=str, choices=["default", "linear", "react"], default="default", help="执行模式: default (P-E-R), linear (线性任务链), react (单Executor循环)")
+    parser.add_argument("--no-causal-graph", action="store_true", help="禁用因果图推理 (消融实验)")
 
     args = parser.parse_args()
+
+    # Register signal handlers for graceful shutdown
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
     goal = args.goal
     task_name = args.task_name
     log_dir = args.log_dir  # 获取传递的 log_dir
@@ -988,6 +1145,14 @@ async def main():
             conf.config.LLM_API_KEY = args.llm_api_key
         # Update models as well
         conf.config.LLM_MODELS = llm_models
+
+    # 应用消融实验设置
+    if args.mode:
+        import conf.config
+        conf.config.EXECUTION_MODE = args.mode
+    if args.no_causal_graph:
+        import conf.config
+        conf.config.NO_CAUSAL_GRAPH = True
 
     llm = LLMClient()
 
@@ -1071,17 +1236,13 @@ async def main():
     await ensure_knowledge_service(console)
 
     try:
-        # If op_id is provided, use it. Otherwise, generate a new one.
-        op_id = args.op_id if args.op_id else generate_task_id()
-        task_id = op_id # Unify task_id and op_id for consistency
+        # op_id already determined above
 
-        # Set LLM's op_id for event sending
-        llm.op_id = op_id # Use the unified op_id for LLMClient's event emission
-
+        
         # Start the event consumer NOW that op_id is properly set
         asyncio.create_task(event_consumer(op_id))
 
-        # Web Server Decoupling Warning (after op_id is set)
+        # Web Server Decoupling Warning
         if args.web:
             web_url = f"http://{DEFAULT_WEB_HOST}:{args.web_port}/?op_id={op_id}"
             console.print(Panel(
@@ -1093,12 +1254,16 @@ async def main():
             ))
 
         metrics["task_id"] = task_id
-        mcp_service.CURRENT_TASK_ID = task_id # Set global task ID for tools
         console.print(Panel(f"Task: {task_name}\nTask ID: {task_id}\nGoal: {goal}", title="任务初始化", style="bold green"))
         run_log.append({"event": "task_initialized", "task_id": task_id, "goal": goal, "timestamp": time.time()})
 
-        # Initialize GraphManager with op_id for DB sync
-        graph_manager = GraphManager(task_id, goal, op_id=op_id)
+        # 消融实验检查：Mode C (ReAct)
+        if args.mode == "react":
+            await run_standalone_react(goal, task_name, log_dir, args, llm, op_id)
+            return
+
+        # Initialize GraphManager
+        graph_manager = GraphManager(task_name, goal, op_id=op_id)
         
         # Update session status to running immediately after GraphManager is ready
         try:
@@ -1223,7 +1388,23 @@ async def main():
 
         # 3. Execute-Reflect-Plan Loop
         completed_reflections = {} # Collect completed reflection outputs (including intelligence_summary)
+        global_cycle_count = 0
         while True:
+            # --- Resource Governance Check ---
+            global_cycle_count += 1
+            if global_cycle_count > GLOBAL_MAX_CYCLES:
+                console.print(Panel(f"达到全局最大循环次数限制 ({GLOBAL_MAX_CYCLES})。任务强制终止以防止死循环。", title="资源熔断", style="bold red"))
+                metrics["success"] = False
+                metrics["termination_reason"] = "global_max_cycles_exceeded"
+                break
+            
+            if metrics.get("total_tokens", 0) > GLOBAL_MAX_TOKEN_USAGE:
+                console.print(Panel(f"达到全局最大 Token 消耗限制 ({GLOBAL_MAX_TOKEN_USAGE})。任务强制终止。", title="资源熔断", style="bold red"))
+                metrics["success"] = False
+                metrics["termination_reason"] = "global_token_limit_exceeded"
+                break
+            # ---------------------------------
+
             # ==================================================
             # 1. Planning Phase (PLAN)
             # ==================================================
@@ -1369,7 +1550,7 @@ async def main():
                 )
 
                 # Check and compress Planner context if needed
-                await compress_planner_context_if_needed(planner_context, llm)
+                await compress_planner_context_if_needed(planner_context, llm, metrics=metrics)
 
                 dynamic_ops = plan_data.get('graph_operations', [])
                 global_mission_briefing = plan_data.get('global_mission_briefing', global_mission_briefing)
@@ -1468,10 +1649,19 @@ async def main():
             for subtask_id in subtask_batch:
                 graph_manager.update_node(subtask_id, {"status": "in_progress"})
 
+            # Define real-time save callback shared by all parallel tasks
+            # Note: In parallel execution, this may cause transient metric flip-flops in logs,
+            # but ensures at least one active task's progress is visible.
+            def per_realtime_save(current_cycle_metrics: Dict = None):
+                snapshot = copy.deepcopy(metrics)
+                if current_cycle_metrics:
+                    update_global_metrics(snapshot, current_cycle_metrics)
+                save_logs(log_dir, snapshot, run_log)
+
             tasks = [
                 asyncio.create_task(run_executor_cycle(goal, subtask_id, llm, graph_manager,
                     global_mission_briefing, log_dir=log_dir, 
-                    save_callback=lambda: save_logs(log_dir, metrics, run_log),
+                    save_callback=per_realtime_save,
                     output_mode=effective_output_mode)) # Added output_mode
                 for subtask_id in subtask_batch
             ]
@@ -1524,7 +1714,7 @@ async def main():
                     )
 
                     # Check and compress Reflector context if needed
-                    await compress_reflector_context_if_needed(reflector_context, llm)
+                    await compress_reflector_context_if_needed(reflector_context, llm, metrics=metrics)
 
                     # Output reflection_output
                     if effective_output_mode in ["default", "debug"]:
@@ -1701,6 +1891,9 @@ async def main():
                 await asyncio.sleep(3600) # Sleep for a long time
 
     finally:
+        if 'ks_manager' in locals():
+            ks_manager.stop()
+
         # Ensure final logs are saved no matter what
         metrics["artifacts_found"] = len(graph_manager.causal_graph.nodes)
         # Record causal graph nodes

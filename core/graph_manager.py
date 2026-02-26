@@ -21,11 +21,7 @@ from core.database.utils import (
     atomic_upsert_graph_data
 )
 
-try:
-    from core.data_contracts import CausalNode, CausalEdge
-except Exception:
-    CausalNode = object  # type: ignore
-    CausalEdge = object  # type: ignore
+from core.data_contracts import CausalNode, CausalEdge
 
 
 class GraphManagerError(Exception):
@@ -85,7 +81,7 @@ class GraphManager:
         # Note: We assume the session is created elsewhere if set late, 
         # or we could trigger a create_session here too if needed.
 
-    def initialize_graph(self, goal: str):
+    def initialize_graph(self, goal: str) -> None:
         """初始化图，添加代表整体任务的根节点."""
         node_data = {"type": "task", "goal": goal, "status": "in_progress"}
         self.graph.add_node(self.task_id, **node_data)
@@ -93,7 +89,7 @@ class GraphManager:
         if self.op_id:
             schedule_coroutine(upsert_node(self.op_id, self.task_id, 'task', node_data))
 
-    def _sync_node(self, node_id: str, graph_type: str = 'task'):
+    def _sync_node(self, node_id: str, graph_type: str = 'task') -> None:
         """Helper to sync a node to DB asynchronously."""
         if not self.op_id:
             return
@@ -385,12 +381,8 @@ class GraphManager:
         """
         分类证据的逻辑强度（LLM 驱动优先）
         
-        优先级：
-        1. LLM 显式输出的 evidence_strength 参数（"necessary" / "contingent"）
-        2. 硬编码模式匹配作为回退
-        
-        这样既保证了智能化自主化（LLM 可以根据具体场景判断），
-        又提供了合理的默认行为。
+        LLM 显式输出的 evidence_strength 参数（"necessary" / "contingent"）        
+        这样保证了智能化自主化（LLM 可以根据具体场景判断），
         
         Args:
             label: 边标签（SUPPORTS/CONTRADICTS）
@@ -407,21 +399,12 @@ class GraphManager:
                 return EvidenceStrength.NECESSARY
             elif strength_lower in ("contingent", "cumulative", "weak", "indicative"):
                 return EvidenceStrength.CONTINGENT
-        
-        # 2. 回退：基于 evidence_type 的模式匹配
-        NECESSARY_PATTERNS = {
-            "CONTRADICTS": ["patch_confirmed", "exploit_patched", "fixed", "mitigated", "not_vulnerable"],
-            "SUPPORTS": ["rce_achieved", "shell_obtained", "flag_found", "exploit_success", "confirmed_vulnerable"],
-        }
+
         
         if evidence_type:
-            evidence_lower = evidence_type.lower()
-            patterns = NECESSARY_PATTERNS.get(label, [])
-            for pattern in patterns:
-                if pattern in evidence_lower:
-                    return EvidenceStrength.NECESSARY
+            logging.debug(f"Evidence type provided: {evidence_type}, but defaulting to CONTINGENT as no strength was specified.")
         
-        # 3. 默认为偶然性证据
+        # 2. 默认为偶然性证据 (Conservative Default)
         return EvidenceStrength.CONTINGENT
 
     def analyze_attack_paths(self) -> List[Dict[str, Any]]:

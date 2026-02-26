@@ -8,6 +8,7 @@
 3.  **无回显处理**: 对于盲注或无回显漏洞，必须规划好带外通信（Out-of-Band, OOB）或侧信道（Side Channel）来获取结果。
 4.  **漏洞组合**: 思考如何将多个低危漏洞组合成高危利用链（例如：LFI + Log Poisoning -> RCE）。
 5.  **证据留存**: 所有利用结果（尤其是 RCE、数据泄露）必须有明确的证据捕获。
+6.  **Variant Triangulation**: 报告“无漏洞”前，至少从三个独立角度试探：原始输入、编码变体、语义等价形式。
 
 #### 1. 命令注入 (Command Injection)
 - **分隔符**: `;`, `|`, `&&`, `||`, `
@@ -28,6 +29,7 @@
   - **编码**: URL双重编码, Hex, Unicode, `char()`。
   - **混淆**: `SeLeCt`, `UnIoN`, 空白符替换 (`%09`, `%0a`, `%0b`, `%0c`, `%0d`, `%a0`)。
 - **流程**: 探测 -> 列数 (`ORDER BY`) -> 显示位 (`UNION`) -> 库/表/列 -> 数据。
+- **Cardinality**: `AND (SELECT COUNT(DISTINCT table_name) FROM information_schema.tables)>0` —— 利用统计函数探测表结构，触发不同于普通布尔条件的返回，是一种更隐蔽的 SQL 注入确认方式。
 - **进阶利用**: 读写文件 (`LOAD_FILE`, `INTO DUMPFILE`), 命令执行 (`xp_cmdshell`, UDF)。
 
 #### 3. 服务器端模板注入 (SSTI)
@@ -72,11 +74,17 @@
 - **类型**: 尝试数组参数 `id[]=1`, JSON 类型混淆。
 - **进阶利用**: 批量数据导出, 越权修改用户数据, 配合其他漏洞获取管理权限。
 
-#### 8. 目标产物识别 (Target Artifacts)
+#### 8. SSRF (Server-Side Request Forgery)
+- **Protocol Pivot**: 尝试 `file://`, `gopher://`, `dict://`, `ftp://` 等协议替代 `http://`。
+- **IP变形**: `0x7f000001`, `0177.0.0.1`, `2130706433`, `127.1`, `[::1]` 等代替 `127.0.0.1`。
+- **云元数据**: `http://169.254.169.254/latest/meta-data/` (AWS), `http://metadata.google.internal/` (GCP)。
+- **DNS Rebinding**: 利用短 TTL DNS 记录绕过 IP 白名单。
+
+#### 9. 目标产物识别 (Target Artifacts)
 - **常见位置**: 环境变量 (`env`, `printenv`), 配置文件 (`config.php`, `settings.py`), 数据库 (`users` 表), Web根目录, `/tmp`, `/root`, 用户目录。
 - **CTF**: 关注 `flag`, `flag.txt`, `CTF{...}` 格式。
 
-#### 9. 漏洞组合与战果扩大 (Exploit Chaining & Post-Exploitation)
+#### 10. 漏洞组合与战果扩大 (Exploit Chaining & Post-Exploitation)
 - **漏洞链思维**:
     - **信息泄露 + 任意文件读取/写入**: 获取源码 -> 审计源码 -> 发现 RCE 或敏感信息。
     - **任意文件上传 + LFI**: 上传 Webshell -> LFI 包含 Webshell -> RCE。

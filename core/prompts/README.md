@@ -68,6 +68,7 @@ reflector_prompt = manager.build_reflector_prompt(
 生成Planner提示词。
 
 **参数**:
+
 - `goal` (str): 用户的高级目标
 - `context` (dict): 上下文数据
   - `causal_graph_summary`: 因果图摘要
@@ -81,6 +82,7 @@ reflector_prompt = manager.build_reflector_prompt(
 **返回**: str - 格式化的提示词
 
 **示例**:
+
 ```python
 prompt = manager.build_planner_prompt(
     goal="渗透测试Web应用",
@@ -103,6 +105,7 @@ prompt = manager.build_planner_prompt(
 生成Executor提示词。
 
 **参数**:
+
 - `main_goal` (str): 核心总目标
 - `subtask` (dict): 当前子任务数据
   - `id`: 任务ID
@@ -119,6 +122,7 @@ prompt = manager.build_planner_prompt(
 **返回**: str - 格式化的提示词
 
 **示例**:
+
 ```python
 prompt = manager.build_executor_prompt(
     main_goal="获取管理员权限",
@@ -142,6 +146,7 @@ prompt = manager.build_executor_prompt(
 生成Reflector提示词。
 
 **参数**:
+
 - `subtask` (dict): 子任务数据
 - `status` (str): 执行状态
 - `execution_log` (str): 执行日志
@@ -155,6 +160,7 @@ prompt = manager.build_executor_prompt(
 **返回**: str - 格式化的提示词
 
 **示例**:
+
 ```python
 prompt = manager.build_reflector_prompt(
     subtask={'id': 'task_1', 'description': '...'},
@@ -178,6 +184,7 @@ prompt = manager.build_reflector_prompt(
 渲染因果图。
 
 **参数**:
+
 - `context` (dict): 因果图数据
 - `mode` (str): 渲染模式
   - `'full'`: 完整图谱(Planner/Reflector)
@@ -190,6 +197,7 @@ prompt = manager.build_reflector_prompt(
 渲染关键事实列表。
 
 **参数**:
+
 - `key_facts` (list): 关键事实列表
 
 **返回**: str - 格式化的关键事实文本
@@ -199,6 +207,7 @@ prompt = manager.build_reflector_prompt(
 渲染失败模式。
 
 **参数**:
+
 - `patterns` (dict): 失败模式数据
 
 **返回**: str - 格式化的失败模式文本
@@ -208,6 +217,7 @@ prompt = manager.build_reflector_prompt(
 渲染依赖任务摘要。
 
 **参数**:
+
 - `deps` (list): 依赖任务列表
 
 **返回**: str - 格式化的依赖摘要文本
@@ -217,12 +227,14 @@ prompt = manager.build_reflector_prompt(
 ### 模板语法
 
 #### 变量替换
+
 ```jinja2
 ### 高级目标
 你的最终目标是实现: **{{ goal }}**
 ```
 
 #### 条件渲染
+
 ```jinja2
 {% if key_facts %}
 {{ key_facts }}
@@ -230,6 +242,7 @@ prompt = manager.build_reflector_prompt(
 ```
 
 #### 循环(如需要)
+
 ```jinja2
 {% for fact in key_facts %}
 - {{ fact }}
@@ -281,6 +294,7 @@ python tests/test_prompt_system.py
 ```
 
 测试内容包括:
+
 - Planner提示词生成
 - Executor提示词生成
 - Reflector提示词生成
@@ -315,15 +329,19 @@ python tests/test_prompt_system.py
 ### 常见问题
 
 **Q: 模板渲染失败**
+
 ```
 jinja2.exceptions.TemplateNotFound: planner_template.jinja2
 ```
+
 **A**: 确保模板文件在`core/prompts/`目录下
 
 **Q: 变量未定义**
+
 ```
 jinja2.exceptions.UndefinedError: 'key_facts' is undefined
 ```
+
 **A**: 在调用`build_xxx_prompt()`时确保context包含所有必需字段
 
 **Q: 输出格式不符合预期**

@@ -1,6 +1,6 @@
 openai
 anthropic
-requests
+requests>=2.32.0
 python-dotenv
 networkx
 matplotlib
@@ -19,8 +19,9 @@ pydantic
 sqlalchemy
 aiosqlite
 greenlet
-rich
-psutil
 httpx
-mcp
+psutil
+rich
 fastmcp
+mcp
+prompt_toolkit

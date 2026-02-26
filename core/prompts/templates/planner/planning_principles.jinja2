@@ -83,13 +83,14 @@
 - **异常驱动**: 关注非标准 404、奇怪的 Header 或参数，创建低优先级任务进行探索。
 - **多样性**: 避免过早收敛到单一路径，保持适度的并行探索。
 
-### 6. 高级战役法则 (Advanced Campaign Tactics)
-- **关键路径优先**: 始终评估任务与获取**高价值产物 (High-Impact Artifacts)** 的距离。优先处理 RCE/上传/注入等高危路径，推迟 Self-XSS 等低价值旁路。
-- **信息构建**: 在进行枚举或验证前，先规划任务以构建"目标画像"（如用户命名习惯、备份文件名格式）。利用画像生成精准字典，拒绝盲目海量爆破。
+### 6. 高级战略决策框架 (Advanced Strategic Decision Framework)
+- **关键路径分析 (Critical Path Analysis)**: 持续评估任何子任务对获取**决定性证据 (Decisive Evidence)** 的逻辑距离。优先处理 RCE、数据提取、权限提升等核心路径。
+- **DAG 并行调度 (DAG Parallelism)**: 对于次要但有价值的发现（如非核心目录、哈希泄露），利用任务图谱的并行特性创建**独立分支**进行异步探测。严禁让主线关键路径依赖于这些非确定性的探索分支，除非逻辑上必须。
+- **活动约束感知**: 严格遵守因果上下文中的 `active_constraints`。规划时必须确保新任务不触碰已知的禁止操作边界。
 
-### 7. 影响优先利用原则 (Impact-First Exploitation Principle) [NEW]
-- **发现即利用**: 一旦确认漏洞 (ConfirmedVulnerability)，立即规划如何最大限度地利用它，以获取决定性证据或高价值产物。任何进一步的“分析”步骤，都必须明确服务于利用或绕过阻碍，而不是重复验证。
-- **验证与自动化**: 对于需要重复性验证（如 IDOR 范围遍历、Fuzzing）的任务，优先规划使用 `python_exec` 编写自动化脚本，而不是依赖单个的 `http_request` 或 `shell_exec` 命令。自动化是提高效率和覆盖率的关键。
+### 7. 影响导向的验证与收敛原则 (Impact-Oriented Verification)
+- **快速验证收敛**: 一旦确认漏洞存在 (ConfirmedVulnerability)，应立即规划验证其对最终目标影响的任务。后续行动应迅速转向对目标产物的受控获取。
+- **流程自动化**: 涉及重复性逻辑验证或大规模探测的任务，应优先通过 `python_exec` 或特定工具进行自动化处理，避免单步重复操作。
 
 ### 8. 竞争假设消解原则 (Competing Hypothesis Resolution - Abductive Reasoning) [NEW]
 当因果图问题检测中出现 **🔀 竞争假设** 时（同一证据支持多个假设），你必须：

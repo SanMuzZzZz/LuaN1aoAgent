@@ -118,7 +118,8 @@ async def _compress_context_if_needed(
     graph_manager: "GraphManager",
     subtask_id: str,
     log_dir: str = None,
-    output_mode: str = "default", # Add this parameter
+    output_mode: str = "default",
+    update_metrics_func: callable = None,
 ) -> list:
     """
     智能上下文压缩策略。
@@ -179,7 +180,10 @@ async def _compress_context_if_needed(
                 messages_to_compress = messages[1:] if len(messages) > 1 else []
 
             if messages_to_compress and len(messages_to_compress) >= EXECUTOR_MIN_COMPRESS_MESSAGES:
-                compressed_summary = await llm.summarize_conversation(messages_to_compress)
+                compressed_summary, compress_metrics = await llm.summarize_conversation(messages_to_compress)
+
+                if update_metrics_func and compress_metrics:
+                    update_metrics_func(compress_metrics)
 
                 if compressed_summary:
                     compressed_message = {
@@ -438,7 +442,9 @@ async def run_executor_cycle(
 
     log_dir: str = None,
     save_callback: callable = None,
-    output_mode: str = "default", # Add this parameter
+    output_mode: str = "default",
+    max_steps: int = None,
+    disable_artifact_check: bool = False,
 ) -> tuple[str, str, dict]:
     """
     执行器循环：为子任务执行思想树探索循环。
@@ -507,7 +513,7 @@ async def run_executor_cycle(
             return halt_result
 
         # 智能上下文压缩
-        messages = await _compress_context_if_needed(messages, executed_steps_count, llm, graph_manager, subtask_id, log_dir, output_mode=output_mode)
+        messages = await _compress_context_if_needed(messages, executed_steps_count, llm, graph_manager, subtask_id, log_dir, output_mode=output_mode, update_metrics_func=update_cycle_metrics)
 
         _get_console().print(
             Panel(f"子任务{subtask_id} - 探索第{executed_steps_count + 1}步", title_align="left", style="green")
@@ -813,10 +819,11 @@ async def run_executor_cycle(
 
         # --- 动态终止逻辑 ---
         # 1. 最大步数限制（安全网）
-        if executed_steps_count >= EXECUTOR_MAX_STEPS:
+        effective_max_steps = max_steps if max_steps is not None else EXECUTOR_MAX_STEPS
+        if executed_steps_count >= effective_max_steps:
             _get_console().print(
                 Panel(
-                    f"达到最大步数限制 ({EXECUTOR_MAX_STEPS})，为安全起见终止子任务。",
+                    f"达到最大步数限制 ({effective_max_steps})，为安全起见终止子任务。",
                     title="智能终止",
                     style="bold red",
                 )
@@ -833,7 +840,7 @@ async def run_executor_cycle(
         else:
             consecutive_no_new_artifacts = 0  # 有新产出物时重置
 
-        if consecutive_no_new_artifacts >= EXECUTOR_NO_ARTIFACTS_PATIENCE:
+        if not disable_artifact_check and consecutive_no_new_artifacts >= EXECUTOR_NO_ARTIFACTS_PATIENCE:
             _get_console().print(
                 Panel(
                     f"连续 {EXECUTOR_NO_ARTIFACTS_PATIENCE} 步没有新的产出物提议，探索已停滞。终止子任务。",
@@ -870,7 +877,7 @@ async def run_executor_cycle(
 
         # Save logs after each step
         if save_callback:
-            save_callback()
+            save_callback(cycle_metrics=cycle_metrics)
         # 新增：实时维护 metrics.json 的 execution_steps 字段
         if log_dir:
             metrics_path = os.path.join(log_dir, "metrics.json")
@@ -887,12 +894,17 @@ async def run_executor_cycle(
                 # 实时更新tool_calls（使用cycle_metrics中的累计值）
                 if "tool_calls" not in metrics:
                     metrics["tool_calls"] = {}
-                # 直接使用cycle_metrics中的值（已经是本次executor调用的累计值）
-                for tool, count in cycle_metrics["tool_calls"].items():
-                    metrics["tool_calls"][tool] = count
+                # 实时更新 cost 和 token 信息
+                if "cost_cny" not in metrics:
+                    metrics["cost_cny"] = 0
+                metrics["cost_cny"] = max(metrics.get("cost_cny", 0), cycle_metrics.get("cost_cny", 0))
+                metrics["total_tokens"] = cycle_metrics.get("prompt_tokens", 0) + cycle_metrics.get("completion_tokens", 0)
                 
-                with open(metrics_path, "w", encoding="utf-8") as f:
+                # Atomic write
+                tmp_path = metrics_path + ".tmp"
+                with open(tmp_path, "w", encoding="utf-8") as f:
                     json.dump(metrics, f, ensure_ascii=False, indent=2)
+                os.replace(tmp_path, metrics_path)
             except Exception:
                 pass
 

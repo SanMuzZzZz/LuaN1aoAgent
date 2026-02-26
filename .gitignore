@@ -21,13 +21,18 @@ logs/
 *.bak
 *.db
 *.sqlite
+*.csv
 
 # 临时文件
 *.tmp
 *.temp
 /tmp/
+*.log
+*.swp
+*.swo
 
-# 媒体文件
+# 图片视频
+*.png
 *.jpg
 *.jpeg
 *.gif
@@ -46,8 +51,6 @@ logs/
 *~
 
 # 项目特定
-benchmarks/**
-analysis_output/**
 .kb_cache/**
 all-MiniLM-L6-v2/**
 rag/faiss_db/**

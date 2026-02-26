@@ -145,6 +145,12 @@ EXECUTOR_TOOL_TIMEOUT = int(os.getenv("EXECUTOR_TOOL_TIMEOUT", "120"))
 # 执行器观察结果的最大长度（字符），超过此长度将被截断
 EXECUTOR_MAX_OUTPUT_LENGTH = int(os.getenv("EXECUTOR_MAX_OUTPUT_LENGTH", "50000"))
 
+# P-E-R 全局循环最大次数（防止无限循环）
+GLOBAL_MAX_CYCLES = int(os.getenv("GLOBAL_MAX_CYCLES", "50"))
+
+# 全局最大 Token 消耗限制（安全熔断器）
+GLOBAL_MAX_TOKEN_USAGE = int(os.getenv("GLOBAL_MAX_TOKEN_USAGE", "5000000"))
+
 # ============================================================================
 # 上下文管理配置
 # ============================================================================
@@ -154,6 +160,21 @@ PLANNER_HISTORY_WINDOW = int(os.getenv("PLANNER_HISTORY_WINDOW", "15"))
 
 # 反思日志保留窗口大小
 REFLECTOR_HISTORY_WINDOW = int(os.getenv("REFLECTOR_HISTORY_WINDOW", "15"))
+
+# ============================================================================
+# Ablation Configuration
+# ============================================================================
+
+# Execution mode
+# "default": Standard P-E-R mode
+# "linear": Linear mode (No Task Graph), disable dynamic branching
+# "react": Pure ReAct mode (Executor Only), disable Planner/Reflector
+EXECUTION_MODE = os.getenv("EXECUTION_MODE", "default").lower()
+
+# Whether to disable causal graph
+# "true": Disable Reflector's causal updates and Planner's causal reasoning
+# "false": Default, use dual-graph
+NO_CAUSAL_GRAPH = os.getenv("NO_CAUSAL_GRAPH", "false").lower() == "true"
 
 # ============================================================================
 # Web 服务配置

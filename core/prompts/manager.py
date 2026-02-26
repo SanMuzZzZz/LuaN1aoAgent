@@ -141,6 +141,7 @@ class PromptManager:
             "dependency_context": dependency_text,
             "tools_section": tools_section,
             "failure_patterns": failure_patterns_text,
+            "active_constraints": context.get("active_constraints", []),
         }
 
         return self.executor_template.render(**input_variables)

@@ -42,6 +42,10 @@ class LLMClient:
         # 使用通用预估价格，避免硬编码特定模型。用户应根据实际模型调整。
         self.model_token_prices_cny = {
             "default": {"input": 0.004, "output": 0.016},  # Default placeholder prices
+            "gpt-4o": {"input": 0.0175, "output": 0.07}, # ~$2.5/$10 per M
+            "deepseek-v3.2": {"input": 0.001, "output": 0.004}, # Approx.
+            "deepseek-chat": {"input": 0.001, "output": 0.002}, # Approx.
+            "deepseek-reasoner": {"input": 0.004, "output": 0.016}, # Approx.
         }
         # self.cny_to_usd_rate = 7.0 # No longer needed as all costs will be in CNY.
         if self.provider == "anthropic":
@@ -250,21 +254,22 @@ class LLMClient:
             )
             return True, current_api_key, fallback_used, api_call_retries
 
-        # TPM限制重试
-        if "tpm rate limit exceeded" in str(e):
-            api_call_retries += 1
-            if api_call_retries > max_retries:
-                self._get_console().print("[bold red]API rate limit exceeded. Max retries reached.[/bold red]")
-                raise e
-            self._get_console().print(
-                f"[bold yellow]API rate limit exceeded. Waiting 10 seconds to retry... ({api_call_retries}/{max_retries})[/bold yellow]"
-            )
-            await asyncio.sleep(10)
-            return True, current_api_key, fallback_used, api_call_retries
-
-        # 其他429错误
-        self._get_console().print(f"[bold red]API rate limit exceeded (not TPM): {e}[/bold red]")
-        raise e
+        # 进行指数退避重试
+        api_call_retries += 1
+        if api_call_retries > max_retries:
+            self._get_console().print("[bold red]API rate limit exceeded. Max retries reached.[/bold red]")
+            raise e
+        
+        # 指数退避: 10s, 20s, 40s, 80s...
+        backoff_time = 10 * (2 ** (api_call_retries - 1))
+        # 设置上限
+        backoff_time = min(backoff_time, 120)
+        
+        self._get_console().print(
+            f"[bold yellow]Rate limit hit. Waiting {backoff_time}s to retry... ({api_call_retries}/{max_retries})[/bold yellow]"
+        )
+        await asyncio.sleep(backoff_time)
+        return True, current_api_key, fallback_used, api_call_retries
 
     async def send_message(
         self, messages: List[Dict[str, Any]], role: str = "default", expect_json: bool = True
@@ -481,20 +486,27 @@ class LLMClient:
 
 请将上述历史压缩为一份简洁但完整的测试进展报告，确保所有关键安全信息和探索性思维都得到妥善保留。报告应该让另一个智能体能够基于这份摘要继续进行有效的渗透测试。"""
 
-    async def summarize_conversation(self, messages_to_summarize: List[Dict[str, str]]) -> str | None:
+    async def summarize_conversation(self, messages_to_summarize: List[Dict[str, Any]]) -> tuple[str, Optional[Dict]]:
         """
         使用LLM总结一段对话，提取关键信息，并遵循保护探索性思维的原则。
         Args:
             messages_to_summarize: 要总结的对话历史片段。
         Returns:
-            对话的简洁摘要。
+            tuple[str, Optional[Dict]]: 对话的简洁摘要和调用指标。
         """
         compression_prompt_content = self._generate_preservation_aware_compression_prompt(messages_to_summarize)
 
         summarization_messages = [{"role": "user", "content": compression_prompt_content}]
         # Use a specific role for summarization to potentially use a different model/temperature
-        summary = await self.send_message(summarization_messages, role="summarizer", expect_json=False)
-        return summary
+        summary, metrics = await self.send_message(summarization_messages, role="summarizer", expect_json=False)
+        
+        # Ensure summary is a string
+        if summary is None:
+             summary = ""
+        elif not isinstance(summary, str):
+             summary = str(summary)
+             
+        return summary, metrics
 
     def _clean_json_string(self, json_string: str) -> str:
         """
@@ -573,7 +585,8 @@ class LLMClient:
 
     def _apply_soft_fixes(self, json_str: str) -> str:
         """
-        对JSON字符串应用轻度纠错：替换Python字面量、移除尾随逗号、处理单引号。
+        对JSON字符串应用轻度纠错：替换Python字面量、移除尾随逗号。
+        注意：已移除激进的单引号替换逻辑，以防止破坏包含引号的Payload（如SQL注入）。
 
         Returns:
             修复后的字符串
@@ -586,9 +599,7 @@ class LLMClient:
         # 简单处理尾随逗号
         fixed = re.sub(r",\s*}\s*$", "}", fixed)
         fixed = re.sub(r",\s*]\s*$", "]", fixed)
-        # 处理单引号
-        if fixed.count('"') == 0 and fixed.count("'") >= 2:
-            fixed = fixed.replace("'", '"')
+        
         return fixed
 
     def _robust_json_parser(self, json_string: str) -> Dict | None:

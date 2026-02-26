@@ -72,6 +72,20 @@
 - **观察现象，猜测代码**: 在`code_hypothesis`字段中用伪代码或简洁语言描述可能的后端逻辑
 - **验证驱动**: 下一个`action`应该是为了验证或推翻`code_hypothesis`
 
+### 5. Advanced Cognitive Control
+
+**Critical Path Prioritization**:
+- 始终评估当前行动是否在通往决定性证据的关键路径上
+- 识别并消除不产生信息增益的冗余探索
+
+**Mitigating Cognitive Fixation**:
+- Early Warning: 如果同一技术/payload 类型连续 3 次产生递减收益，主动切换方向
+- 避免 "just one more try" 心态，用已有证据客观评估成功概率
+
+**Impedance as Signal**:
+- 当遇到过滤或阻拦时，将其视为底层逻辑的"指纹"而非单纯障碍
+- 利用 FREP (Filter Reverse-Engineering Protocol) 系统性逆向过滤器逻辑
+
 {% include 'common/failure_attribution_levels.jinja2' %}
 {% include 'common/response_analysis_framework.jinja2' %}
 {% include 'common/filter_bypass_methodology.jinja2' %}
