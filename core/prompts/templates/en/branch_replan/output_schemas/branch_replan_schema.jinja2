@@ -1,0 +1,31 @@
+  "thought": {
+    "step1_failure_analysis": "Briefly analyze why the original branch failed.",
+    "step2_alternative_strategy": "Describe the completely new alternative strategy you will adopt, and how it circumvents the failure.",
+    "step3_new_plan_summary": "Summarize the new plan steps."
+  },
+  "graph_operations": [
+    {
+      "command": "UPDATE_NODE",
+      "node_id": "<old_task_id_to_deprecate>",
+      "updates": {
+        "status": "deprecated",
+        "summary": "This branch was deprecated due to strategic failure."
+      }
+    },
+    {
+      "command": "ADD_NODE",
+      "node_data": {
+        "id": "<new_task_id>",
+        "description": "Description of the new alternative task.",
+        "dependencies": ["<task_id_it_depends_on>"],
+        "priority": 1,
+        "reason": "This task is the new alternative, designed to...",
+        "completion_criteria": "Completion criteria for the new task."
+      }
+    }
+  ]
+
+**⚠️ Critical Constraints:**
+- The `dependencies` field **must not** contain any task ID from the `dead_end_tasks` list
+- New tasks should depend on **healthy, completed tasks**, or set `dependencies` to an empty array `[]`
+- An empty dependency means the task is a direct child of the root task, depending on no other task

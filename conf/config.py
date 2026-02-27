@@ -27,6 +27,9 @@ SCENARIO_MODE = os.getenv("SCENARIO_MODE", "general").lower()
 # "debug": 详细输出,等同于 --verbose,提供所有调试信息
 OUTPUT_MODE = os.getenv("OUTPUT_MODE", "default").lower()
 
+# 提示词语言 / Prompt Language: "zh" (中文), "en" (English)
+PROMPT_LANGUAGE = os.getenv("PROMPT_LANGUAGE", "zh").lower()
+
 # ============================================================================
 # LLM API 配置
 # ============================================================================

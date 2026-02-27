@@ -1,0 +1,26 @@
+#### Advanced Node Types & Relations (Reflector Only)
+
+**Extended Node Types:**
+
+1. **KeyFact**: 
+   - **Definition**: Verified, high-confidence facts critical to subsequent tasks.
+   - **Examples**: "Target system uses Flask + Jinja2 framework", "Authentication mechanism uses two-step verification (username → password)"
+   - **Relations**:
+     - `KeyFact` --SUPPORTS--> `Hypothesis` (key fact supports hypothesis)
+     - `KeyFact` --INFORMS--> `Evidence` (key fact informs the significance of evidence)
+     - `KeyFact` --DESCRIBES--> `Vulnerability` (key fact describes vulnerability characteristics)
+
+2. **SystemImplementation**: 
+   - **Definition**: Inferred internal implementation logic or code snippets of the target system.
+   - **Purpose**: Used to reason about the root cause of vulnerabilities.
+   - **Relation**: `ConfirmedVulnerability` --CAUSED_BY--> `SystemImplementation`
+
+**Edge Relationship Label Descriptions:**
+
+- **SUPPORTS**: A supports B (evidence supports hypothesis, key fact supports hypothesis)
+- **CONTRADICTS**: A contradicts B (evidence contradicts hypothesis)
+- **FALSIFIES**: A falsifies B (evidence falsifies hypothesis)
+- **CAUSED_BY**: A is caused by B (vulnerability caused by system implementation flaw)
+- **INFORMS**: A informs B (key fact informs the significance of evidence)
+- **DESCRIBES**: A describes B (key fact describes vulnerability characteristics)
+- **LEADS_TO**: A leads to B (evidence leads to key fact, hypothesis leads to vulnerability, vulnerability leads to exploit)

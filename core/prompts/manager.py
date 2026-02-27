@@ -16,7 +16,7 @@ from core.prompts.renderers import (
 )
 
 
-from conf.config import SCENARIO_MODE
+from conf.config import SCENARIO_MODE, PROMPT_LANGUAGE
 
 class PromptManager:
     """
@@ -24,12 +24,18 @@ class PromptManager:
     
     负责所有角色(Planner, Executor, Reflector)的Prompt生成与上下文渲染。
     使用Jinja2模板引擎确保提示词的一致性和可维护性。
+    支持中英文切换（通过 PROMPT_LANGUAGE 配置）。
     """
 
     def __init__(self):
         """初始化提示词管理器,加载Jinja2模板"""
-        # 获取模板目录路径
-        template_dir = os.path.join(os.path.dirname(__file__), "templates")
+        # 获取模板目录路径（根据语言配置选择子目录）
+        base_template_dir = os.path.join(os.path.dirname(__file__), "templates")
+        template_dir = os.path.join(base_template_dir, PROMPT_LANGUAGE)
+
+        # Fallback to zh if language directory doesn't exist
+        if not os.path.isdir(template_dir):
+            template_dir = os.path.join(base_template_dir, "zh")
 
         # 创建Jinja2环境
         self.env = Environment(

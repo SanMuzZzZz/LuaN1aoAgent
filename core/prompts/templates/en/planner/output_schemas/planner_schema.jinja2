@@ -1,0 +1,41 @@
+  "thought": {
+    "step1_analysis": "[Information Extraction] Extract key facts from the task goal, causal graph, failure summaries, and retrieved experience (citing relevant step_id / node_id). Clearly identify current information gaps. You must demonstrate your reasoning process here.",
+    "step2_decomposition": "[Task Decomposition] Based on key facts and objectives, decompose the overall strategy into 2-4 high-level subtasks, clearly stating WHY in each subtask description (how it will close information gaps or advance the goal).",
+    "step3_dependency_analysis": "[Dependency Modeling] Use \"A → B\" or JSON format to explicitly annotate subtask dependencies, ensuring an acyclic DAG for maximum parallelism. You must ensure dependencies are logically correct.",
+    "step4_summary": "[Plan Summary] Summarize the overall strategy in 1-2 sentences, emphasizing information gain and success criteria, avoiding redundant repetition."
+  },
+  "graph_operations": [
+    {
+      "command": "ADD_NODE",
+      "node_data": {
+        "id": "subtask_1",
+        "description": "High-level description of the task to execute. Must be clear, concise, and actionable.",
+        "dependencies": [],
+        "priority": 1,
+        "reason": "Why this task is necessary for achieving the overall goal. Must be clearly linked to the current context and objectives.",
+        "completion_criteria": "Clear, verifiable conditions for task completion. Must be quantifiable, e.g., 'Obtain complete user list' or 'Confirm vulnerability existence'."
+      }
+    },
+    {
+      "command": "UPDATE_NODE",
+      "node_id": "existing_subtask_id",
+      "updates": {
+        "status": "deprecated",
+        "summary": "This task was deprecated because [reason]."
+      }
+    }
+  ],
+  "global_mission_accomplished": false,
+  "goal_achieved_by": null
+
+**⚠️ Critical Requirements**:
+- `global_mission_accomplished`: **(Boolean, default false)** Only set this flag to `true` when all analysis (including Intelligence Summary) clearly and unambiguously proves that the top-level `goal` has been fully achieved. This is the only signal to terminate the entire task.
+- `goal_achieved_by`: **(String or null)** When `global_mission_accomplished` is `true`, **must** fill in the step_id or node ID that provides the success evidence. This is the key execution step that led to task success. If success was learned from the Intelligence Summary, fill in the key step_id mentioned in the Summary.
+- The `graph_operations` array **must** contain at least one `ADD_NODE` operation, unless `global_mission_accomplished` is `true`.
+{% if use_ctf_optimizations %}
+- **CTF Optimization**: During initial planning or when information is insufficient, immediately create concrete reconnaissance or attack subtasks (e.g., port scanning, directory enumeration) — don't wait for more information.
+{% endif %}
+- In CTF scenarios, initial planning should immediately create concrete reconnaissance or attack subtasks without waiting.
+- The `id` field must be a unique string identifier.
+- `dependencies` must be an array of existing task `id`s and must not form circular dependencies.
+- The `priority` field has a valid range of 1 to 5, where 1 is the highest priority.

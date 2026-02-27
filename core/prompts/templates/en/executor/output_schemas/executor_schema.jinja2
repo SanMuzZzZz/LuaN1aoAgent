@@ -1,0 +1,44 @@
+  "thought": {
+    "step1_intelligence_analysis": "[Intelligence Review] Combine `subtask_goal`, `dependency_context` and the causal graph to extract facts directly relevant to the current attack surface. If JWT/Session/Token is detected, explicitly record and flag potential IDOR or authorization bypass risks. You must demonstrate your reasoning process here.",
+    "step2_hypothesis_formulation": "[Testable Hypothesis] Based on the facts from the previous step, propose a single, falsifiable hypothesis. For example: 'If parameter user_id is controllable, then other users' data can be read.' Describe the expected phenomenon in natural language or pseudocode.",
+    "code_hypothesis": "(Optional) If the response or source code leak hints at backend logic, describe the inferred flow in 1-2 lines of pseudocode here, laying groundwork for later SystemImplementation extraction. Example: `if user_id == current_user_id: return data else: return error`.",
+    "step3_action_selection": "[Experiment Design] Select the tool and parameters that best verify the hypothesis. Record expected output or comparison baseline. You must ensure the rationality of tool selection and parameter safety.",
+    "step4_observation_analysis": "[Result Comparison] Compare `raw_output` with expectations, identify supporting/refuting points, detect filtering patterns. Be sure to cite key information fragments (e.g., response differences, multi-byte changes). You must include `ResponseAnalysis` and `ErrorPattern` subsections.",
+    "step5_hypothesis_update": "[Conclusion Attribution] Update hypothesis status according to L0-L5 levels. If the conclusion is L4/L5, explain the subsequent correction strategy or next hypothesis."
+  },
+  "execution_operations": [
+    {
+      "command": "EXECUTE_NOW",
+      "node_id": "step_1a",
+      "parent_id": "For the first step or new branch, fill '{{ subtask_id }}'; for subsequent operations based on a prior step (e.g., step_0), fill that prior step's node_id.",
+      "action": {
+        "tool": "The tool to execute, e.g., 'http_request', 'shell_exec', 'python_exec', 'expert_analysis'.",
+        "params": {
+          "param1": "Parameter value for the tool, must conform to the tool's API specification."
+        }
+      },
+      "thought": "Reasoning about this operation. Explain why this tool and these parameters were chosen."
+    }
+  ],
+  "hypothesis_update": {
+    "description": "You must strictly follow the L0-L5 failure attribution levels to fill this field. This is the core mechanism for error-driven correction.",
+    "previous_hypothesis": "The hypothesis being tested. Example: 'Parameter id is vulnerable to SQL injection'.",
+    "observation_summary": "Concise summary of the tool's raw output. Example: 'Response status code 200, content length increased'.",
+    "conclusion": "Must be one of: 'SUPPORTED' | 'L4_FALSIFIED' | 'INVALIDATED_PREREQUISITE' | 'ENVIRONMENTAL_INTERFERENCE' | 'L1_TOOL_FAILURE'. You must perform accurate attribution according to the L0-L5 model.",
+    "contradiction_detected": "(Optional) If a contradiction with prior observations/hypotheses is detected, briefly describe the contradiction. Example: 'Response shows logged in, but session cookie is empty'.",
+    "next_hypothesis": "The next logical hypothesis to test. Example: 'Attempt time-based blind injection to verify SQL injection'."
+  },
+  "previous_steps_status": {
+    "step_id_1": "executed | failed",
+    "step_id_2": "executed | failed"
+  },
+  "is_subtask_complete": false,
+  "staged_causal_nodes": [
+    {
+      "node_type": "Evidence | Hypothesis | ConfirmedVulnerability | Exploit | TargetArtifact",
+      "id": "temp_node_id",
+      "source_step_id": "step_id",
+      "description": "Node description",
+      "note": "Include required fields corresponding to node_type, see Node Type Guide for details"
+    }
+  ]

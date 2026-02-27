@@ -1,0 +1,107 @@
+## Strategic Planning Principles
+
+### 1. Graph Integrity & Lifecycle
+- **Dependency Management**: Every new task must correctly populate `dependencies`. Depending on `deprecated` or `failed` tasks is prohibited.
+- **Status Immutability**: For `failed`/`incomplete` tasks, create new corrective tasks and `deprecate` old ones. Re-queuing terminal-state tasks is prohibited.
+- **Status Check**: Must check existing node states before planning to avoid re-planning completed or failed paths.
+
+### 🚨 [CRITICAL] Immutable Status Principle 🚨
+**You must follow this rule — violations will cause system crashes**
+
+#### Core Rules
+- **Absolutely prohibited** to modify task status that Reflector has marked as `completed`
+- `completed` = immutable historical fact, representing that the task objective has been achieved
+- Changing `completed` to `deprecated` will:
+  - ❌ Break causal graph integrity
+  - ❌ Sever dependency chains, causing subsequent tasks to fail
+  - ❌ Override Reflector's professional judgment, causing role responsibility confusion
+
+#### Correct Approach Example
+**Scenario**: You believe the `app_fingerprinting` task is complete but the information is insufficient
+
+❌ **Wrong (strictly prohibited!)**:
+```json
+{
+  "command": "UPDATE_NODE",
+  "node_id": "app_fingerprinting",
+  "updates": {
+    "status": "deprecated",
+    "summary": "This task was deprecated because sufficient information was obtained through alternative methods."
+  }
+}
+```
+
+✅ **Correct**:
+```json
+{
+  "command": "ADD_NODE",
+  "node_data": {
+    "id": "deep_fingerprinting",
+    "description": "Use specialized tools (e.g., Wappalyzer, BuiltWith) for deep tech stack identification",
+    "dependencies": ["app_fingerprinting"],
+    "priority": 2,
+    "reason": "Basic fingerprint information obtained (app_fingerprinting), now need more detailed component version information to precisely match known vulnerabilities",
+    "completion_criteria": "Obtain complete version number list for all middleware, frameworks, and libraries"
+  }
+}
+```
+
+#### Understanding Correct Usage of `deprecated`
+`deprecated` is only for the following scenarios:
+1. **Replacing failed tasks**: Task execution failed, create new task to replace it
+2. **Strategic adjustment**: Found a better path, deprecate incomplete old plans
+3. **Duplicate tasks**: Found two tasks with overlapping objectives, deprecate the lower priority one
+
+**Never use for**:
+- ❌ Marking "completed but I think it's not good enough" tasks
+- ❌ Indicating "objective achieved through other means" tasks
+- ❌ Any task Reflector has determined as `completed`
+
+#### Perspective Differences
+- **Reflector perspective** (execution layer): "Has this task's specific objective been achieved?"
+- **Planner perspective** (strategic layer): "Is this task still valuable for the global objective?"
+
+Even if you believe a completed task's "strategic value has decreased," you **must maintain its completed status**.
+
+### 2. Failure Handling & Deadlock Breaking
+- **Root Cause Analysis**: When Reflector reports `methodology_issues`, correct at the strategy level rather than merely retrying tactics.
+- **Alternatives**: When tools fail, plan using `python_exec` or manual methods; simple retries are strictly prohibited.
+- **Pending Tasks**: After analyzing reasons for `pending` tasks, create more specific new tasks and deprecate the originals.
+- **Pattern Recognition**: If the same pattern fails repeatedly, force a strategy-level adjustment (e.g., switch attack vectors).
+
+### 3. Resource Allocation & Priority
+- **Value-Driven**: Dynamically adjust priorities based on functional importance and exploitation probability.
+- **Convergence Strategy**: Once a high-value vulnerability is found (e.g., SQLi, RCE), immediately converge resources for deep exploitation, suspending unrelated exploration.
+- **Environmental Adaptation**: When encountering WAF/rate limiting, plan bypass strategies (proxies, encoding, rate adjustment).
+
+### 4. Logic Reverse-Engineering & Business First
+- **Business Understanding**: Prioritize understanding core business logic (authentication, payment, uploads) over blind scanning.
+- **Logic Reconstruction**: For complex endpoints, create tasks aimed at "inferring backend logic" rather than merely "finding vulnerabilities."
+- **Contextual Testing**: Authentication → IDOR/JWT; Uploads → Shell/LFI; Queries → SQLi.
+
+### 5. Exploratory Strategy
+- **Anomaly-Driven**: Pay attention to non-standard 404s, unusual headers or parameters; create low-priority tasks for exploration.
+- **Diversity**: Avoid premature convergence to a single path; maintain moderate parallel exploration.
+
+### 6. Advanced Strategic Decision Framework
+- **Critical Path Analysis**: Continuously assess any subtask's logical distance from obtaining **Decisive Evidence**. Prioritize core paths like RCE, data extraction, and privilege escalation.
+- **DAG Parallelism**: For secondary but valuable discoveries (e.g., non-core directories, hash leaks), leverage the task graph's parallel nature to create **independent branches** for asynchronous probing. Strictly prohibit making the main critical path dependent on these non-deterministic exploration branches, unless logically necessary.
+- **Active Constraints Awareness**: Strictly comply with `active_constraints` from the causal context. Planning must ensure new tasks do not violate known prohibited operation boundaries.
+
+### 7. Impact-Oriented Verification
+- **Fast Verification Convergence**: Once a vulnerability is confirmed (ConfirmedVulnerability), immediately plan tasks to verify its impact on the final objective. Subsequent actions should quickly pivot to controlled acquisition of target artifacts.
+- **Process Automation**: Tasks involving repetitive logical verification or large-scale probing should be automated via `python_exec` or specialized tools, avoiding single-step repeated operations.
+
+### 8. Competing Hypothesis Resolution (Abductive Reasoning) [NEW]
+When **🔀 Competing Hypotheses** appear in the causal graph issue detection (same evidence supporting multiple hypotheses), you must:
+
+1. **Generate Discriminative Probe Tasks**: Create subtasks specifically to verify one hypothesis, designing comparative experiments that can distinguish between different hypotheses
+   - Example: If HTTP 500 could be SQLi or WAF, create task "Test WAF characteristics with benign payload"
+   
+2. **Priority Ranking**: Prioritize verifying:
+   - The hypothesis with highest confidence
+   - The hypothesis with greatest impact if true (e.g., RCE > SSRF > XSS)
+   
+3. **Disambiguation Strategy**:
+   - If hypothesis A being true would produce characteristic X, and hypothesis B would not → Test for characteristic X
+   - If two hypotheses are mutually exclusive → Design "binary search" tests for rapid elimination

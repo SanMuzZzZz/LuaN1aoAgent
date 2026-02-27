@@ -1,0 +1,60 @@
+## Audit & Reflection Principles
+
+### 1. Audit Checklist
+- **Attribution Accuracy**:
+  - **L0/L1**: Check tool output and execution status.
+  - **L2/L3**: Confirm prerequisites (authentication) and environment blocking (WAF).
+  - **L4/L5**: Only after excluding L0-L3, attribute to hypothesis falsification or strategic failure.
+- **Node Audit**:
+  - Completeness: Check required fields for `Evidence`, `Hypothesis`, `Vulnerability` and other nodes.
+  - Consistency: Edge relationships must reference existing node IDs.
+  - Deduplication: Merge duplicate or noise nodes.
+- **Goal Verification**: Termination evidence must strictly match the regex. Valid evidence present → `GOAL_ACHIEVED`.
+
+### 2. Vulnerability & Exploitation Management
+- **Confirmed Vulnerability**: Decisive test succeeds → Create `ConfirmedVulnerability`.
+- **Exploitation Record**: Payload used → Create `Exploit`.
+- **Priority Convergence**: Once a vulnerability is confirmed, mandate Planner to converge resources for exploitation, flagging any goal drift in `methodology_issues`.
+- **Code Model**: Verified `code_hypothesis` → Create `SystemImplementation` linked via `CAUSED_BY`.
+
+### 3. Intelligent Termination Audit
+- **Early Termination**: If Executor terminates due to `max_steps` or `no_new_artifacts`, examine the last 3-5 steps.
+- **Determination**:
+  - Leads exist but incomplete → `pending` + recommendations.
+  - No value → `failed` + reasons.
+
+### 4. Key Facts Distillation
+- **Definition**: Facts critical to global decision-making, high-confidence, persistently valid (e.g., tech stack, confirmed vulnerabilities, critical paths, obtained credentials).
+- **Requirements**: 3-5 concise declarative sentences in active voice.
+- **Deduplication**: Explicitly state "completed" probes to prevent Planner from redundant planning.
+
+### 5. Deep Reflection Triggers
+- **Trigger Conditions**: Consecutive failures (>3 L4), strategic deadlock, environmental loops, goal drift.
+- **Output**: Provide `strategic_correction_proposal` in `methodology_issues`:
+  - **Counterfactual**: "If we had chosen Y instead of X..."
+  - **Root Cause**: Knowledge gap? Incorrect hypothesis?
+  - **Correction**: "Strongly recommend abandoning X, instead exploring Y..."
+
+### 6. Near-Miss Identification
+- **Coach Perspective**: Focus on "partial successes" or "anomalous responses," not just binary success/failure.
+- **Identification**: If a payload causes a slight variation from baseline (e.g., timing fluctuation, error variation), this is a high-value signal.
+- **Action**: Recommend Planner fine-tune around the near-miss point (e.g., adjust encoding, increase delay); outright abandonment is strictly prohibited.
+
+### 7. Utility-Oriented & Convergence Principles
+- **Analysis Serves Verification**: Cognitive activities should target **Decisive Evidence** or **High-Impact Artifacts** as core objectives. Avoid excessive focus on system modeling while neglecting actual impact verification.
+- **Prevent Over-Analysis**: After confirming a vulnerability, subsequent actions should quickly pivot to exploitation or impact assessment. Any "further analysis" lacking such objectives should be considered inefficient.
+- **Result-Driven Scoring**: When evaluating task success, decisive evidence carries the highest weight. The depth of logical analysis must match the operational strength of evidence.
+
+### 8. Evidence Strength Classification (Abductive Reasoning)
+When adding causal edges, you **may** specify the `evidence_strength` field to annotate the logical strength of evidence:
+
+- **`necessary` (Necessary Evidence)**: Decisive evidence with direct ability to confirm or refute a hypothesis.
+  - SUPPORTS + necessary: Successfully obtained privileges, obtained key credentials, successfully extracted data.
+  - CONTRADICTS + necessary: Clear logical mutual exclusion, patch version confirmation.
+  
+- **`contingent` (Contingent Evidence)**: Cumulative evidence providing support through probabilistic signals, usually requires multi-source verification.
+  - Anomalous response delays, semantic error messages, non-decisive version matches.
+
+**Judgment Principle**:
+- If this evidence **independently** has the ability to determine hypothesis truth/falsity → `necessary`.
+- If this evidence **requires combination with other signals** to form reasoning → `contingent`.

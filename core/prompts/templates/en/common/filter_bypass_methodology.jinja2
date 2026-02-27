@@ -1,0 +1,81 @@
+## Filter Reverse-Engineering Protocol (FREP)
+
+## Phase 1: Constraint Reverse-Engineering (Constraint Reverse-Engineering) [ENTRY POINT]
+
+**Problem**: When a payload triggers filtering, it is impossible to know WHERE the filter chain is or WHAT it is matching.
+
+**Principle**: **Reverse-engineer the exact filtering rules before attempting any bypass. Move deductively from the general to the specific.**
+
+### 1.1 Baseline Establishment
+Before testing ANY payload, you MUST establish a response baseline:
+- Send a benign, vulnerability-irrelevant request (e.g., `test123`)
+- Record: status code, response body length, key content features, response time
+- This baseline is the **sole reference** for all subsequent comparisons
+
+### 1.2 Character-Level Mapping (Atomic Decomposition)
+Test EACH of the following characters individually (appended to the benign baseline):
+`'`, `"`, `<`, `>`, `(`, `)`, `;`, `|`, `&`, `{`, `}`, `--`, `#`, `/*`, `*/`
+
+Record whether each is: **Passed**, **Filtered (response differs from baseline)**, or **Encoded/Escaped**
+
+### 1.3 Keyword-Level Mapping
+After character mapping, test common keywords individually:
+`SELECT`, `UNION`, `OR`, `AND`, `script`, `alert`, `eval`, `FROM`, `WHERE`
+
+Record the same filtering status for each.
+
+**IMPORTANT**: FREP is for **constraint reverse-engineering only** and cannot replace contextual verification. Even while executing FREP, you must still complete baseline comparisons for quote matrices and placeholders.
+
+---
+
+## Phase 2: Attribution Verification Protocol [CRITICAL]
+
+**Problem**: When a compound payload (e.g., `' OR '1'='1`) triggers filtering, it is impossible to determine which element caused the filter.
+
+**Principle**: **Compound payloads are prohibited for attribution. You must first decompose into atomic units and verify each individually.**
+
+### 2.1 Atomic Decomposition Rules
+Decompose any payload into the following atomic categories and retest individually:
+
+| Atomic Category | Examples |
+|----------------|----------|
+| **Structural Characters** | `'`, `"`, `(`, `)`, `;`, `#`, `--` |
+| **Technical Keywords** | `OR`, `AND`, `UNION`, `SELECT`, `script`, `eval` |
+| **Separators/Padding** | Space, Tab, Newline, `/**/`, `+` |
+| **Arithmetic Operators** | `=`, `<`, `>`, `||`, `&&` |
+| **Specific Patterns** | `1=1`, `admin`, `passwd` |
+
+### 2.2 Single-Variable Testing Flow (Iterative Attribution)
+1. **Baseline Verification**: Confirm that the original request without any sensitive characters succeeds.
+2. **Incremental Testing**: On the baseline, add **only one** atomic unit per test.
+3. **Negative Testing**: If `SELECT` is filtered, test `SELeCT` (case variation) or `SELSELECTECT` (double-write).
+4. **Elimination**: If `' OR '1'='1` errors, separately test `'`, `OR`, `1=1`. If `'` passes but `OR` fails, attribute to keyword filtering.
+
+---
+
+## Phase 3: Boundary Condition Probing
+
+### 3.1 Encoding Consistency Testing
+- **RawMode Verification**: Force comparison of URL-encoded vs. raw character filtering differences.
+- **Multi-Encoding Testing**: WAF may have backend secondary parsing (e.g., double URL encoding).
+
+### 3.2 Character Exception Mapping
+- **Single Character Fingerprinting**: Check if specific characters are treated as "special identifiers" (e.g., some WAFs only block the first sensitive character outside a specific set).
+- **Zero-Width/Invisible Characters**: Test `%00`, `%0a`, `%0b` for their effect on parsing flow.
+
+---
+
+## Phase 4: Systematic Strategy Combination
+
+Based on attribution results, select corresponding bypass strategies:
+
+1. **Keyword Attribution**: Use case mixing, comment insertion (`UNI/**/ON`), equivalent substitution (`&&` for `AND`).
+2. **Structural Character Attribution**: Use encoding (URL/Hex), overlapping (`'""'`), escape bypass.
+3. **Pattern Matching Attribution**: Break regex features, e.g., add non-standard spaces or newlines after `OR`.
+
+---
+
+## 5. Verification Checklist
+- [ ] Has attribution been reduced to the atomic level? (rather than guessing the whole payload is filtered)
+- [ ] Has the bypass payload been minimally refined? (eliminating confounders)
+- [ ] Does the successful bypass have a logical explanation? (e.g., because the server only blocks lowercase `select`)

@@ -1,0 +1,52 @@
+### Failure Attribution Levels (L0-L5)
+
+You **must** use these levels to analyze and report failures. This is the core mechanism for error-driven correction.
+
+#### Level Definitions
+
+- **L0 (Observation)**: Raw, uninterpreted output from tools. Pure observational data with no interpretation.
+- **L1 (Tool Failure)**: Tool execution failure (e.g., network timeout, command not found, syntax error, permission denied).
+- **L2 (Prerequisite Failure)**: Prerequisites for execution failed or were not met (e.g., session expired, authentication failed, dependent resources unavailable).
+- **L3 (Environment)**: External factors interfering (e.g., WAF blocking, firewall blocking, rate limiting, target service unresponsive).
+- **L4 (Hypothesis)**: The underlying attack theory is incorrect, hypothesis falsified (e.g., parameter not vulnerable to SQL injection, filter cannot be bypassed).
+- **L5 (Strategy)**: Overall strategic approach is flawed or stalled (e.g., wrong attack path selected, strategic deadlock, goal drift).
+
+#### Attribution Principles
+
+**Strict progressive attribution**: Only attribute to higher levels after excluding lower-level causes.
+
+1. **L0 → L1**: First check if the tool executed normally. If the tool itself failed, attribute to `L1_TOOL_FAILURE`.
+2. **L1 → L2**: If the tool executed successfully but prerequisites were not met (e.g., 401 Unauthorized), attribute to `INVALIDATED_PREREQUISITE`.
+3. **L2 → L3**: If prerequisites were met but environment blocked (e.g., 403 Forbidden, WAF interception), attribute to `ENVIRONMENTAL_INTERFERENCE`.
+4. **L3 → L4**: Only after excluding L0-L3 can failure be attributed to hypothesis falsification (`L4_FALSIFIED`).
+5. **L4 → L5**: When multiple L4 failures form a pattern indicating strategic-level problems, attribute to `L5_STRATEGIC_FAILURE`.
+
+#### Usage Guide
+
+**For Executor**:
+- Use one of these values in `hypothesis_update.conclusion`:
+  - `SUPPORTED` - Observations support the hypothesis
+  - `L4_FALSIFIED` - Hypothesis falsified (after excluding L0-L3)
+  - `INVALIDATED_PREREQUISITE` - L2 failure
+  - `ENVIRONMENTAL_INTERFERENCE` - L3 failure
+  - `L1_TOOL_FAILURE` - L1 failure
+
+**For Reflector**:
+- Audit whether the Executor's attribution is accurate
+- If L4 or L5 failures are found, set `audit_result.is_strategic_failure = true`
+- Add `FALSIFIES` edges in `causal_graph_updates.edges` (for L4)
+- Detail L5 failure root causes in `methodology_issues`
+
+#### Special Scenarios
+
+**Target Artifact Location Exploration**:
+- If systematic probing was not performed, and subjective assumptions (e.g., assuming the flag is at a specific path) led to multiple blind failures
+- **Must** attribute to `L4_FALSIFIED` and trigger strategic replanning
+
+**Environmental Loop Detection**:
+- Repeatedly triggering the same L3 failure (e.g., continuous WAF blocking)
+- Reflector should identify this as an L5 strategic issue and recommend switching attack vectors
+
+**Knowledge Gap**:
+- Consecutive L4 failures with no new hypotheses generated may indicate a knowledge gap
+- Should trigger `expert_analysis` for expert intervention

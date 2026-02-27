@@ -6,6 +6,8 @@ import time
 import tempfile
 from typing import Dict, Any
 
+from conf.i18n import t
+
 import httpx
 from rich.errors import MarkupError
 from rich.panel import Panel
@@ -96,7 +98,7 @@ async def _check_halt_signal(
     """
     halt_file = os.path.join(tempfile.gettempdir(), f"{graph_manager.task_id}.halt")
     if os.path.exists(halt_file):
-        _get_console().print(Panel("🚩 检测到终止信号！任务已由其他组件完成或终止。", style="bold yellow"))
+        _get_console().print(Panel(t("halt_signal_detected"), style="bold yellow"))
         try:
             await broker.emit(
                 "execution.halt", {"subtask_id": subtask_id}, op_id=os.path.basename(log_dir) if log_dir else None
@@ -165,7 +167,7 @@ async def _compress_context_if_needed(
     if should_compress:
         try:
             if output_mode in ["default", "debug"]:
-                _get_console().print(Panel(f"🧠 触发智能压缩: {compression_reason}", style="blue"))
+                _get_console().print(Panel(t("context_compression_trigger", reason=compression_reason), style="blue"))
 
             system_prompt_msg = messages[0] if messages and messages[0]["role"] == "system" else {"role": "system", "content": ""}
 
@@ -205,13 +207,13 @@ async def _compress_context_if_needed(
                         )
                 else:
                     if output_mode in ["default", "debug"]:
-                        _get_console().print(Panel("⚠️ 压缩摘要为空，保持原始消息历史", style="yellow"))
+                        _get_console().print(Panel(t("compression_empty"), style="yellow"))
             else:
                 if output_mode in ["default", "debug"]:
-                    _get_console().print(Panel("⚠️ 无需压缩：历史消息不足或已是最优状态", style="yellow"))
+                    _get_console().print(Panel(t("compression_unnecessary"), style="yellow"))
 
         except Exception as e:
-            _get_console().print(Panel(f"❌ 上下文压缩失败: {e}", style="red"))
+            _get_console().print(Panel(t("compression_failed", error=str(e)), style="red"))
             if log_dir:
                 error_log_path = os.path.join(log_dir, "compression_errors.log")
                 try:
@@ -279,7 +281,7 @@ async def _call_llm_and_parse_response(
     # 只有在 default 或 debug 模式下才打印 LLM 思考过程
     if output_mode in ["default", "debug"]:
         try:
-            _get_console().print(Panel(safe_json_str, title="LLM思考 (结构化)", style="cyan"))
+            _get_console().print(Panel(safe_json_str, title=t("llm_thought_title"), style="cyan"))
         except MarkupError:
             _get_console().print(f"LLM思考 (结构化 - 原始):\n{safe_json_str}")
 
@@ -516,7 +518,7 @@ async def run_executor_cycle(
         messages = await _compress_context_if_needed(messages, executed_steps_count, llm, graph_manager, subtask_id, log_dir, output_mode=output_mode, update_metrics_func=update_cycle_metrics)
 
         _get_console().print(
-            Panel(f"子任务{subtask_id} - 探索第{executed_steps_count + 1}步", title_align="left", style="green")
+            Panel(t("subtask_step", subtask_id=subtask_id, step=executed_steps_count + 1), title_align="left", style="green")
         )
 
         # 构建提示词
@@ -813,7 +815,7 @@ async def run_executor_cycle(
                 messages.append({"role": "user", "content": f"⚠️ 注意：{len(truncated_steps)} 个观察结果已被截断。"})
 
         if is_final_step:
-            _get_console().print(Panel(f"LLM声明子任务 {subtask_id} 已完成。", style="green"))
+            _get_console().print(Panel(t("subtask_complete", subtask_id=subtask_id), style="green"))
             graph_manager.update_node(subtask_id, {"status": "completed"})
             return (subtask_id, "completed", cycle_metrics)
 
@@ -913,7 +915,7 @@ async def run_executor_cycle(
 
 
     # End of while loop
-    _get_console().print(Panel(f"达到最大执行步数 {executed_steps_count}，子任务结束。", style="yellow"))
+    _get_console().print(Panel(t("max_steps_reached", steps=executed_steps_count), style="yellow"))
     for step_id in last_step_ids:
         if graph_manager.graph.has_node(step_id):
             graph_manager.update_node(step_id, {"status": "completed"})

@@ -1,0 +1,77 @@
+### Domain Knowledge Base (Tactical Reference)
+
+#### General Exploitation Principles
+- **Variant Triangulation**: When a payload is filtered, test the same logical payload via at least 2 encoding/structural variants before concluding "blocked".
+- **Incremental Approach**: Probe → Confirm → Exploit. Never jump directly to complex exploits.
+- **Evidence Preservation**: Record every key response (status code, content, length, timing).
+
+{% if use_ctf_optimizations %}
+#### CTF-Specific Priorities
+- Focus on application-layer vulnerabilities, especially input handling errors.
+- Verify write/read permissions early.
+{% endif %}
+
+---
+
+#### 1. Command Injection
+- **Common separators**: `;`, `|`, `||`, `&&`, `$()`, `` ` ``
+- **Bypass techniques**: `${IFS}` replaces spaces, `\` line continuation, `''` empty string insertion (e.g., `c''at /etc/passwd`).
+- **Advanced exploitation**: Reverse shell, file read/write, environment variable leaks.
+
+#### 2. SQL Injection
+- **Cardinality Testing**: Before confirming a Boolean blind injection, compare responses between `AND 1=1` / `AND 1=2` / `AND 1=3`. If `1=1` and `1=3` produce identical responses, the "difference" may be non-injection noise.
+- **Types**: Union-based, Boolean blind, Time-based blind, Error-based.
+- **Key payloads**: `' OR '1'='1`, `1 UNION SELECT NULL,NULL--`, `1' AND (SELECT SLEEP(5))--`.
+- **Bypass**: Case mixing (`SeLeCt`), comments (`SE/**/LECT`), double-write (`SELSELECTECT`), equivalent functions (`CONV()`, `HEX()`).
+- **Advanced exploitation**: Database enumeration, data export, file read/write (`LOAD_FILE`, `INTO OUTFILE`).
+
+#### 3. SSTI (Server-Side Template Injection)
+{% raw %}
+- **Identification**: `{{7*7}}` → 49, `{{7*'7'}}` → 7777777 (Jinja2/Twig distinction).
+{% endraw %}
+- **Exploitation**: RCE via Jinja2 sandbox escape, configuration file read, module import/reflection.
+- **Advanced exploitation**: Sandbox escape, filter bypass, chain constructs.
+
+#### 4. File-Related Vulnerabilities
+- **LFI (Local File Inclusion)**: `../../../etc/passwd`, PHP wrappers (`php://filter`, `data://`), null byte truncation, double encoding.
+- **File Upload**: Extension bypass (`.php5`, `.phtml`, `.pht`), Content-Type forgery, double extension, null byte truncation.
+- **Path Traversal**: `../`, `..%2f`, `..\`, URL encoding.
+
+#### 5. XSS (Cross-Site Scripting)
+- **Types**: Reflected, Stored, DOM-based.
+- **Payloads**: `<script>alert(1)</script>`, `<img onerror=alert(1)>`, `javascript:alert(1)`.
+- **Bypass**: Case mixing, HTML entity encoding, event handler obfuscation, `javascript:` protocol.
+
+#### 6. Authentication & Authorization
+- **Weak passwords**: Common username/password combinations.
+- **JWT**: Algorithm confusion (`none`, `HS256` → `RS256`), key brute-force, claim tampering.
+- **Session**: Predictable session IDs, session fixation.
+- **IDOR**: Modify identifiers to access other users' resources.
+
+#### 7. Deserialization & Data Processing
+- **PHP**: `unserialize()`, POP chain construction.
+- **Python**: `pickle.loads()`, `yaml.load()`.
+- **Java**: Known gadget chains (Commons Collections, etc.).
+- **Types**: Try array parameters `id[]=1`, JSON type confusion.
+- **Advanced exploitation**: Batch data export, privilege escalation, combined with other vulnerabilities.
+
+#### 8. SSRF (Server-Side Request Forgery)
+- **Protocol Pivot**: Try `file://`, `gopher://`, `dict://`, `ftp://` and other protocols instead of `http://`.
+- **IP Obfuscation**: `0x7f000001`, `0177.0.0.1`, `2130706433`, `127.1`, `[::1]` as substitutes for `127.0.0.1`.
+- **Cloud Metadata**: `http://169.254.169.254/latest/meta-data/` (AWS), `http://metadata.google.internal/` (GCP).
+- **DNS Rebinding**: Use short TTL DNS records to bypass IP whitelists.
+
+#### 9. Target Artifacts
+- **Common locations**: Environment variables (`env`, `printenv`), config files (`config.php`, `settings.py`), database (`users` table), web root, `/tmp`, `/root`, user directories.
+- **CTF**: Look for `flag`, `flag.txt`, `CTF{...}` format.
+
+#### 10. Exploit Chaining & Post-Exploitation
+- **Chain thinking**:
+    - **Info leak + Arbitrary File Read/Write**: Get source → Audit source → Find RCE or sensitive info.
+    - **Arbitrary File Upload + LFI**: Upload Webshell → LFI include Webshell → RCE.
+    - **SSRF + Internal Services**: Access internal API → Trigger deserialization or other vulnerabilities.
+    - **SQLi + File Write**: Database access → Write Webshell.
+- **Permission maintenance after RCE**:
+    - Write WebShell.
+    - Modify startup items (`/etc/rc.local`, `crontab -e`).
+    - Create new SSH users or SSH keys.

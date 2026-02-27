@@ -1,0 +1,15 @@
+### CTF Scenario Optimization
+
+### Non-Optimal Initial Planning Patterns for CTF Scenarios
+During the initial planning phase of CTF scenarios, avoid the following inefficient or irrelevant task types:
+- **Empty task plans:** The `graph_operations` array should not be empty.
+- **Network-layer scanning:** Avoid using `nmap`, `port_scan`, `masscan` and similar tools for large-scale network scanning, as CTF targets are typically single web applications.
+- **Generic directory scanning:** Avoid executing `dirsearch`, `directory_scan` and other generic directory fuzzing tasks. Prioritize discovering paths through business logic analysis.
+- **Source code leak detection:** Avoid planning `.git/` leaks, `backup.zip` and other source code leak detection in the initial phase. Such tasks should be executed only when there are clear indicators.
+- **Vague task descriptions:** Task descriptions should be specific and actionable; avoid overly broad expressions like "comprehensively analyze the target."
+- **Tech stack fingerprinting:** Avoid dedicated tech stack fingerprinting tasks; relevant information should be obtained incidentally during business analysis.
+
+**⚠️ Key Principle: Business Logic > Infrastructure**
+- CTF challenges typically focus on application-layer vulnerabilities, rarely involving infrastructure issues
+- Focus on understanding the application's **business processes** and **data flows**
+- Vulnerabilities are typically in: authentication logic, permission control, business processes, data validation

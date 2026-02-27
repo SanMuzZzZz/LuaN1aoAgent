@@ -1,0 +1,57 @@
+  "audit_result": {
+    "status": "Must be one of: 'completed' (subtask objective fully met) | 'pending' (subtask has progress but objective not fully met, further action needed) | 'failed' (subtask is stuck or unable to make progress) | 'GOAL_ACHIEVED' (final target artifact has been found).",
+    "completion_check": "Objective summary of whether subtask completion criteria are met, must be based on evidence from the execution log.",
+    "critical_success_step_id": "(String or null) If the subtask was successfully completed and there is a clear critical execution step that led to success, fill in that step_id. For example: the step that found the flag, obtained the shell, or verified the vulnerability. Fill null if there is no clear critical step or if the subtask failed.",
+    "is_strategic_failure": "Boolean. If the failure attribution is L4 (hypothesis falsified) or L5 (strategic failure), must be set to `true` to trigger Planner's strategic-level adjustment. Note: L3 (environment blocking) is usually handled locally by the Executor, unless it forms an environmental loop and escalates to L5.",
+    "logic_issues": ["List all COT specification violations (e.g., redundant information, missing information, contradictions, no citations), annotated with `step_id` / `node_id`. Example: 'thought.step2_hypothesis_formulation (step_1): Hypothesis is not falsifiable.'"],
+    "methodology_issues": ["List of methodology deficiencies found. Example: 'Executor failed to follow the blind injection verification matrix, attempting character-by-character extraction before confirming a readable path.'"]
+  },
+  "attack_intelligence": {
+    "confirmed_vulnerabilities": [
+      {
+        "vulnerability_type": "Vulnerability type, e.g., 'SQL Injection', 'SSTI', 'RCE'.",
+        "description": "Detailed description of the vulnerability, including its location and impact. Example: 'Boolean-based blind injection found in the username parameter of the login form.'",
+        "evidence": "Supporting evidence from the execution log, must be reproducible. Example: 'When payload is admin' AND 1=1 --, response is Login successful; when payload is admin' AND 1=2 --, response is Invalid credentials.'"
+      }
+    ],
+    "protection_mechanisms": [
+      "Identified defense mechanisms, e.g., 'WAF is filtering requests containing UNION SELECT.'",
+      "Input field is HTML-encoding '<' and '>' characters."
+    ],
+    "actionable_insights": [
+      "Specific, actionable suggestions to guide the Planner's next steps. Example: 'SQL blind injection confirmed, recommend Planner to plan a task for data extraction using this vulnerability.'",
+      "Due to WAF presence, need to explore techniques to bypass 'UNION SELECT' filtering, such as mixed case or comment bypass."
+    ]
+  },
+  "key_findings": [
+    {
+      "type": "Finding type, e.g., 'vulnerability', 'credential', 'system_property', 'configuration_error'.",
+      "severity": "Severity level: 'critical' | 'high' | 'medium' | 'low' | 'info'.",
+      "title": "Concise title of the finding. Example: 'Admin Credential Leak'.",
+      "description": "Detailed description of the finding. Example: 'Hardcoded admin credentials found in /admin/config.php.'",
+      "evidence": "Supporting evidence from the execution log, must be reproducible. Example: 'File content shows: $admin_user = admin; $admin_pass = password123;'"
+    }
+  ],
+  "key_facts": [
+    "Core facts that must be unconditionally known by all subsequent tasks, e.g., 'Target system uses Flask/Jinja2 framework', 'SSTI vulnerability confirmed', 'Upload directory is /var/www/uploads/'. These are indisputable, high-confidence factual statements, not hypotheses. You must follow the Reflector's key fact distillation principles."
+  ],
+  "causal_graph_updates": {
+    "nodes": [
+      {
+        "node_type": "KeyFact | Evidence | Hypothesis | ConfirmedVulnerability | SystemImplementation | Exploit | TargetArtifact",
+        "id": "temp_node_1",
+        "source_step_id": "step_X",
+        "description": "Description of the node.",
+        "note": "Include corresponding fields based on node_type: confidence, status, data, code_snippet_hypothesis, etc."
+      }
+    ],
+    "edges": [
+      {
+        "source_id": "temp_node_1",
+        "target_id": "existing_node_abc",
+        "label": "SUPPORTS | CONTRADICTS | FALSIFIES | CAUSED_BY | INFORMS | DESCRIBES | LEADS_TO",
+        "evidence_strength": "(Optional) Evidence strength: 'necessary' (decisive evidence, can single-handedly confirm/refute a hypothesis) | 'contingent' (cumulative evidence, requires multi-source verification). Auto-determined by system if not specified.",
+        "description": "Relationship explanation. Example: 'Evidence temp_node_1 supports hypothesis existing_node_abc.'"
+      }
+    ]
+  }

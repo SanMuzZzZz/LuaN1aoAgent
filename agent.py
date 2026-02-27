@@ -1086,19 +1086,19 @@ async def main():
     parser.add_argument("--llm-reflector-model", help="Model to use for the Reflector role.")
     parser.add_argument("--llm-default-model", help="Default model to use for other roles.")
     parser.add_argument("--llm-expert-model", help="Model to use for the Expert Analysis role.")
-    parser.add_argument("--web", action="store_true", help="显示 Web 可视化服务的提示信息 (Web服务现已独立运行)")
-    parser.add_argument("--web-port", type=int, default=DEFAULT_WEB_PORT, help="Web 服务端口 (仅显示提示用)")
-    parser.add_argument("--op-id", type=str, help="指定当前任务的操作ID (由Web UI启动时传入)")
+    parser.add_argument("--web", action="store_true", help="Show Web visualization service info (Web service now runs independently)")
+    parser.add_argument("--web-port", type=int, default=DEFAULT_WEB_PORT, help="Web service port (for display purposes only)")
+    parser.add_argument("--op-id", type=str, help="Specify the operation ID for the current task (passed by Web UI)")
     parser.add_argument(
         "--output-mode", 
         type=str, 
         choices=["simple", "default", "debug"], 
         default=OUTPUT_MODE, # Use OUTPUT_MODE from config as default
-        help="控制台输出模式: simple, default, debug"
+        help="Console output mode: simple, default, debug"
     )
-    # 消融实验参数
-    parser.add_argument("--mode", type=str, choices=["default", "linear", "react"], default="default", help="执行模式: default (P-E-R), linear (线性任务链), react (单Executor循环)")
-    parser.add_argument("--no-causal-graph", action="store_true", help="禁用因果图推理 (消融实验)")
+    # Ablation study arguments
+    parser.add_argument("--mode", type=str, choices=["default", "linear", "react"], default="default", help="Execution mode: default (P-E-R), linear (linear task chain), react (single Executor loop)")
+    parser.add_argument("--no-causal-graph", action="store_true", help="Disable causal graph reasoning (ablation study)")
 
     args = parser.parse_args()
 

@@ -1,0 +1,48 @@
+### Response Analysis Framework
+
+## Core Objective
+Accurately identify key information in tool output, transform raw responses into actionable intelligence, supporting hypothesis verification and vulnerability confirmation.
+
+## Standard Analysis Process
+
+### Step 1: Response Feature Extraction
+**Key features that must be recorded**:
+1. **Status Code**: Record HTTP status code and changes
+2. **Response Length**: Response body length in bytes and differences
+3. **Response Time**: Request completion time and delay characteristics
+4. **Response Headers**: Key header changes
+5. **Response Body**: Error messages, data leaks, echo content, etc.
+
+### Step 2: ResponseAnalysis Dimensions
+**Must include a ResponseAnalysis subsection in `thought.step4_observation_analysis`**
+
+#### Analysis Dimensions:
+- Status code and redirect changes
+- Header difference analysis
+- Request body encoding check
+- Cookie detail analysis
+- Body length and structure changes
+- Error fingerprint identification
+- Filter/WAF alerts
+- Timing characteristic analysis
+- Baseline comparison conclusions
+
+### Step 3: ErrorPattern Recognition
+**Must include an ErrorPattern subsection in `thought.step4_observation_analysis`**
+
+#### Common Vulnerability Categories & Evidence:
+- SQL Injection: syntax error, OperationalError, etc.
+- NoSQL Injection: MongoError, $where anomalies, etc.
+- SSTI: {{7*7}} echo, Jinja2 errors, etc.
+- Deserialization: pickle/yaml stack traces
+- SSRF: timeout, internal address access anomalies
+- File Upload/Path Traversal: Path traversal detection
+
+## Output Requirements
+**Must include in `thought.step4_observation_analysis`**:
+1. **ResponseAnalysis**: Item-by-item comparison with conclusions
+2. **ErrorPattern**: List candidate vulnerability categories with evidence
+
+**If unable to determine**:
+- Explain the reason for "insufficient differences"
+- Propose next verification steps
