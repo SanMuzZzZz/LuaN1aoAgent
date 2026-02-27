@@ -153,50 +153,56 @@ class KnowledgeServiceManager:
                 sys.executable, "-m", "uvicorn", "rag.knowledge_service:app",
                 "--host", "0.0.0.0", "--port", str(KNOWLEDGE_SERVICE_PORT)
             ]
-
+            
             try:
-                # 使用 start_new_session=True 避免接收父进程的信号
-                self.process = subprocess.Popen(command, start_new_session=True)
-                self.console.print(f"[bold green]知识服务已在后台启动 (PID: {self.process.pid})。[/bold green]")
-
-                # 4. 等待健康检查
-                for i in range(15):
-                    self.console.print(f"[dim]等待知识服务启动 ({i+1}/15)...[/dim]")
+                log_pout = open(os.path.join(tempfile.gettempdir(), 'knowledge_service.log'), 'w')
+                self.process = subprocess.Popen(
+                    command,
+                    stdout=log_pout,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True # 脱离当前进程组
+                )
+                self.console.print(f"[bold green]启动知识服务进程 (PID: {self.process.pid})[/bold green]")
+                
+                # 等待服务启动
+                for _ in range(10):  # 最多等待 10*0.5 = 5秒
+                    await asyncio.sleep(0.5)
                     if await self._check_health():
-                        self.console.print("[bold green]✅ 知识服务已成功启动并健康。[/bold green]")
                         return True
-                    await asyncio.sleep(2)
-
+                        
                 self.console.print("[bold red]❌ 知识服务启动超时。[/bold red]")
-                self.stop()
                 return False
-
             except Exception as e:
                 self.console.print(f"[bold red]❌ 知识服务启动失败: {e}[/bold red]")
                 return False
 
     def stop(self):
-        """停止知识服务"""
+        """关闭知识服务"""
         if self.process:
+            self.console.print(f"[dim]停止知识服务 (PID: {self.process.pid})...[/dim]")
+            self.process.terminate()
             try:
-                self.console.print(f"[dim]正在停止知识服务 (PID: {self.process.pid})...[/dim]")
-                self.process.terminate()
-                try:
-                    self.process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    self.process.kill()
-                self.console.print("[dim]知识服务已停止。[/dim]")
-            except Exception as e:
-                self.console.print(f"[dim]停止知识服务时出错: {e}[/dim]")
-            finally:
-                self.process = None
+                self.process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+            self.process = None
 
-    async def __aenter__(self):
-        await self.start()
-        return self
+# 全局单例管理器
+knowledge_manager: Optional[KnowledgeServiceManager] = None
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        self.stop()
+async def ensure_knowledge_service(console: Console) -> bool:
+    """外部调用的快捷方法"""
+    global knowledge_manager
+    if not knowledge_manager:
+        knowledge_manager = KnowledgeServiceManager(console)
+    return await knowledge_manager.start()
+
+async def stop_knowledge_service():
+    """外部调用的快捷逻辑"""
+    global knowledge_manager
+    if knowledge_manager:
+        knowledge_manager.stop()
+
 
 def _aggregate_intelligence(completed_reflections: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     """
@@ -618,19 +624,11 @@ def save_logs(
                 if "flags" in existing_metrics:
                     metrics_copy["flags"] = existing_metrics["flags"]
 
-        with open(metrics_path, 'w', encoding='utf-8', errors='replace') as f:
-            json.dump(metrics_copy, f, ensure_ascii=False, indent=4) # Indent 4 per diff (original was 4 too)
-        # No temp file replace here based on diff, user removed os.replace logic? 
-        # Wait, diff shows just:
-        # +        if os.path.exists(metrics_path):
-        # ...
-        #          with open(metrics_path, 'w', encoding='utf-8', errors='replace') as f:
-        #              json.dump(metrics_copy, f, ensure_ascii=False, indent=4)
-        # 
-        # The original code had temp file and os.replace.
-        # User diff seems to simplify it to direct write? Or maybe I should keep atomic write.
-        # The diff context shows:
+        # Use atomic write via temp file
+        metrics_tmp = metrics_path + ".tmp"
+        with open(metrics_tmp, 'w', encoding='utf-8', errors='replace') as f:
             json.dump(metrics_copy, f, ensure_ascii=False, indent=4)
+        os.replace(metrics_tmp, metrics_path)
 
         run_log_path = os.path.join(log_dir, "run_log.json")
         run_log_tmp = run_log_path + ".tmp"
@@ -1154,7 +1152,8 @@ async def main():
         import conf.config
         conf.config.NO_CAUSAL_GRAPH = True
 
-    llm = LLMClient()
+    # Note: LLMClient is already initialized above (with llm.op_id set).
+    # Do NOT re-create it here, or op_id will be lost and Web UI logs will be empty.
 
     # If not provided log_dir, use default logic
     if not log_dir:
@@ -1895,9 +1894,10 @@ async def main():
             ks_manager.stop()
 
         # Ensure final logs are saved no matter what
-        metrics["artifacts_found"] = len(graph_manager.causal_graph.nodes)
-        # Record causal graph nodes
-        metrics["causal_graph_nodes"] = list(graph_manager.causal_graph.nodes(data=True))
+        if 'graph_manager' in locals() and graph_manager:
+            metrics["artifacts_found"] = len(graph_manager.causal_graph.nodes)
+            # Record causal graph nodes
+            metrics["causal_graph_nodes"] = list(graph_manager.causal_graph.nodes(data=True))
         save_logs(log_dir, metrics, run_log, final_save=True)
 
         # Clean up any remaining halt signals
