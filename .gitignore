@@ -32,7 +32,6 @@ logs/
 *.swo
 
 # 图片视频
-*.png
 *.jpg
 *.jpeg
 *.gif

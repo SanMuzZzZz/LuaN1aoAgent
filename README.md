@@ -40,12 +40,16 @@
 Traditional automated scanning tools rely on predefined rules and struggle with complex real-world scenarios. LuaN1ao breaks through these limitations by innovatively integrating the **P-E-R (Planner-Executor-Reflector) Agent Collaboration Framework** with **Causal Graph Reasoning** technology.
 
 LuaN1ao simulates the thinking patterns of human security experts:
+
 - 🎯 **Strategic Planning**: Dynamically plan attack paths based on global situational awareness
 - 🔍 **Evidence-Driven**: Build rigorous "Evidence-Hypothesis-Validation" logical chains
 - 🔄 **Continuous Evolution**: Learn from failures and autonomously adjust tactical strategies
 - 🧠 **Cognitive Loop**: Form a complete cognitive cycle of planning-execution-reflection
 
 From information gathering to vulnerability exploitation, LuaN1ao elevates penetration testing from "automated tools" to an "autonomous agent".
+
+> [!NOTE]
+> [LuaN1aoAgent achieves a 90.4% success rate on benchmark tasks fully autonomously, with a median exploit cost of only $0.09.  →](./results)
 
 <p align="center">
   <a href="https://github.com/SanMuzZzZz/LuaN1aoAgent">
@@ -57,7 +61,7 @@ From information gathering to vulnerability exploitation, LuaN1ao elevates penet
 
 ## 🖼️ Showcase
 
-https://github.com/user-attachments/assets/f717f725-f4a6-4508-8806-c5a66027aae5
+<https://github.com/user-attachments/assets/f717f725-f4a6-4508-8806-c5a66027aae5>
 
 > 💡 _More demos coming soon!_
 
@@ -101,12 +105,14 @@ graph LR
 ```
 
 **Core Principles**:
+
 - **Evidence First**: Any hypothesis requires explicit prior evidence support
 - **Confidence Quantification**: Each causal edge has a confidence score to avoid blind advancement
 - **Traceability**: Complete recording of reasoning chains for failure tracing and experience reuse
 - **Hallucination Prevention**: Mandatory evidence validation, rejecting unfounded attacks
 
 **Example Scenario**:
+
 ```
 Evidence: Port scan discovers 3306/tcp open
   ↓ (Confidence 0.8)
@@ -122,6 +128,7 @@ Exploit: mysql -h target -u root -p [brute-force/empty password]
 Say goodbye to static task lists. LuaN1ao models penetration testing plans as dynamically evolving **Directed Acyclic Graphs (DAGs)**:
 
 **Core Features**:
+
 - **Graph Operation Language**: Planner outputs standardized graph editing operations (`ADD_NODE`, `UPDATE_NODE`, `DEPRECATE_NODE`)
 - **Real-time Adaptation**: Task graphs deform in real-time with testing progress
   - Discover new ports → Automatically mount service scanning subgraphs
@@ -183,6 +190,7 @@ LuaN1ao Agent supports a Human-in-the-Loop (HITL) mode, allowing experts to supe
 - **Injection**: Supports real-time injection of new sub-tasks via the Web UI ("Active Intervention").
 
 **Interaction Methods**:
+
 - **Web UI**: Approval modal pops up automatically. Use "Modify" to edit plans or "Add Task" button to inject tasks.
 - **CLI**: Prompts with `HITL >`. Type `y` to approve, `n` to reject, or `m` to modify (opens system editor).
 
@@ -262,6 +270,7 @@ nano .env  # or use your preferred editor
 ```
 
 **Core Configuration Items**:
+
 ```ini
 # LLM API Configuration (required)
 LLM_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxx
@@ -305,7 +314,7 @@ Start the persistent web interface first. This process should remain running.
 python -m web.server
 ```
 
-> Open your browser and visit: **http://localhost:8088**
+> Open your browser and visit: **<http://localhost:8088>**
 
 #### 2. Run an Agent Task
 
@@ -326,7 +335,7 @@ python agent.py \
 
 ### Viewing Results
 
-- **Real-time**: Use the Web UI (http://localhost:8088) to monitor progress.
+- **Real-time**: Use the Web UI (<http://localhost:8088>) to monitor progress.
 - **Archives**: Task history is persisted in the database. Logs and metrics are also saved in `logs/TASK-NAME/TIMESTAMP/`:
 
 ```
@@ -335,9 +344,6 @@ logs/demo_test/20250204_120000/
 ├── metrics.json          # Performance metrics and statistics
 └── console_output.log    # Formatted console output
 ```
-
-> [!NOTE]
-> [ LuaN1aoAgent achieves a 90.4% success rate on benchmark tasks fully autonomously, with a median exploit cost of only $0.09.  → ](./results)
 
 ---
 
@@ -503,16 +509,19 @@ LuaN1aoAgent/
 By using LuaN1ao, you acknowledge and agree to the following terms:
 
 #### 1. Authorization Requirements
+
 - **Explicit Authorization Required**: You **MUST** obtain **explicit written authorization** from system owners before testing any systems, networks, or applications.
 - **Scope Limitation**: Testing activities must be strictly limited to the authorized scope and must not exceed authorized boundaries.
 - **Educational & Research Use**: This tool is suitable for cybersecurity education, academic research, and authorized security assessments.
 
 #### 2. Legal Compliance
+
 - **Comply with Laws**: You are solely responsible for ensuring that your use of this tool complies with all applicable local, national, and international laws and regulations.
 - **Legal Consequences**: Unauthorized penetration testing is **ILLEGAL** and may result in criminal prosecution, civil lawsuits, and substantial fines.
 - **Personal Liability**: Users assume full responsibility for all legal consequences arising from improper use of this tool.
 
 #### 3. Ethical Use
+
 - **Responsible Disclosure**: Discovered security vulnerabilities should follow Responsible Disclosure principles.
 - **Professional Standards**: Use of this tool must comply with professional security research standards and industry best practices.
 - **Confidentiality Obligations**: Respect the privacy and confidentiality of any vulnerabilities discovered during testing; do not disclose or exploit them without authorization.
@@ -520,6 +529,7 @@ By using LuaN1ao, you acknowledge and agree to the following terms:
 #### 4. Prohibited Activities
 
 **This software MUST NOT be used for:**
+
 - ❌ Unauthorized access to computer systems, networks, or data
 - ❌ Malicious attacks, destruction, or service disruption
 - ❌ Theft, tampering, or destruction of data
@@ -530,6 +540,7 @@ By using LuaN1ao, you acknowledge and agree to the following terms:
 ### Technical Risk Warnings
 
 #### 5. Code Execution Risks
+
 - **High-Privilege Tools**: LuaN1ao includes high-privilege tools such as `shell_exec` and `python_exec` with the capability to execute arbitrary system commands and code.
 - **Potential Destructiveness**: Improper use may cause **irreversible damage** to target systems, including but not limited to:
   - System crashes or service interruptions
@@ -538,6 +549,7 @@ By using LuaN1ao, you acknowledge and agree to the following terms:
   - Security mechanism compromise
 
 #### 6. Isolation Environment Requirements
+
 - **Mandatory Isolation**: **Strongly recommended to run in the following isolated environments:**
   - Docker containers (recommended)
   - Dedicated virtual machines (VMware, VirtualBox, KVM, etc.)
@@ -546,20 +558,24 @@ By using LuaN1ao, you acknowledge and agree to the following terms:
 - **Data Isolation**: Do not run on systems containing real user data or sensitive information.
 
 #### 7. Production Environment Prohibition
+
 - **No Production Use**: Never run LuaN1ao on production environments, critical business systems, or systems containing sensitive data.
 - **Test Environments Only**: Use only in dedicated test, development, or sandbox environments.
 
 ### Disclaimer and Limitation of Liability
 
 #### 8. Software Warranty Statement
+
 - **Provided "AS IS"**: This software is provided "AS IS" without warranty of any kind, express or implied.
 - **No Fitness Warranty**: No warranty of merchantability, fitness for a particular purpose, or non-infringement.
 - **No Results Guarantee**: No guarantee that the software will discover all vulnerabilities or achieve expected results.
 
 #### 9. Limitation of Liability
+
 **THE AUTHORS AND CONTRIBUTORS EXPRESSLY DISCLAIM ALL LIABILITY FOR MISUSE OF THIS SOFTWARE.**
 
 Under no circumstances shall developers, contributors, or copyright holders be liable for:
+
 - ✗ Any direct, indirect, incidental, special, punitive, or consequential damages arising from use or inability to use this software
 - ✗ Unauthorized system access or data breaches
 - ✗ System damage, data loss, or business interruption
@@ -568,6 +584,7 @@ Under no circumstances shall developers, contributors, or copyright holders be l
 - ✗ Even if advised of the possibility of such damages
 
 #### 10. User Full Responsibility Statement
+
 - **Independent Judgment**: Users have complete autonomy and judgment in the decision to use this tool.
 - **Assumption of Risk**: All risks of using this software are assumed by the user.
 - **Full Responsibility**: Users assume full responsibility for all actions using this tool and their consequences.
@@ -629,7 +646,7 @@ limitations under the License.
 
 - **GitHub Issues**: [Submit Issues](https://github.com/SanMuzZzZz/LuaN1aoAgent/issues)
 - **GitHub Discussions**: [Join Discussions](https://github.com/SanMuzZzZz/LuaN1aoAgent/discussions)
-- **Email**: 1614858685x@gmail.com
+- **Email**: <1614858685x@gmail.com>
 - **WeChat**: SanMuzZzZzZz
 
 ---
