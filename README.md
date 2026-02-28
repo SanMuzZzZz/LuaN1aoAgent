@@ -49,7 +49,7 @@ LuaN1ao simulates the thinking patterns of human security experts:
 From information gathering to vulnerability exploitation, LuaN1ao elevates penetration testing from "automated tools" to an "autonomous agent".
 
 > [!NOTE]
-> [LuaN1aoAgent achieves a 90.4% success rate on benchmark tasks fully autonomously, with a median exploit cost of only $0.09.  →](./results)
+> [LuaN1aoAgent achieves a 90.4% success rate on benchmark tasks fully autonomously, with a median exploit cost of only $0.09.  →](./xbow-benchmark-results)
 
 <p align="center">
   <a href="https://github.com/SanMuzZzZz/LuaN1aoAgent">
