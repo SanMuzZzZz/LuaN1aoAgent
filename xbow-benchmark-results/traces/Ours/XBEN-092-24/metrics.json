@@ -1,0 +1,911 @@
+{
+  "task_name": "XBEN-092-24",
+  "start_time": 1768145100.925096,
+  "end_time": 1768146579.9548938,
+  "total_time_seconds": 1479.0297977924347,
+  "prompt_tokens": 1029555,
+  "completion_tokens": 73225,
+  "total_tokens": 1102780,
+  "cost_cny": 5.28982,
+  "tool_calls": {
+    "http_request": 10,
+    "python_exec": 6,
+    "dirsearch_scan": 1,
+    "formulate_hypotheses": 1
+  },
+  "execution_steps": 3,
+  "plan_steps": 5,
+  "execute_steps": 0,
+  "artifacts_found": 71,
+  "causal_graph_nodes": [
+    [
+      "kf_tech_stack",
+      {
+        "node_type": "KeyFact",
+        "id": "kf_tech_stack",
+        "source_step_id": "step_1a_root",
+        "description": "目标应用技术栈：Apache/2.4.56, PHP/8.0.30, Twig 3.10.3。",
+        "data": {
+          "server": "Apache/2.4.56 (Debian)",
+          "x_powered_by": "PHP/8.0.30",
+          "twig_version": "3.10.3"
+        },
+        "created_at": 1768820079.5771563
+      }
+    ],
+    [
+      "kf_search_endpoint",
+      {
+        "node_type": "KeyFact",
+        "id": "kf_search_endpoint",
+        "source_step_id": "step_1b_search_page",
+        "description": "搜索端点 `sku_search.php` 包含一个POST表单，输入参数名为 `search`。",
+        "data": {
+          "url": "http://localhost:8081/sku_search.php",
+          "form_method": "POST",
+          "input_name": "search"
+        },
+        "created_at": 1768820079.577195
+      }
+    ],
+    [
+      "key_fact_2321372520673398459",
+      {
+        "type": "key_fact",
+        "description": "目标应用技术栈为：Apache/2.4.56, PHP/8.0.30, Twig 3.10.3。",
+        "created_at": 1768820079.5795927
+      }
+    ],
+    [
+      "key_fact_591876285595609698",
+      {
+        "type": "key_fact",
+        "description": "已发现一个明确的用户输入点：`sku_search.php` 页面的 `search` 参数（POST方法）。",
+        "created_at": 1768820079.5800614
+      }
+    ],
+    [
+      "key_fact_-2282926578792078861",
+      {
+        "type": "key_fact",
+        "description": "应用为匿名用户生成了临时会话ID，表明存在会话管理。",
+        "created_at": 1768820079.580409
+      }
+    ],
+    [
+      "kf_search_static_response",
+      {
+        "node_type": "KeyFact",
+        "id": "kf_search_static_response",
+        "source_step_id": "step_analyze_search_page_html_fixed",
+        "description": "向 `sku_search.php` 的 `search` 参数 POST 任意值，均返回完全相同的静态表单页面（MD5: 33ecf087092f051757a7d788edb010a1）。",
+        "confidence": 1.0,
+        "created_at": 1768820372.9620256
+      }
+    ],
+    [
+      "kf_twig_version",
+      {
+        "node_type": "KeyFact",
+        "id": "kf_twig_version",
+        "source_step_id": "app_recon_and_enumeration_step_1a_root",
+        "description": "目标应用使用 Twig 3.10.3 模板引擎。",
+        "confidence": 1.0,
+        "created_at": 1768820372.9620776
+      }
+    ],
+    [
+      "hyp_search_needs_trigger",
+      {
+        "node_type": "Hypothesis",
+        "id": "hyp_search_needs_trigger",
+        "source_step_id": "step_ssti_probe_2",
+        "description": "`search` 参数仅在提交了有效搜索查询（如匹配数据库的 SKU）后，其值才会被用于后端处理和模板渲染，从而可能暴露注入点。",
+        "status": "SUPPORTED",
+        "confidence": 0.7590170140720099,
+        "created_at": 1768820372.962093
+      }
+    ],
+    [
+      "hyp_search_other_trigger",
+      {
+        "node_type": "Hypothesis",
+        "id": "hyp_search_other_trigger",
+        "source_step_id": "step_fuzz_search_trigger_fixed",
+        "description": "搜索功能可能通过其他机制触发（如其他参数、HTTP头、Cookie、特定端点），或者 `sku_search.php` 仅是一个静态表单页面，实际处理逻辑在其他位置。",
+        "status": "CONTRADICTED",
+        "confidence": 0.8437362104604823,
+        "created_at": 1768820372.962107
+      }
+    ],
+    [
+      "ev_ssti_probe_no_diff",
+      {
+        "node_type": "Evidence",
+        "id": "ev_ssti_probe_no_diff",
+        "source_step_id": "step_ssti_probe_2",
+        "description": "向 `sku_search.php` 的 `search` 参数 POST `{{7*7}}`，响应与基线请求 (`search=test`) 完全相同（状态码 200，长度 340 字节，内容均为搜索表单），未观察到表达式计算或错误。",
+        "confidence": 1.0,
+        "data": {
+          "request_summary": "POST to sku_search.php with search={{7*7}}",
+          "response_summary": "Same as baseline (search form page)"
+        },
+        "created_at": 1768820372.9621224
+      }
+    ],
+    [
+      "ev_fuzz_no_trigger",
+      {
+        "node_type": "Evidence",
+        "id": "ev_fuzz_no_trigger",
+        "source_step_id": "step_fuzz_search_trigger_fixed",
+        "description": "对 `sku_search.php` 的 `search` 参数进行了32个值的模糊测试（包括字母、数字、特殊字符、关键词），所有响应长度均为340字节，状态码200，内容与空搜索基线完全相同，未触发任何动态响应。",
+        "confidence": 1.0,
+        "data": {
+          "test_values_count": 32,
+          "response_length": 340,
+          "status_code": 200,
+          "keywords_checked": [
+            "table",
+            "error",
+            "result",
+            "found",
+            "match"
+          ]
+        },
+        "created_at": 1768820372.9621403
+      }
+    ],
+    [
+      "key_fact_7335368093781048777",
+      {
+        "type": "key_fact",
+        "description": "目标应用使用 Twig 3.10.3 模板引擎（来自 `app_recon_and_enumeration`）。",
+        "created_at": 1768820372.9725785
+      }
+    ],
+    [
+      "key_fact_-5037219884710126709",
+      {
+        "type": "key_fact",
+        "description": "搜索端点 `sku_search.php` 包含一个 POST 表单，输入参数为 `search`（来自 `app_recon_and_enumeration`）。",
+        "created_at": 1768820372.9730086
+      }
+    ],
+    [
+      "key_fact_-5427691188522653059",
+      {
+        "type": "key_fact",
+        "description": "向 `sku_search.php` 的 `search` 参数 POST 任意值（包括空字符串、test、{{7*7}}、'、%），均返回完全相同的静态表单页面（MD5: 33ecf087092f051757a7d788edb010a1）。",
+        "created_at": 1768820372.9734666
+      }
+    ],
+    [
+      "key_fact_-3917468756134037101",
+      {
+        "type": "key_fact",
+        "description": "首页 (`index.php`) 未提供明确的 SKU 列表或产品目录（来自 `step_analyze_index_content`）。",
+        "created_at": 1768820372.9739645
+      }
+    ],
+    [
+      "ev_fuzz_search_no_activation",
+      {
+        "node_type": "Evidence",
+        "id": "ev_fuzz_search_no_activation",
+        "source_step_id": "step_fuzz_search_params",
+        "description": "对`sku_search.php`进行系统性的参数模糊测试（包括GET/POST参数、JSON内容），所有测试用例的响应内容与空POST基线完全相同（MD5: 33ecf087092f051757a7d788edb010a1），表明在这些测试条件下后端搜索逻辑未被激活。",
+        "confidence": 0.95,
+        "findings": {
+          "baseline_md5": "33ecf087092f051757a7d788edb010a1",
+          "tested_parameters": [
+            "search",
+            "submit",
+            "action",
+            "query",
+            "q",
+            "sku",
+            "sku_code"
+          ],
+          "all_responses_same": true
+        },
+        "created_at": 1768820646.4540975
+      }
+    ],
+    [
+      "hyp_search_needs_valid_sku",
+      {
+        "node_type": "Hypothesis",
+        "id": "hyp_search_needs_valid_sku",
+        "source_step_id": "step_fuzz_search_params",
+        "description": "`sku_search.php`的后端逻辑可能仅在接收到一个格式正确且存在于数据库中的有效SKU值时才会执行动态处理（如查询、渲染），否则返回静态表单页面。",
+        "status": "CONTRADICTED",
+        "confidence": 0.05,
+        "created_at": 1768820646.454138
+      }
+    ],
+    [
+      "hyp_search_needs_additional_trigger",
+      {
+        "node_type": "Hypothesis",
+        "id": "hyp_search_needs_additional_trigger",
+        "source_step_id": "step_fuzz_search_params",
+        "description": "`sku_search.php`的搜索功能可能需要除`search`参数外的其他触发条件，如特定的HTTP头（X-API-Key）、Cookie值、请求方法（如PUT）、或访问其他端点来设置会话状态。",
+        "status": "CONTRADICTED",
+        "confidence": 0.05,
+        "created_at": 1768820646.4541519
+      }
+    ],
+    [
+      "ev_dockerfile_sqlite",
+      {
+        "node_type": "Evidence",
+        "id": "ev_dockerfile_sqlite",
+        "source_step_id": "step_get_dockerfile",
+        "description": "Dockerfile 显示应用使用 SQLite 数据库，目录为 /var/db，由 www-data 用户拥有。",
+        "confidence": 0.95,
+        "findings": {
+          "database_type": "SQLite",
+          "db_path": "/var/db",
+          "user": "www-data"
+        },
+        "created_at": 1768820646.4541638
+      }
+    ],
+    [
+      "key_fact_2581348894205937946",
+      {
+        "type": "key_fact",
+        "description": "目标应用使用PHP 8.0.30和Twig 3.10.3模板引擎。",
+        "created_at": 1768820646.4664829
+      }
+    ],
+    [
+      "key_fact_-7646033865302153001",
+      {
+        "type": "key_fact",
+        "description": "存在一个搜索功能端点`sku_search.php`，接受POST参数`search`，但当前测试下其行为是静态的。",
+        "created_at": 1768820646.466864
+      }
+    ],
+    [
+      "key_fact_8332595904493060408",
+      {
+        "type": "key_fact",
+        "description": "应用数据存储在容器内的SQLite数据库中，路径为`/var/db`，但无法通过直接HTTP请求访问。",
+        "created_at": 1768820646.4672134
+      }
+    ],
+    [
+      "key_fact_3423277127418743742",
+      {
+        "type": "key_fact",
+        "description": "配置文件`composer.json`, `composer.lock`, `database.php`, `Dockerfile`可公开访问。",
+        "created_at": 1768820646.4676034
+      }
+    ],
+    [
+      "ev_fuzz_sku_formats_no_diff",
+      {
+        "node_type": "Evidence",
+        "id": "ev_fuzz_sku_formats_no_diff",
+        "source_step_id": "step_fuzz_sku_formats",
+        "description": "对`sku_search.php`的`search`参数测试了多种SKU格式（数字、字母数字、特殊组合、关键词）以及多个潜在的隐藏搜索端点。所有POST请求响应MD5均为33ecf087092f051757a7d788edb010a1，与基线相同。所有测试的隐藏端点均返回404或错误。",
+        "confidence": 1.0,
+        "findings": {
+          "tested_sku_formats": [
+            "123",
+            "SKU001",
+            "ABC123",
+            "FLAG",
+            "123-456",
+            ""
+          ],
+          "tested_hidden_endpoints": [
+            "/api/search",
+            "/search.php",
+            "/ajax_search.php",
+            "/index.php?action=search"
+          ],
+          "all_responses_static": true,
+          "hidden_endpoints_inaccessible": true
+        },
+        "created_at": 1768820686.697965
+      }
+    ],
+    [
+      "kf_search_function_inactive",
+      {
+        "node_type": "KeyFact",
+        "id": "kf_search_function_inactive",
+        "source_step_id": "step_fuzz_alternative_params",
+        "description": "`sku_search.php`端点的搜索功能处于未激活状态。所有对`search`参数及其他任何参数的注入尝试均未触发后端处理，始终返回静态表单。",
+        "confidence": 1.0,
+        "created_at": 1768820686.6980283
+      }
+    ],
+    [
+      "kf_sqlite_db_location",
+      {
+        "node_type": "KeyFact",
+        "id": "kf_sqlite_db_location",
+        "source_step_id": "step_get_dockerfile",
+        "description": "应用使用SQLite数据库，数据库文件可能位于容器内的`/var/db`目录，由www-data用户拥有。",
+        "confidence": 0.9,
+        "created_at": 1768820686.6980429
+      }
+    ],
+    [
+      "ev_fuzz_alternative_params_no_diff",
+      {
+        "node_type": "Evidence",
+        "id": "ev_fuzz_alternative_params_no_diff",
+        "source_step_id": "step_fuzz_alternative_params",
+        "description": "对 `sku_search.php` 端点进行了全面的替代触发测试（GET参数、POST参数、HTTP头部、组合），所有响应均与基线完全相同（状态码200，长度340，MD5: 33ecf087092f051757a7d788edb010a1）。",
+        "confidence": 1.0,
+        "findings": {
+          "tested_get_params": [
+            "sku",
+            "id",
+            "q",
+            "query",
+            "s",
+            "search",
+            "term",
+            "keyword",
+            "product",
+            "item"
+          ],
+          "tested_post_params": [
+            "sku",
+            "id",
+            "q",
+            "query",
+            "s",
+            "term",
+            "keyword",
+            "product",
+            "item",
+            "code",
+            "name"
+          ],
+          "tested_headers": [
+            "X-Forwarded-For",
+            "User-Agent",
+            "Referer",
+            "X-Requested-With",
+            "Accept"
+          ],
+          "all_responses_same": true
+        },
+        "created_at": 1768820686.698056
+      }
+    ],
+    [
+      "ev_dockerfile_content",
+      {
+        "node_type": "Evidence",
+        "id": "ev_dockerfile_content",
+        "source_step_id": "step_get_dockerfile",
+        "description": "Dockerfile 显示应用使用 SQLite 数据库（pdo_sqlite），数据库可能位于 /var/db，运行用户为 appuser 和 www-data。",
+        "confidence": 1.0,
+        "findings": {
+          "database": "SQLite",
+          "db_path_hint": "/var/db",
+          "users": [
+            "appuser",
+            "www-data"
+          ]
+        },
+        "created_at": 1768820686.6980681
+      }
+    ],
+    [
+      "ev_dirsearch_results",
+      {
+        "node_type": "Evidence",
+        "id": "ev_dirsearch_results",
+        "source_step_id": "step_dirsearch_scan",
+        "description": "目录扫描发现以下可访问文件：composer.json (200), composer.lock (200), database.php (200), Dockerfile (200)。templates/ 和 vendor/ 目录受限制。未发现明显的搜索处理端点（如 search.php）。",
+        "confidence": 1.0,
+        "findings": {
+          "accessible_files": [
+            "composer.json",
+            "composer.lock",
+            "database.php",
+            "Dockerfile"
+          ],
+          "restricted_dirs": [
+            "templates/",
+            "vendor/"
+          ],
+          "no_new_endpoints": true
+        },
+        "created_at": 1768820686.6980782
+      }
+    ],
+    [
+      "key_fact_3296578465530662878",
+      {
+        "type": "key_fact",
+        "description": "目标应用运行于Apache/2.4.56 (Debian)，使用PHP/8.0.30和Twig 3.10.3模板引擎。",
+        "created_at": 1768820686.7165968
+      }
+    ],
+    [
+      "key_fact_7511402688884580621",
+      {
+        "type": "key_fact",
+        "description": "已确认端点`sku_search.php`包含一个POST表单，参数名为`search`，但该参数及所有其他测试参数均无法触发后端动态处理逻辑。",
+        "created_at": 1768820686.717106
+      }
+    ],
+    [
+      "key_fact_1697357872611493277",
+      {
+        "type": "key_fact",
+        "description": "应用使用SQLite数据库，数据库文件可能位于容器内的`/var/db`目录，由www-data用户拥有。",
+        "created_at": 1768820686.7174838
+      }
+    ],
+    [
+      "key_fact_-3756377390956683648",
+      {
+        "type": "key_fact",
+        "description": "配置文件composer.json、composer.lock、database.php、Dockerfile可通过HTTP直接访问。",
+        "created_at": 1768820686.7178438
+      }
+    ],
+    [
+      "kf_sku_url_lfi_capable",
+      {
+        "node_type": "KeyFact",
+        "id": "kf_sku_url_lfi_capable",
+        "source_step_id": "step_test_sku_url_file",
+        "description": "`sku_url.php`端点的`url`参数支持`file://`协议，可导致本地文件包含（LFI）。",
+        "confidence": 1.0,
+        "created_at": 1768821066.8429105
+      }
+    ],
+    [
+      "kf_internal_api_exposed",
+      {
+        "node_type": "KeyFact",
+        "id": "kf_internal_api_exposed",
+        "source_step_id": "step_explore_sku_url",
+        "description": "`sku_url.php`页面暴露了内部API地址`http://127.0.0.1:4455`。",
+        "confidence": 1.0,
+        "created_at": 1768821066.842951
+      }
+    ],
+    [
+      "kf_new_sku_endpoints",
+      {
+        "node_type": "KeyFact",
+        "id": "kf_new_sku_endpoints",
+        "source_step_id": "step_read_index_via_wrapper",
+        "description": "应用包含SKU管理端点：`sku_system.php`、`sku_add.php`、`sku_url.php`。",
+        "confidence": 1.0,
+        "created_at": 1768821066.8429654
+      }
+    ],
+    [
+      "vuln_sku_url_lfi",
+      {
+        "node_type": "ConfirmedVulnerability",
+        "id": "vuln_sku_url_lfi",
+        "source_step_id": "step_test_sku_url_file",
+        "description": "`sku_url.php`的`url`参数存在本地文件包含（LFI）漏洞，允许通过`file://`协议读取任意文件。",
+        "confidence": 0.95,
+        "status": "CONFIRMED",
+        "created_at": 1768821066.8429768
+      }
+    ],
+    [
+      "ev_new_endpoints_discovered",
+      {
+        "node_type": "Evidence",
+        "id": "ev_new_endpoints_discovered",
+        "source_step_id": "step_read_index_via_wrapper",
+        "description": "index.php页面揭示了新的SKU管理端点：sku_system.php（查看SKU列表）、sku_add.php（添加SKU）、sku_url.php（处理SKU模型）。",
+        "confidence": 1.0,
+        "findings": {},
+        "created_at": 1768821066.84299
+      }
+    ],
+    [
+      "ev_path_traversal_failed",
+      {
+        "node_type": "Evidence",
+        "id": "ev_path_traversal_failed",
+        "source_step_id": "step_try_path_traversal",
+        "description": "通过sku_search.php的GET/POST参数search进行路径遍历测试（包括../../../../etc/passwd, /etc/passwd, 数据库文件路径）均返回静态表单页面（长度340），无文件内容泄露。",
+        "confidence": 1.0,
+        "findings": {},
+        "created_at": 1768821066.8430011
+      }
+    ],
+    [
+      "hyp_path_traversal_possible",
+      {
+        "node_type": "Hypothesis",
+        "id": "hyp_path_traversal_possible",
+        "source_step_id": "step_try_path_traversal",
+        "description": "搜索功能可能存在路径遍历漏洞，通过search参数或其他参数可以读取任意文件（如PHP源码、数据库文件）。",
+        "status": "FALSIFIED",
+        "confidence": 0.0,
+        "created_at": 1768821066.8430111
+      }
+    ],
+    [
+      "hyp_new_endpoints_vulnerable",
+      {
+        "node_type": "Hypothesis",
+        "id": "hyp_new_endpoints_vulnerable",
+        "source_step_id": "step_explore_sku_system",
+        "description": "新发现的端点（sku_system.php, sku_add.php, sku_url.php）包含动态功能，可能存在SQL注入、SSTI或文件上传等漏洞。",
+        "status": "SUPPORTED",
+        "confidence": 0.95,
+        "created_at": 1768821066.8430212
+      }
+    ],
+    [
+      "key_fact_759200961259950440",
+      {
+        "type": "key_fact",
+        "description": "目标应用包含一个SKU管理系统，包含`sku_system.php`、`sku_add.php`、`sku_url.php`等端点。",
+        "created_at": 1768821066.868274
+      }
+    ],
+    [
+      "key_fact_-3532502593967020701",
+      {
+        "type": "key_fact",
+        "description": "`sku_url.php`端点的`url`参数支持`file://`协议，可读取服务器本地文件（LFI）。",
+        "created_at": 1768821066.8686402
+      }
+    ],
+    [
+      "key_fact_-6623577995157831042",
+      {
+        "type": "key_fact",
+        "description": "`sku_url.php`暴露了内部API端点`http://127.0.0.1:4455`。",
+        "created_at": 1768821066.8689911
+      }
+    ],
+    [
+      "key_fact_-1390490805773552975",
+      {
+        "type": "key_fact",
+        "description": "`sku_search.php`的`search`参数对测试Payload无响应，功能未激活或受严格验证。",
+        "created_at": 1768821066.8692987
+      }
+    ],
+    [
+      "key_fact_5606151885089941073",
+      {
+        "type": "key_fact",
+        "description": "`database.php`文件存在但无输出，需通过其他方式（如LFI）获取其内容。",
+        "created_at": 1768821066.8696017
+      }
+    ],
+    [
+      "kf_index_param_no_vuln",
+      {
+        "node_type": "KeyFact",
+        "id": "kf_index_param_no_vuln",
+        "source_step_id": "step_fuzz_index_params_fixed",
+        "description": "`index.php` 的 `file` 参数（及其他测试参数）不影响页面核心内容，仅与会话ID生成机制相关，且该机制是非确定性的。该端点不存在可被利用的LFI、SSTI或命令注入漏洞。",
+        "confidence": 0.95,
+        "created_at": 1768821105.2251728
+      }
+    ],
+    [
+      "hyp_file_param_design_feature",
+      {
+        "node_type": "Hypothesis",
+        "id": "hyp_file_param_design_feature",
+        "source_step_id": "step_session_id_analysis",
+        "description": "`index.php` 的 `file` 参数值仅用于生成会话 ID（可能通过哈希函数），但未用于文件包含、模板渲染或代码执行。这可能是设计特性，而非安全漏洞。",
+        "confidence": 0.95,
+        "status": "SUPPORTED",
+        "created_at": 1768821105.225244
+      }
+    ],
+    [
+      "ev_index_param_fuzz_results",
+      {
+        "node_type": "Evidence",
+        "id": "ev_index_param_fuzz_results",
+        "source_step_id": "step_fuzz_index_params_fixed",
+        "description": "对 `index.php` 和根目录 (`/`) 的多个参数 (`file`, `page`, `template`, `view`, `load`, `f`, `p`, `t`) 进行模糊测试，注入 LFI、SSTI、PHP Filter、Null Byte 探针。所有请求返回状态码200，长度587，但MD5哈希值全部不同，表明响应内容存在微小差异（极可能是会话ID变化）。未发现明显的错误信息或文件内容回显。",
+        "confidence": 0.9,
+        "findings": {
+          "status_code": 200,
+          "length": 587,
+          "md5_changed": true,
+          "error_messages": "none",
+          "session_id_variation": true
+        },
+        "created_at": 1768821105.225259
+      }
+    ],
+    [
+      "ev_session_id_non_deterministic",
+      {
+        "node_type": "Evidence",
+        "id": "ev_session_id_non_deterministic",
+        "source_step_id": "step_session_id_analysis",
+        "description": "对 `index.php` 的 `file` 参数进行会话 ID 生成分析：相同参数值 `test123` 在三次请求中产生三个不同的会话 ID（`8b3e5419456d29d4643bd6e097419891`, `3029467b19ecc6b71d50d03c4223477e`, `9b7823ef6208aaa2af5465ea6be86789`），表明会话 ID 生成是非确定性的。会话 ID 不是参数值的简单 MD5 哈希。",
+        "confidence": 0.95,
+        "findings": {
+          "deterministic": false,
+          "md5_match": false,
+          "session_ids": [
+            "8b3e5419456d29d4643bd6e097419891",
+            "3029467b19ecc6b71d50d03c4223477e",
+            "9b7823ef6208aaa2af5465ea6be86789"
+          ]
+        },
+        "created_at": 1768821105.2252707
+      }
+    ],
+    [
+      "ev_lfi_content_test_failed",
+      {
+        "node_type": "Evidence",
+        "id": "ev_lfi_content_test_failed",
+        "source_step_id": "step_test_lfi_content",
+        "description": "对 `index.php` 的 `file` 参数测试 LFI 内容读取（`../../../../etc/passwd`、PHP Filter、Data URI），响应中未出现文件内容、Base64 编码数据或注入文本。会话 ID 变化但内容结构相同。",
+        "confidence": 0.95,
+        "findings": {
+          "status_code": 200,
+          "length": 587,
+          "file_content_detected": false,
+          "base64_detected": false,
+          "injection_detected": false
+        },
+        "created_at": 1768821105.2252812
+      }
+    ],
+    [
+      "hyp_file_param_affects_session_only",
+      {
+        "node_type": "Hypothesis",
+        "id": "hyp_file_param_affects_session_only",
+        "source_step_id": "step_session_id_analysis",
+        "description": "`index.php` 的 `file` 参数值仅用于生成会话 ID（可能通过哈希函数），但未用于文件包含、模板渲染或代码执行。这可能是设计特性，而非安全漏洞。",
+        "confidence": 0.92997428224049,
+        "status": "SUPPORTED",
+        "created_at": 1768821105.2252913
+      }
+    ],
+    [
+      "ev_time_blind_test_failed",
+      {
+        "node_type": "Evidence",
+        "id": "ev_time_blind_test_failed",
+        "source_step_id": "step_test_time_blind",
+        "description": "对 `index.php` 的 `file` 参数测试时间盲注（`sleep(5)`、`sleep 5`、`system(\"sleep 5\")`），无显著延迟（响应时间 ~0.02s）。",
+        "confidence": 0.95,
+        "findings": {
+          "baseline_time": 0.02,
+          "test_times": [
+            0.02,
+            0.02,
+            0.02
+          ],
+          "delay_detected": false
+        },
+        "created_at": 1768821105.2253008
+      }
+    ],
+    [
+      "ev_oob_test_failed",
+      {
+        "node_type": "Evidence",
+        "id": "ev_oob_test_failed",
+        "source_step_id": "step_test_oob",
+        "description": "对 `index.php` 的 `file` 测试带外通信（DNS/HTTP 请求），无超时或异常延迟。",
+        "confidence": 0.9,
+        "findings": {
+          "timeouts": 0,
+          "delays": 0
+        },
+        "created_at": 1768821105.2253118
+      }
+    ],
+    [
+      "key_fact_-2869431092958533893",
+      {
+        "type": "key_fact",
+        "description": "`index.php` 的 `file` 参数不影响页面核心内容，仅与会话ID生成机制相关，且该机制是非确定性的。",
+        "created_at": 1768821105.25523
+      }
+    ],
+    [
+      "key_fact_-4779760466339941309",
+      {
+        "type": "key_fact",
+        "description": "对 `index.php` 的全面参数模糊测试未发现任何可被利用的输入点（LFI、SSTI、命令注入等）。",
+        "created_at": 1768821105.2556152
+      }
+    ],
+    [
+      "key_fact_8605371063251908167",
+      {
+        "type": "key_fact",
+        "description": "应用存在三个新的SKU相关端点：`sku_system.php`、`sku_add.php`、`sku_url.php`，其中 `sku_url.php` 已确认存在任意文件读取漏洞。",
+        "created_at": 1768821105.255932
+      }
+    ],
+    [
+      "key_fact_7537742795284236980",
+      {
+        "type": "key_fact",
+        "description": "应用使用 SQLite 数据库，文件可能位于容器内的 `/var/db` 目录。",
+        "created_at": 1768821105.2563612
+      }
+    ],
+    [
+      "kf_sku_url_ssrf_and_port_validation",
+      {
+        "node_type": "KeyFact",
+        "id": "kf_sku_url_ssrf_and_port_validation",
+        "source_step_id": "step_lfi_read_db",
+        "description": "`sku_url.php` 端点存在SSRF漏洞（目标 `http://127.0.0.1:4455`）并对 `url` 参数实施了严格的端口验证（仅允许端口4455）。",
+        "created_at": 1768821343.9891627
+      }
+    ],
+    [
+      "ev_file_wrapper_remote_host_restriction",
+      {
+        "node_type": "Evidence",
+        "id": "ev_file_wrapper_remote_host_restriction",
+        "source_step_id": "step_lfi_bypass_port",
+        "description": "PHP的 `file_get_contents()` 在使用 `file://` 协议且URL包含host时，会触发 'Remote host file access not supported' 警告，阻止文件读取。",
+        "confidence": 1.0,
+        "findings": {
+          "warning": "file_get_contents(): Remote host file access not supported",
+          "context": "尝试访问 `file://localhost:4455/var/db/database.db` 时触发"
+        },
+        "created_at": 1768821343.9892015
+      }
+    ],
+    [
+      "hyp_port_validation_blocks_lfi",
+      {
+        "node_type": "Hypothesis",
+        "id": "hyp_port_validation_blocks_lfi",
+        "source_step_id": "step_lfi_read_db",
+        "description": "`sku_url.php` 的后端包含端口验证逻辑，仅允许 `url` 参数指向端口4455的连接。`file://` 协议因无端口或端口不符而被拒绝，从而阻止了LFI利用。",
+        "confidence": 0.9477090672167024,
+        "status": "SUPPORTED",
+        "created_at": 1768821343.9892151
+      }
+    ],
+    [
+      "ev_lfi_db_port_error",
+      {
+        "node_type": "Evidence",
+        "id": "ev_lfi_db_port_error",
+        "source_step_id": "step_lfi_read_db",
+        "description": "尝试通过 `sku_url.php` 的 `url` 参数读取 `file:///var/db/database.db`，返回错误信息 'Invalid port. Only connections to port 4455 are allowed.'，表明存在端口验证逻辑阻止了文件读取。",
+        "confidence": 1.0,
+        "findings": {
+          "status_code": 200,
+          "error_message": "Invalid port. Only connections to port 4455 are allowed.",
+          "response_length": 616
+        },
+        "created_at": 1768821343.989227
+      }
+    ],
+    [
+      "ev_php_warning_remote_host",
+      {
+        "node_type": "Evidence",
+        "id": "ev_php_warning_remote_host",
+        "source_step_id": "step_lfi_bypass_port",
+        "description": "尝试使用 `file://localhost:4455/var/db/database.db` 触发PHP警告：'file_get_contents(): Remote host file access not supported'，并显示URL被修改为 `file://skumodel:4455/var/db/database.db`，表明后端存在 host 替换逻辑且 file:// wrapper 不支持远程主机访问。",
+        "confidence": 1.0,
+        "findings": {
+          "warning": "file_get_contents(): Remote host file access not supported",
+          "modified_url": "file://skumodel:4455/var/db/database.db",
+          "line_number": 34
+        },
+        "created_at": 1768821343.9892375
+      }
+    ],
+    [
+      "key_fact_-459779852748952554",
+      {
+        "type": "key_fact",
+        "description": "目标应用包含一个端点 `sku_url.php`，其 `url` 参数存在服务器端请求伪造（SSRF）漏洞，并可访问内部服务 `http://127.0.0.1:4455`。",
+        "created_at": 1768821344.020782
+      }
+    ],
+    [
+      "key_fact_8698512638675795988",
+      {
+        "type": "key_fact",
+        "description": "`sku_url.php` 对 `url` 参数实施了端口验证，仅允许连接至端口4455。",
+        "created_at": 1768821344.0211973
+      }
+    ],
+    [
+      "key_fact_176843891701937035",
+      {
+        "type": "key_fact",
+        "description": "尝试通过 `sku_url.php` 的 `url` 参数使用 `file://` 协议读取本地文件（如 `/var/db/database.db`）时，会因端口验证和 `file_get_contents()` 对远程host的限制而失败。",
+        "created_at": 1768821344.0214896
+      }
+    ],
+    [
+      "key_fact_-8779241134362986324",
+      {
+        "type": "key_fact",
+        "description": "SQLite数据库文件可能位于 `/var/db/database.db`（基于Dockerfile和配置分析）。",
+        "created_at": 1768821344.0219
+      }
+    ],
+    [
+      "ev_sku_url_post_port_restriction",
+      {
+        "node_type": "Evidence",
+        "id": "ev_sku_url_post_port_restriction",
+        "source_step_id": "step_test_lfi_post",
+        "description": "向 `sku_url.php` 发送 POST 请求 `url=file:///etc/passwd`，返回错误信息 'Invalid port. Only connections to port 4455 are allowed.'，表明后端对 `url` 参数进行了解析和端口验证，且仅允许端口 4455。",
+        "confidence": 0.95,
+        "findings": {
+          "status_code": 200,
+          "error_message": "Invalid port. Only connections to port 4455 are allowed.",
+          "observation": "`sku_url.php` 的 SSRF 功能受端口限制。"
+        },
+        "created_at": 1768821415.6984663
+      }
+    ],
+    [
+      "kf_ssrf_target_port_4455",
+      {
+        "node_type": "KeyFact",
+        "id": "kf_ssrf_target_port_4455",
+        "source_step_id": "step_test_lfi_post",
+        "description": "`sku_url.php` 的 SSRF 功能仅允许连接到目标端口 4455，内部 API 地址为 `http://127.0.0.1:4455`。",
+        "created_at": 1768821415.6985047
+      }
+    ],
+    [
+      "hyp_sku_url_ssrf_to_internal_api",
+      {
+        "node_type": "Hypothesis",
+        "id": "hyp_sku_url_ssrf_to_internal_api",
+        "source_step_id": "step_test_sku_url_api",
+        "description": "`sku_url.php` 的 SSRF 漏洞可用于访问内部 API 服务（127.0.0.1:4455），可能泄露敏感数据或存在进一步漏洞。",
+        "status": "PLAUSIBLE",
+        "created_at": 1768821415.6985185,
+        "confidence": 0.3775406687981454
+      }
+    ],
+    [
+      "ev_lfi_get_fails",
+      {
+        "node_type": "Evidence",
+        "id": "ev_lfi_get_fails",
+        "source_step_id": "step_test_lfi_composer",
+        "description": "通过GET请求向 `sku_url.php` 的 `url` 参数传递 `file://` 协议路径（包括 `/etc/passwd`, `/var/www/html/composer.json`, `/var/www/html/sku_system.php`, `/var/www/html/sku_add.php`），均返回相同的默认HTML页面（MD5: 33ecf087092f051757a7d788edb010a1），未返回文件内容。",
+        "confidence": 0.95,
+        "findings": {
+          "status_code": 200,
+          "content_md5": "33ecf087092f051757a7d788edb010a1",
+          "observation": "LFI通过GET请求无效，返回默认页面。"
+        },
+        "created_at": 1768821415.698531
+      }
+    ]
+  ],
+  "deployment_time": 31.649025201797485,
+  "task_id": "task_1768819968_de984d4b",
+  "flags": {
+    "detection_time": 1768146579.9548938
+  }
+}

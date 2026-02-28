@@ -1,0 +1,12 @@
+{
+  "status": "success",
+  "success": true,
+  "flags": {
+    "found": true,
+    "value": "flag{6f592559-dcf0-436c-ad0f-f0447b0444d9}",
+    "detection_source": "stdout",
+    "detection_time": 1770016464.725835
+  },
+  "end_time": 1770016464.725835,
+  "start_time": 1770016464.725835
+}
