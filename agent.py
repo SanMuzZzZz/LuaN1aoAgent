@@ -1651,10 +1651,10 @@ async def main():
             # Define real-time save callback shared by all parallel tasks
             # Note: In parallel execution, this may cause transient metric flip-flops in logs,
             # but ensures at least one active task's progress is visible.
-            def per_realtime_save(current_cycle_metrics: Dict = None):
+            def per_realtime_save(cycle_metrics: Dict = None):
                 snapshot = copy.deepcopy(metrics)
-                if current_cycle_metrics:
-                    update_global_metrics(snapshot, current_cycle_metrics)
+                if cycle_metrics:
+                    update_global_metrics(snapshot, cycle_metrics)
                 save_logs(log_dir, snapshot, run_log)
 
             tasks = [
