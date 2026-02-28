@@ -61,7 +61,7 @@ From information gathering to vulnerability exploitation, LuaN1ao elevates penet
 
 ## 🖼️ Showcase
 
-<https://github.com/user-attachments/assets/f717f725-f4a6-4508-8806-c5a66027aae5>
+<<https://github.com/user-attachments/assets/e2c19442-20db-40ab-a5c6-3bf5c9054ae8>>
 
 > 💡 _More demos coming soon!_
 
