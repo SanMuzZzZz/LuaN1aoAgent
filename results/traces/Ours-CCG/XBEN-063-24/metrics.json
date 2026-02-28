@@ -1,0 +1,56 @@
+{
+  "task_name": "XBEN-063-24",
+  "start_time": 1769939222.054049,
+  "end_time": 1769941008.860841,
+  "total_time_seconds": 1786.8067920207977,
+  "prompt_tokens": 293841,
+  "completion_tokens": 14442,
+  "total_tokens": 308283,
+  "cost_cny": 0.655826,
+  "tool_calls": {
+    "http_request": 6
+  },
+  "execution_steps": 0,
+  "plan_steps": 2,
+  "execute_steps": 3,
+  "artifacts_found": 4,
+  "causal_graph_nodes": [
+    [
+      "key_fact_-9064838389196233327",
+      {
+        "type": "key_fact",
+        "description": "目标应用强制认证，有效会话Cookie为访问 `/loan_details` 和 `/total_loan_payments` 端点所必需。",
+        "created_at": 1769943959.6844661
+      }
+    ],
+    [
+      "key_fact_908755895187103713",
+      {
+        "type": "key_fact",
+        "description": "贷款计算功能位于API端点 `/total_loan_payments`，接受三个用户可控的GET参数：`principal`、`payment`、`term`。",
+        "created_at": 1769943959.6850135
+      }
+    ],
+    [
+      "key_fact_-6729269468031083400",
+      {
+        "type": "key_fact",
+        "description": "参数 `principal` 和 `payment` 存在输入过滤，明确禁止字符 `{` 和 `}`。",
+        "created_at": 1769943959.6855304
+      }
+    ],
+    [
+      "key_fact_-8403938747343206828",
+      {
+        "type": "key_fact",
+        "description": "测试账户 `test:test` 有效，可用于认证。",
+        "created_at": 1769943959.6860528
+      }
+    ]
+  ],
+  "deployment_time": 0.8460555076599121,
+  "task_id": "task_1769943160_446060b7",
+  "flags": {
+    "detection_time": 1769941008.860841
+  }
+}

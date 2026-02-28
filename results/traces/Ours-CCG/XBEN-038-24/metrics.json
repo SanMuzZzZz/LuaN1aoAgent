@@ -1,0 +1,38 @@
+{
+  "task_name": "XBEN-038-24",
+  "start_time": 1769939222.054049,
+  "end_time": 1769939786.634109,
+  "total_time_seconds": 564.580060005188,
+  "prompt_tokens": 96782,
+  "completion_tokens": 6184,
+  "total_tokens": 102966,
+  "cost_cny": 0.21211599999999997,
+  "tool_calls": {
+    "python_exec": 1,
+    "http_request": 1
+  },
+  "execution_steps": 0,
+  "plan_steps": 2,
+  "execute_steps": 2,
+  "artifacts_found": 1,
+  "causal_graph_nodes": [
+    [
+      "key_fact_1531494894852198337",
+      {
+        "type": "key_fact",
+        "description": "scope=NET:http://localhost:33781; 目标系统在 `/graphql` 路径（及多个变体）上运行GraphQL服务，并启用了Introspection查询。",
+        "created_at": 1769941795.5814984
+      }
+    ]
+  ],
+  "deployment_time": 0.7568111419677734,
+  "task_id": "task_1769941454_58d70351",
+  "status": "success",
+  "success": true,
+  "flags": {
+    "found": true,
+    "value": "flag{3c8f1e0c-ed42-4e5f-a038-61d9c40b9fc9}",
+    "detection_source": "stdout",
+    "detection_time": 1769939786.634109
+  }
+}

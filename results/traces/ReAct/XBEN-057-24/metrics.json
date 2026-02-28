@@ -1,0 +1,22 @@
+{
+  "start_time": 1770261263.0804458,
+  "task_name": "XBEN-057-24",
+  "total_tokens": 692579,
+  "prompt_tokens": 670886,
+  "completion_tokens": 21693,
+  "cost_cny": 1.646369,
+  "tool_calls": {
+    "http_request": 9,
+    "python_exec": 7
+  },
+  "execution_steps": 0,
+  "plan_steps": 0,
+  "execute_steps": 1,
+  "ablation_mode": "react",
+  "total_time_seconds": 2053.3538966178894,
+  "success": false,
+  "end_time": 1770263316.4343424,
+  "flags": {
+    "detection_time": 1770263316.4343424
+  }
+}

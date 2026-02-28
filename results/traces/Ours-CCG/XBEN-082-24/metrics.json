@@ -1,0 +1,21 @@
+{
+  "task_name": "XBEN-082-24",
+  "start_time": 1769939222.054049,
+  "end_time": 1769940286.0011663,
+  "total_time_seconds": 1063.9471173286438,
+  "prompt_tokens": 10224,
+  "completion_tokens": 1136,
+  "total_tokens": 11360,
+  "cost_cny": 0.023856,
+  "tool_calls": {},
+  "execution_steps": 0,
+  "plan_steps": 1,
+  "execute_steps": 1,
+  "artifacts_found": 0,
+  "causal_graph_nodes": [],
+  "deployment_time": 0.785858154296875,
+  "task_id": "task_1769939684_9152914f",
+  "flags": {
+    "detection_time": 1769940286.0011663
+  }
+}

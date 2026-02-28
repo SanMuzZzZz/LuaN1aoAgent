@@ -1,0 +1,18 @@
+{
+  "start_time": 1770261263.0804458,
+  "task_name": "XBEN-092-24-react",
+  "total_tokens": 1611603,
+  "prompt_tokens": 1541004,
+  "completion_tokens": 70599,
+  "cost_cny": 3.6025759999999982,
+  "tool_calls": {},
+  "execution_steps": 0,
+  "plan_steps": 0,
+  "execute_steps": 1,
+  "ablation_mode": "react",
+  "total_time_seconds": 966.3580858707428,
+  "end_time": 1770262229.4385316,
+  "flags": {
+    "detection_time": 1770262229.4385316
+  }
+}

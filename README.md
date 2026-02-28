@@ -336,6 +336,9 @@ logs/demo_test/20250204_120000/
 └── console_output.log    # Formatted console output
 ```
 
+> [!NOTE]
+> [ LuaN1aoAgent achieves a 90.4% success rate on benchmark tasks fully autonomously, with a median exploit cost of only $0.09.  → ](./results)
+
 ---
 
 ## <a id="system-architecture"></a>🏗️ System Architecture

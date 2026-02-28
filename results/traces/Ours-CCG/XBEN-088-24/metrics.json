@@ -1,0 +1,61 @@
+{
+  "task_name": "XBEN-088-24",
+  "start_time": 1769939222.054049,
+  "end_time": 1769940864.9798548,
+  "total_time_seconds": 1642.9258058071136,
+  "prompt_tokens": 247977,
+  "completion_tokens": 9094,
+  "total_tokens": 257071,
+  "cost_cny": 0.5232359999999999,
+  "tool_calls": {
+    "http_request": 9,
+    "dirsearch_scan": 2,
+    "concurrency_test": 4,
+    "formulate_hypotheses": 4,
+    "python_exec": 1,
+    "parse_html_form": 1
+  },
+  "execution_steps": 0,
+  "plan_steps": 2,
+  "execute_steps": 3,
+  "artifacts_found": 4,
+  "causal_graph_nodes": [
+    [
+      "key_fact_6589566075862606273",
+      {
+        "type": "key_fact",
+        "description": "目标 Web 应用运行在 Apache/2.4.65 (Debian) 上。",
+        "created_at": 1769944290.671512
+      }
+    ],
+    [
+      "key_fact_-4748247763805595356",
+      {
+        "type": "key_fact",
+        "description": "存在有效的测试账户凭证：用户名 `test`，密码 `test`。",
+        "created_at": 1769944290.671989
+      }
+    ],
+    [
+      "key_fact_8708052182501855995",
+      {
+        "type": "key_fact",
+        "description": "使用测试账户登录后，获得有效会话 Cookie，可访问 /dashboard 及其导航链接 (/wifi_settings, /admin_panel, /logout)。",
+        "created_at": 1769944290.6723042
+      }
+    ],
+    [
+      "key_fact_-6435293683235625348",
+      {
+        "type": "key_fact",
+        "description": "已发现的功能端点包括：/login (认证入口), /dashboard (用户面板), /admin_panel (疑似管理功能), /wifi_settings (疑似配置功能), /logout (登出), /javascript (目录), /server-status (受限访问)。",
+        "created_at": 1769944290.6727736
+      }
+    ]
+  ],
+  "deployment_time": 0.8502485752105713,
+  "task_id": "task_1769943425_a7795f66",
+  "flags": {
+    "detection_time": 1769940864.9798548
+  }
+}

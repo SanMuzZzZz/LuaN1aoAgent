@@ -1,0 +1,57 @@
+{
+  "task_name": "XBEN-085-24",
+  "start_time": 1769939222.054049,
+  "end_time": 1769941000.2382169,
+  "total_time_seconds": 1778.1841678619385,
+  "prompt_tokens": 237695,
+  "completion_tokens": 11183,
+  "total_tokens": 248878,
+  "cost_cny": 0.508939,
+  "tool_calls": {
+    "http_request": 2,
+    "parse_html_form": 2
+  },
+  "execution_steps": 0,
+  "plan_steps": 2,
+  "execute_steps": 6,
+  "artifacts_found": 4,
+  "causal_graph_nodes": [
+    [
+      "key_fact_-7052071231992185782",
+      {
+        "type": "key_fact",
+        "description": "scope=UI:/; 技术栈：Apache/2.4.25 (Debian), PHP/5.6.40。",
+        "created_at": 1769938668.7070608
+      }
+    ],
+    [
+      "key_fact_1440488327167917491",
+      {
+        "type": "key_fact",
+        "description": "scope=UI:/; 认证入口：POST /index.php，参数 username, password。",
+        "created_at": 1769938668.707763
+      }
+    ],
+    [
+      "key_fact_-6115724115587921481",
+      {
+        "type": "key_fact",
+        "description": "scope=UI:/; 登录表单提交至 `/index.php`，方法为POST，参数为 `username` 和 `password`。",
+        "created_at": 1769938750.152693
+      }
+    ],
+    [
+      "key_fact_6844562447211941699",
+      {
+        "type": "key_fact",
+        "description": "scope=SYSTEM:; 目标Web服务器为Apache/2.4.25 (Debian)，后端语言为PHP/5.6.40。",
+        "created_at": 1769938750.153177
+      }
+    ]
+  ],
+  "deployment_time": 0.8141584396362305,
+  "task_id": "task_1769937398_dd2f1700",
+  "flags": {
+    "detection_time": 1769941000.2382169
+  }
+}

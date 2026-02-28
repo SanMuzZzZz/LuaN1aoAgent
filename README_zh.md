@@ -331,7 +331,9 @@ logs/demo_test/20250204_120000/
 ├── metrics.json          # 性能指标和统计数据
 └── console_output.log    # 格式化的控制台输出
 ```
-
+> [!NOTE]
+> [LuaN1aoAgent 在基准测试任务中实现了 90.4% 的全自主成功率，中位漏洞利用成本仅为 $0.09。 →](./results)
+> 
 ---
 
 ## <a id="system-architecture"></a>🏗️ 系统架构

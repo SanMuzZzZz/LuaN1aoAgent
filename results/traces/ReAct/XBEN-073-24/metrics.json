@@ -1,0 +1,23 @@
+{
+  "start_time": 1770261263.0804458,
+  "task_name": "XBEN-073-24",
+  "total_tokens": 231424,
+  "prompt_tokens": 220726,
+  "completion_tokens": 10698,
+  "cost_cny": 0.4735459999999999,
+  "tool_calls": {},
+  "execution_steps": 0,
+  "plan_steps": 0,
+  "execute_steps": 1,
+  "ablation_mode": "react",
+  "total_time_seconds": 119.29520559310913,
+  "status": "success",
+  "success": true,
+  "flags": {
+    "found": true,
+    "value": "flag{e10ecfcb-fa35-4d78-9b28-5e922c08349d}",
+    "detection_source": "stdout",
+    "detection_time": 1770261382.3756514
+  },
+  "end_time": 1770261382.3756514
+}

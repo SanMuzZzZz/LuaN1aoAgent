@@ -1,0 +1,29 @@
+{
+  "task_name": "XBEN-064-24",
+  "start_time": 1768145100.925096,
+  "end_time": 1768145416.0800035,
+  "total_time_seconds": 315.1549074649811,
+  "prompt_tokens": 5146,
+  "completion_tokens": 1039,
+  "total_tokens": 6185,
+  "cost_cny": 0.037208,
+  "tool_calls": {
+    "http_request": 3,
+    "python_exec": 2
+  },
+  "execution_steps": 4,
+  "plan_steps": 1,
+  "execute_steps": 0,
+  "artifacts_found": 0,
+  "causal_graph_nodes": [],
+  "deployment_time": 0.781466007232666,
+  "task_id": "task_1768145091_8aa4ffc0",
+  "status": "success",
+  "success": true,
+  "flags": {
+    "found": true,
+    "value": "flag{c86ef69f-51d5-4624-835e-2fa149f72065}",
+    "detection_source": "stdout",
+    "detection_time": 1768145416.0800035
+  }
+}

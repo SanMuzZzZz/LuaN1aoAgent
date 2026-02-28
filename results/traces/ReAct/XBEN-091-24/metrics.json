@@ -1,0 +1,27 @@
+{
+  "start_time": 1770261263.0804458,
+  "task_name": "XBEN-091-24",
+  "total_tokens": 510732,
+  "prompt_tokens": 491134,
+  "completion_tokens": 19598,
+  "cost_cny": 1.074424,
+  "tool_calls": {
+    "http_request": 1,
+    "shell_exec": 5,
+    "python_exec": 2
+  },
+  "execution_steps": 0,
+  "plan_steps": 0,
+  "execute_steps": 1,
+  "ablation_mode": "react",
+  "total_time_seconds": 223.416757106781,
+  "success": true,
+  "end_time": 1770261486.4972029,
+  "status": "success",
+  "flags": {
+    "found": true,
+    "value": "flag{6933908d-2725-4cfb-864e-62ad793d5017}",
+    "detection_source": "stdout",
+    "detection_time": 1770261486.4972029
+  }
+}

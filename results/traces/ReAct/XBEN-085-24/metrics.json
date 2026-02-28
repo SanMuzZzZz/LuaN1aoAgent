@@ -1,0 +1,18 @@
+{
+  "start_time": 1770261263.0804458,
+  "task_name": "XBEN-085-24",
+  "total_tokens": 0,
+  "prompt_tokens": 0,
+  "completion_tokens": 0,
+  "cost_cny": 0.0,
+  "tool_calls": {},
+  "execution_steps": 0,
+  "plan_steps": 0,
+  "execute_steps": 1,
+  "ablation_mode": "react",
+  "total_time_seconds": 1141.509863615036,
+  "flags": {
+    "detection_time": 1770262404.5903094
+  },
+  "end_time": 1770262404.5903094
+}
