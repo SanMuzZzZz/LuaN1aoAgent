@@ -2202,7 +2202,10 @@ function renderLLMResponse(msg, isHistory = false) {
     // Audit Result
     if (remaining.audit_result) {
       const audit = remaining.audit_result;
-      const statusColor = audit.status === 'passed' ? '#10b981' : (audit.status === 'failed' ? '#ef4444' : '#f59e0b');
+      const normalizedAuditStatus = String(audit.status || '').toLowerCase();
+      const statusColor = (normalizedAuditStatus === 'completed' || normalizedAuditStatus === 'goal_achieved' || normalizedAuditStatus === 'passed')
+        ? '#10b981'
+        : (normalizedAuditStatus === 'failed' ? '#ef4444' : '#f59e0b');
       htmlContent += `<div class="thought-card" style="border-left-color:${statusColor}">
               <div class="thought-title" style="color:${statusColor}">Audit: ${escapeHtml(audit.status.toUpperCase())}</div>
               <div style="margin-bottom:6px;">${escapeHtml(audit.completion_check || '')}</div>

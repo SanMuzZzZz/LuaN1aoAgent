@@ -33,7 +33,7 @@
 #### 常见漏洞类别与证据：
 - SQL注入: syntax error, OperationalError等
 - NoSQL注入: MongoError, $where异常等
-- SSTI: {{7*7}}回显, Jinja2错误等
+- SSTI: {% raw %}{{7*7}}{% endraw %}回显, Jinja2错误等
 - 反序列化: pickle/yaml栈迹
 - SSRF: 超时, 内网地址访问异常
 - 文件上传/路径穿越: Path traversal检测

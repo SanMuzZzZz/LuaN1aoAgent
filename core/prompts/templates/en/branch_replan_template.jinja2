@@ -39,3 +39,8 @@ You **must** output a structurally valid JSON object. Do not include any other t
 {% include 'branch_replan/output_schemas/branch_replan_schema.jinja2' %}
 }
 ```
+
+### Critical Requirements
+- The `dependencies` field **must not** contain any task ID from the `dead_end_tasks` list.
+- New tasks should depend on healthy, completed tasks, or set `dependencies` to `[]`.
+- Empty `dependencies` means the task is a direct child of the branch root.

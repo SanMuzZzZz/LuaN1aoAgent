@@ -33,7 +33,7 @@ Accurately identify key information in tool output, transform raw responses into
 #### Common Vulnerability Categories & Evidence:
 - SQL Injection: syntax error, OperationalError, etc.
 - NoSQL Injection: MongoError, $where anomalies, etc.
-- SSTI: {{7*7}} echo, Jinja2 errors, etc.
+- SSTI: {% raw %}{{7*7}}{% endraw %} echo, Jinja2 errors, etc.
 - Deserialization: pickle/yaml stack traces
 - SSRF: timeout, internal address access anomalies
 - File Upload/Path Traversal: Path traversal detection

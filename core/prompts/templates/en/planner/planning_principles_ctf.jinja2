@@ -3,8 +3,8 @@
 ### Non-Optimal Initial Planning Patterns for CTF Scenarios
 During the initial planning phase of CTF scenarios, avoid the following inefficient or irrelevant task types:
 - **Empty task plans:** The `graph_operations` array should not be empty.
-- **Network-layer scanning:** Avoid using `nmap`, `port_scan`, `masscan` and similar tools for large-scale network scanning, as CTF targets are typically single web applications.
-- **Generic directory scanning:** Avoid executing `dirsearch`, `directory_scan` and other generic directory fuzzing tasks. Prioritize discovering paths through business logic analysis.
+- **Unfocused scanning:** Scanning is allowed, but avoid broad, context-free scans without a hypothesis or scope.
+- **Generic directory scanning without context:** Directory fuzzing is allowed when justified by evidence; prioritize context-aware path discovery first.
 - **Source code leak detection:** Avoid planning `.git/` leaks, `backup.zip` and other source code leak detection in the initial phase. Such tasks should be executed only when there are clear indicators.
 - **Vague task descriptions:** Task descriptions should be specific and actionable; avoid overly broad expressions like "comprehensively analyze the target."
 - **Tech stack fingerprinting:** Avoid dedicated tech stack fingerprinting tasks; relevant information should be obtained incidentally during business analysis.

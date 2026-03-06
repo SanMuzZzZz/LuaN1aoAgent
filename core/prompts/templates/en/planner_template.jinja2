@@ -93,7 +93,7 @@ You **must** output a structurally valid JSON object. Do not include any other t
 - `goal_achieved_by`: When `global_mission_accomplished` is `true`, this field must contain the step_id or node ID that provides the decisive success evidence.
 - `graph_operations` must include at least one `ADD_NODE`, unless `global_mission_accomplished` is `true`.
 {% if use_ctf_optimizations %}
-- CTF Optimization: During initial planning or when information is insufficient, immediately create concrete reconnaissance or attack subtasks (for example, port scanning or directory enumeration).
+- CTF Optimization: During initial planning or when information is insufficient, create concrete reconnaissance or attack subtasks based on explicit hypotheses and observable evidence.
 {% endif %}
 - `id` must be a unique string identifier.
 - `dependencies` must reference existing task `id` values and must not form cycles.

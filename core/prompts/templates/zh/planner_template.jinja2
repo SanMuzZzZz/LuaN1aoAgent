@@ -93,7 +93,7 @@
 - `goal_achieved_by`: 当 `global_mission_accomplished` 为 `true` 时，必须填写提供成功证据的 step_id 或节点 ID。
 - `graph_operations` 数组必须至少包含一个 `ADD_NODE` 操作，除非 `global_mission_accomplished` 为 `true`。
 {% if use_ctf_optimizations %}
-- CTF Optimization: 初始规划或信息不足时，应立即创建具体侦察或攻击子任务（如端口扫描、目录枚举），不要等待更多信息。
+- CTF Optimization: 初始规划或信息不足时，应基于明确假设和可观测证据创建具体侦察或攻击子任务。
 {% endif %}
 - `id` 必须是唯一字符串标识符。
 - `dependencies` 必须是现有任务 `id` 数组，且不能形成循环依赖。

@@ -81,4 +81,9 @@
 {% include 'executor/output_schemas/executor_schema.jinja2' %}
 }
 ```
+
+### 关键要求
+- 当 `is_subtask_complete` 为 `false` 时，`execution_operations` 必须至少包含一个有效 `EXECUTE_NOW` 操作。
+- 当 `is_subtask_complete` 为 `true` 时，`execution_operations` 必须是空数组 `[]`。
+- 每个 `EXECUTE_NOW` 操作都必须包含 `node_id`、`parent_id`、`action.tool`、`action.params`。
 </output_format>

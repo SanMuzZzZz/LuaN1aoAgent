@@ -24,8 +24,3 @@
       }
     }
   ]
-
-**⚠️ Critical Constraints:**
-- The `dependencies` field **must not** contain any task ID from the `dead_end_tasks` list
-- New tasks should depend on **healthy, completed tasks**, or set `dependencies` to an empty array `[]`
-- An empty dependency means the task is a direct child of the root task, depending on no other task

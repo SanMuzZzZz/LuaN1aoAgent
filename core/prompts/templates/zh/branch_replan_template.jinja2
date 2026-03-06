@@ -39,3 +39,8 @@
 {% include 'branch_replan/output_schemas/branch_replan_schema.jinja2' %}
 }
 ```
+
+### 关键要求
+- `dependencies` 字段中**禁止**包含 `dead_end_tasks` 列表中的任何任务 ID。
+- 新任务应依赖健康且已完成的任务，或将 `dependencies` 设为 `[]`。
+- 空 `dependencies` 表示该任务直接作为分支根节点的子任务。

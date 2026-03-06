@@ -81,4 +81,9 @@ You **must** output a structurally valid JSON object. Do not include any other t
 {% include 'executor/output_schemas/executor_schema.jinja2' %}
 }
 ```
+
+### Critical Requirements
+- If `is_subtask_complete` is `false`, `execution_operations` must contain at least one valid `EXECUTE_NOW` operation.
+- If `is_subtask_complete` is `true`, `execution_operations` must be an empty array `[]`.
+- Every `EXECUTE_NOW` operation must include `node_id`, `parent_id`, `action.tool`, and `action.params`.
 </output_format>
