@@ -19,9 +19,16 @@ from fastapi.responses import Response
 
 from sqlalchemy import select, desc, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
-from core.database.utils import get_db_session, init_db, AsyncSessionLocal, get_pending_intervention_request
+from core.database.utils import (
+    get_db_session,
+    init_db,
+    AsyncSessionLocal,
+    get_pending_intervention_request,
+    create_intervention_request,
+)
 from core.database.models import SessionModel, GraphNodeModel, GraphEdgeModel, EventLogModel, InterventionModel
 from core.intervention import intervention_manager # Added this line
+from conf.config import WEB_HOST, WEB_PORT
 
 # 配置 SSE 日志
 _sse_logger = logging.getLogger("web.sse")
@@ -52,6 +59,42 @@ async def startup_event():
     await init_db()
 
 # --- Helper Functions for Graph Reconstruction ---
+
+
+def _get_mcp_config_path() -> str:
+    return os.path.join(os.getcwd(), "mcp.json")
+
+
+def _load_mcp_config() -> Dict[str, Any]:
+    config_path = _get_mcp_config_path()
+    if not os.path.exists(config_path):
+        return {"mcpServers": {}}
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            loaded = json.load(f)
+            if isinstance(loaded, dict):
+                loaded.setdefault("mcpServers", {})
+                return loaded
+    except Exception:
+        pass
+    return {"mcpServers": {}}
+
+
+def _save_mcp_config(config: Dict[str, Any]) -> None:
+    config_path = _get_mcp_config_path()
+    with open(config_path, "w", encoding="utf-8") as f:
+        json.dump(config, f, ensure_ascii=False, indent=2)
+
+
+async def _reload_mcp_sessions() -> bool:
+    try:
+        from tools.mcp_client import reload_sessions
+
+        await reload_sessions()
+        return True
+    except Exception as e:
+        _sse_logger.warning(f"Failed to reload MCP sessions: {e}")
+        return False
 
 def _reconstruct_graph_data(nodes: List[GraphNodeModel], edges: List[GraphEdgeModel], task_id: str) -> Dict[str, Any]:
     """Reconstruct graph data structure from DB models for frontend."""
@@ -329,6 +372,56 @@ async def api_submit_intervention_decision(op_id: str, payload: Dict[str, Any]):
     if not success:
         raise HTTPException(status_code=404, detail="No pending request found for this ID")
     return {"ok": True}
+
+
+@app.post("/api/ops/{op_id}/inject_task")
+async def api_ops_inject_task(op_id: str, payload: Dict[str, Any]):
+    description = (payload.get("description") or "").strip()
+    dependencies = payload.get("dependencies") or []
+    if not description:
+        raise HTTPException(status_code=400, detail="description is required")
+    if not isinstance(dependencies, list):
+        raise HTTPException(status_code=400, detail="dependencies must be a list")
+
+    req_id = f"inject_{int(time.time())}_{str(uuid.uuid4())[:8]}"
+    request_data = {
+        "description": description,
+        "dependencies": [str(dep).strip() for dep in dependencies if str(dep).strip()],
+    }
+    await create_intervention_request(req_id, op_id, "task_injection", request_data)
+    return {"ok": True, "request_id": req_id}
+
+
+@app.get("/api/mcp/config")
+async def api_mcp_config():
+    return _load_mcp_config()
+
+
+@app.post("/api/mcp/add")
+async def api_mcp_add(payload: Dict[str, Any]):
+    name = (payload.get("name") or "").strip()
+    command = (payload.get("command") or "").strip()
+    args = payload.get("args") or []
+    env = payload.get("env") or {}
+
+    if not name or not command:
+        raise HTTPException(status_code=400, detail="name and command are required")
+    if not isinstance(args, list):
+        raise HTTPException(status_code=400, detail="args must be a list")
+    if not isinstance(env, dict):
+        raise HTTPException(status_code=400, detail="env must be an object")
+
+    config = _load_mcp_config()
+    config.setdefault("mcpServers", {})
+    config["mcpServers"][name] = {
+        "type": "stdio",
+        "command": command,
+        "args": args,
+        "env": env,
+    }
+    _save_mcp_config(config)
+    reloaded = await _reload_mcp_sessions()
+    return {"ok": True, "name": name, "reloaded": reloaded}
 
 @app.post("/api/ops/{op_id}/abort")
 async def api_ops_abort(op_id: str):
@@ -657,4 +750,4 @@ async def index(request: Request):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8088)
+    uvicorn.run(app, host=WEB_HOST, port=WEB_PORT)

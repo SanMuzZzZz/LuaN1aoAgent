@@ -9,6 +9,21 @@ import uuid
 from xml.dom import Node
 from conf.config import PLANNER_HISTORY_WINDOW, REFLECTOR_HISTORY_WINDOW
 
+def normalize_audit_status(status: Optional[str]) -> str:
+    """Normalize legacy and mixed-case audit statuses to canonical values."""
+    status_text = str(status or "").strip().lower()
+    mapping = {
+        "pass": "completed",
+        "completed": "completed",
+        "fail": "failed",
+        "failed": "failed",
+        "incomplete": "pending",
+        "pending": "pending",
+        "goal_achieved": "goal_achieved",
+    }
+    return mapping.get(status_text, "failed")
+
+
 # ==================================================
 
 
@@ -479,8 +494,8 @@ class AuditResult:
         methodology_issues: 发现的方法论问题列表
     """
 
-    status: Literal["pass", "fail", "incomplete"]
-    """审计状态：通过/失败/未完成"""
+    status: Literal["completed", "pending", "failed", "goal_achieved", "pass", "fail", "incomplete", "GOAL_ACHIEVED"]
+    """审计状态：建议使用 completed/pending/failed/goal_achieved（兼容旧值）"""
 
     completion_check: str
     """完成条件的检查结果（详细说明）"""
@@ -494,7 +509,7 @@ class AuditResult:
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典格式"""
         return {
-            "status": self.status,
+            "status": normalize_audit_status(self.status),
             "completion_check": self.completion_check,
             "validated_nodes": self.validated_nodes,
             "methodology_issues": self.methodology_issues,
@@ -553,11 +568,13 @@ class AuditReport:
         completed_tasks = []
         blocked_tasks = []
 
-        if self.audit_result.status == "pass":
+        normalized_status = normalize_audit_status(self.audit_result.status)
+
+        if normalized_status in {"completed", "goal_achieved"}:
             completed_tasks.append(
                 {"id": self.subtask_id, "summary": f"任务成功完成。关键发现：{'; '.join(self.key_findings[:2])}"}
             )
-        elif self.audit_result.status == "fail":
+        elif normalized_status == "failed":
             blocked_tasks.append({"id": self.subtask_id, "reason": self.failure_root_cause or "未知原因"})
 
         return IntelligenceSummary(

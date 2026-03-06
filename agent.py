@@ -221,16 +221,16 @@ def _aggregate_intelligence(completed_reflections: Dict[str, Dict[str, Any]]) ->
     all_artifacts = []
     all_insights = []
 
-    # 检查是否有任何反思结果标记了 GOAL_ACHIEVED
+    # 检查是否有任何反思结果标记了 goal_achieved
     goal_achieved = False
     aggregated_completion_check = f'汇总了 {len(completed_reflections)} 个任务的审计结果'
     for subtask_id, reflection in completed_reflections.items():
         # 从 reflection 提取所需字段
         audit_result = reflection.get('audit_result', {})
-        if audit_result.get('status') == 'GOAL_ACHIEVED':
-            goal_achievement_reason = audit_result.get('completion_check', 'Unknown reason for GOAL_ACHIEVED')
+        if _is_goal_achieved_status(audit_result.get('status')):
+            goal_achievement_reason = audit_result.get('completion_check', 'Unknown reason for goal_achieved')
             console.print(
-                f"🔍 Aggregator: 检测到子任务 {subtask_id} 报告 GOAL_ACHIEVED: {goal_achievement_reason}",
+                f"🔍 Aggregator: 检测到子任务 {subtask_id} 报告 goal_achieved: {goal_achievement_reason}",
                 style="bold green"
             )
             goal_achieved = True
@@ -250,7 +250,7 @@ def _aggregate_intelligence(completed_reflections: Dict[str, Dict[str, Any]]) ->
             all_insights.append(insight)
 
     # 构建汇总的情报摘要
-    aggregated_status = 'GOAL_ACHIEVED' if goal_achieved else 'AGGREGATED'
+    aggregated_status = 'goal_achieved' if goal_achieved else 'AGGREGATED'
     intelligence_summary = {
         'findings': all_findings,
         'audit_result': {
@@ -265,6 +265,11 @@ def _aggregate_intelligence(completed_reflections: Dict[str, Dict[str, Any]]) ->
     }
 
     return intelligence_summary
+
+
+def _is_goal_achieved_status(status: Any) -> bool:
+    """兼容 legacy 状态值，统一识别 goal_achieved。"""
+    return str(status or "").strip().lower() == "goal_achieved"
 
 def process_graph_commands(operations: List[Dict], graph_manager: GraphManager) -> None:
     """
@@ -1460,9 +1465,9 @@ async def main():
                         # 优先找 GOAL_ACHIEVED 状态的子任务
                         for subtask_id, reflection_data in completed_reflections.items():
                             audit = reflection_data.get("audit_result", {})
-                            if audit.get("status") == "GOAL_ACHIEVED":
+                            if _is_goal_achieved_status(audit.get("status")):
                                 goal_subtask_id = subtask_id
-                                console.print(Panel(f"找到 GOAL_ACHIEVED 子任务: {goal_subtask_id}", style="blue"))
+                                console.print(Panel(f"找到 goal_achieved 子任务: {goal_subtask_id}", style="blue"))
                                 break
                         
                         if not goal_subtask_id:
@@ -1540,8 +1545,8 @@ async def main():
 
                 # Update Planner context status (new) and save full LLM prompt/response
                 try:
-                    # Dynamic plan's prompt and response are no longer persisted via Planner attributes, pass None here
-                    last_prompt, last_response_text = None, None
+                    last_prompt = getattr(planner, "_last_dynamic_prompt", None)
+                    last_response_text = getattr(planner, "_last_dynamic_response", None)
                 except Exception:
                     last_prompt, last_response_text = None, None
                 planner_context = planner.update_planner_context_after_planning(

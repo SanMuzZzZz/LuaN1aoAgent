@@ -29,6 +29,9 @@ const causalColors = {
   'KeyFact': '#fbbf24',
   'Flag': '#ef4444'
 };
+const PHASE_BANNER_DEFAULT_BG = 'rgba(59, 130, 246, 0.95)';
+const PHASE_BANNER_SUCCESS_BG = 'linear-gradient(90deg, rgba(16, 185, 129, 0.9), rgba(5, 150, 105, 0.9))';
+const PHASE_BANNER_ABORTED_BG = 'rgba(239, 68, 68, 0.95)';
 let state = { op_id: new URLSearchParams(location.search).get('op_id') || '', view: 'exec', simulation: null, svg: null, g: null, zoom: null, es: null, processedEvents: new Set(), pendingReq: null, isModifyMode: false, currentPhase: null, missionAccomplished: false, isAborted: false, taskStatus: null, userHasInteracted: false, lastActiveNodeId: null, isProgrammaticZoom: false, renderDebounceTimer: null, lastRenderTime: 0, isLoadingHistory: false, collapsedNodes: new Set(), userExpandedNodes: new Set(), leftSidebarCollapsed: false, rightSidebarCollapsed: false };
 const api = (p, b) => fetch(p + (p.includes('?') ? '&' : '?') + `op_id=${state.op_id}`, b ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) } : {}).then(r => r.json());
 
@@ -36,11 +39,14 @@ const api = (p, b) => fetch(p + (p.includes('?') ? '&' : '?') + `op_id=${state.o
 function showPhaseBanner(phase) {
   const banner = document.getElementById('phase-banner');
   const text = document.getElementById('phase-text');
+  const spinner = banner ? banner.querySelector('.spinner') : null;
 
   // 如果任务已完成、中止或失败，不再显示中间状态
   if (state.missionAccomplished || state.isAborted || (state.taskStatus && (state.taskStatus.aborted || state.taskStatus.failed || state.taskStatus.achieved))) return;
 
   if (phase) {
+    if (spinner) spinner.style.display = 'block';
+    banner.style.background = PHASE_BANNER_DEFAULT_BG;
     text.textContent = t('phase.' + phase);
     banner.style.display = 'block';
   } else {
@@ -53,9 +59,11 @@ function showPhaseBanner(phase) {
 // 隐藏阶段横幅
 function hidePhaseBanner() {
   const banner = document.getElementById('phase-banner');
+  const spinner = banner ? banner.querySelector('.spinner') : null;
   if (banner) {
     banner.style.display = 'none';
-    banner.style.background = ''; // 重置由于成功/终止导致的背景色覆盖
+    banner.style.background = PHASE_BANNER_DEFAULT_BG;
+    if (spinner) spinner.style.display = 'block';
   }
   state.currentPhase = null;
 }
@@ -69,7 +77,7 @@ function showSuccessBanner() {
   if (spinner) spinner.style.display = 'none';
 
   text.textContent = '🎉 ' + t('status.mission_accomplished');
-  banner.style.background = 'linear-gradient(90deg, rgba(16, 185, 129, 0.9), rgba(5, 150, 105, 0.9))';
+  banner.style.background = PHASE_BANNER_SUCCESS_BG;
   banner.style.display = 'block';
 }
 
@@ -83,7 +91,7 @@ function showAbortedBanner() {
 
   const isZh = (window.currentLang || 'zh') === 'zh';
   text.textContent = isZh ? '⛔ 任务已手动终止' : '⛔ Task Aborted';
-  banner.style.background = 'rgba(239, 68, 68, 0.95)'; // 红色警示
+  banner.style.background = PHASE_BANNER_ABORTED_BG; // 红色警示
   banner.style.display = 'block';
 }
 
@@ -2136,6 +2144,8 @@ function renderLLMResponse(msg, isHistory = false) {
   } else if (role === 'reflector' || eventType.includes('reflector') || (data.model && data.model.includes('reflector'))) {
     roleClass = 'role-reflector'; roleName = 'REFLECTOR';
     if (shouldShowPhase) showPhaseBanner('reflecting');
+  } else if (role === 'summarizer' || eventType.includes('summarizer') || (data.model && data.model.includes('summarizer'))) {
+    roleClass = 'role-system'; roleName = 'COMPRESSOR';
   }
 
   // 检测全局任务完成
@@ -2247,7 +2257,8 @@ function renderLLMResponse(msg, isHistory = false) {
     }
 
   } else {
-    htmlContent += `<div style="white-space:pre-wrap;color:#e2e8f0;">${escapeHtml(content)}</div>`;
+    // Give plain text responses a text box similar to object attributes
+    htmlContent += `<div class="thought-card" style="white-space:pre-wrap;color:#e2e8f0;">${escapeHtml(content)}</div>`;
   }
 
   div.innerHTML = htmlContent;

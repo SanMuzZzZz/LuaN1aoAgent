@@ -27,15 +27,3 @@
   ],
   "global_mission_accomplished": false,
   "goal_achieved_by": null
-
-**⚠️ Critical Requirements**:
-- `global_mission_accomplished`: **(Boolean, default false)** Only set this flag to `true` when all analysis (including Intelligence Summary) clearly and unambiguously proves that the top-level `goal` has been fully achieved. This is the only signal to terminate the entire task.
-- `goal_achieved_by`: **(String or null)** When `global_mission_accomplished` is `true`, **must** fill in the step_id or node ID that provides the success evidence. This is the key execution step that led to task success. If success was learned from the Intelligence Summary, fill in the key step_id mentioned in the Summary.
-- The `graph_operations` array **must** contain at least one `ADD_NODE` operation, unless `global_mission_accomplished` is `true`.
-{% if use_ctf_optimizations %}
-- **CTF Optimization**: During initial planning or when information is insufficient, immediately create concrete reconnaissance or attack subtasks (e.g., port scanning, directory enumeration) — don't wait for more information.
-{% endif %}
-- In CTF scenarios, initial planning should immediately create concrete reconnaissance or attack subtasks without waiting.
-- The `id` field must be a unique string identifier.
-- `dependencies` must be an array of existing task `id`s and must not form circular dependencies.
-- The `priority` field has a valid range of 1 to 5, where 1 is the highest priority.

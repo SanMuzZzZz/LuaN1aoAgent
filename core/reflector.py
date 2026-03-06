@@ -18,6 +18,21 @@ from rich.console import Console
 from core.events import broker
 
 
+def _normalize_audit_status(status: Any) -> str:
+    """Normalize legacy audit status values into canonical lowercase values."""
+    status_text = str(status or "").strip().lower()
+    mapping = {
+        "pass": "completed",
+        "completed": "completed",
+        "fail": "failed",
+        "failed": "failed",
+        "incomplete": "pending",
+        "pending": "pending",
+        "goal_achieved": "goal_achieved",
+    }
+    return mapping.get(status_text, "failed")
+
+
 class Reflector:
     """
     反思器：负责复盘已完成的子任务，审核来自执行器的规划建议，
@@ -566,9 +581,14 @@ class Reflector:
             reflection_data["llm_reflection_prompt"] = prompt
 
             audit_result = reflection_data.get("audit_result", {})
+            if not isinstance(audit_result, dict):
+                audit_result = {}
+                reflection_data["audit_result"] = audit_result
+            normalized_status = _normalize_audit_status(audit_result.get("status"))
+            audit_result["status"] = normalized_status
 
             # 直接采用LLM的判断结果，由Planner决定任务是否已完成
-            llm_reported_status = audit_result.get("status", "").upper()
+            llm_reported_status = normalized_status
             _get_console().print(f"🤖 LLM reported status: [bold green]{llm_reported_status}[/bold green]. Directly adopting LLM judgment.", style="dim")
 
             # 保持对 validated_nodes 的引用，因为它们可能包含除目标产物之外的其他有用证据
@@ -618,7 +638,7 @@ class Reflector:
                 pass
             return {
                 "audit_result": {
-                    "status": "FAILED",
+                    "status": "failed",
                     "completion_check": "解析失败",
                     "logic_issues": [str(e)],
                     "methodology_issues": [],

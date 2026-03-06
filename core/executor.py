@@ -62,7 +62,7 @@ async def _execute_with_retry(func, *args, max_retries: int = 3, delay: int = 5,
     for attempt in range(max_retries):
         try:
             return await func(*args, **kwargs)
-        except (httpx.ReadTimeout, httpx.ConnectError, json.JSONDecodeError, Exception) as e:
+        except (httpx.ReadTimeout, httpx.ConnectError, httpx.TimeoutException, json.JSONDecodeError) as e:
             if attempt < max_retries - 1:
                 _get_console().print(
                     Panel(

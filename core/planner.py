@@ -37,6 +37,8 @@ class Planner:
         self.output_mode = output_mode # Store output_mode
         self._run_log_path = None
         self._log_dir = None
+        self._last_dynamic_prompt = None
+        self._last_dynamic_response = None
 
     def set_log_dir(self, log_dir: Optional[str]) -> None:
         """
@@ -508,24 +510,14 @@ class Planner:
             "failure_patterns": failure_patterns_text,
             "failed_tasks_summary": failed_tasks_summary,
             "retrieved_experience": retrieved_experience or "",
+            "graph_summary": graph_summary or "",
+            "intelligence_summary": intelligence_summary or {},
         }
 
-        # 使用 PromptManager 生成基础提示词
-        prompt = manager.build_planner_prompt(
+        # 使用 PromptManager 生成动态规划提示词（包含 Dynamic Context）
+        return manager.build_planner_prompt(
             goal=goal, context=context, is_dynamic=True, planner_context=planner_context
         )
-
-        # 添加动态特有的部分（图状态摘要和情报摘要）
-        prompt += f"""\n## Dynamic Context\n
-### Plan-on-Graph (PoG) Summary\n{graph_summary}\n
-### Intelligence Summary (from Reflector)\n```json\n{intelligence_summary}\n```"""
-
-        # 添加规划上下文部分
-        if planner_context:
-            context_section = self._generate_planning_context_section(planner_context)
-            prompt += f"\n{context_section}"
-
-        return prompt
 
     async def dynamic_plan(
         self,
@@ -594,10 +586,18 @@ class Planner:
             failed_tasks_summary,
             planner_context=planner_context,
         )
+        self._last_dynamic_prompt = prompt
+        self._last_dynamic_response = None
         messages = [{"role": "user", "content": prompt}]
 
         try:
             plan_data, call_metrics = await self.llm_client.send_message(messages, role="planner")
+            if isinstance(plan_data, (dict, list)):
+                self._last_dynamic_response = json.dumps(plan_data, ensure_ascii=False)
+            elif plan_data is None:
+                self._last_dynamic_response = None
+            else:
+                self._last_dynamic_response = str(plan_data)
             
             if isinstance(plan_data, dict) and "graph_operations" in plan_data:
                 plan_data.setdefault("reasoning", {})

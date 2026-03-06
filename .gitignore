@@ -19,6 +19,8 @@ logs/
 !requirements*.json
 *.bak
 *.db
+*.db-wal
+*.db-shm
 *.sqlite
 *.csv
 

@@ -655,3 +655,5 @@ limitations under the License.
 ## ⭐ Star History
 
 如果鸾鸟对您有帮助，请给我们一个 Star ⭐！
+
+[![Star History Chart](https://api.star-history.com/image?repos=SanMuzZzZz/LuaN1aoAgent&type=date&legend=top-left)](https://www.star-history.com/?repos=SanMuzZzZz%2FLuaN1aoAgent&type=date&legend=top-left)

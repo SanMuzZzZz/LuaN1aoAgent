@@ -655,6 +655,8 @@ limitations under the License.
 
 If LuaN1ao has been helpful to you, please give us a Star ⭐!
 
+[![Star History Chart](https://api.star-history.com/image?repos=SanMuzZzZz/LuaN1aoAgent&type=date&legend=top-left)](https://www.star-history.com/?repos=SanMuzZzZz%2FLuaN1aoAgent&type=date&legend=top-left)
+
 ---
 
 ## 🌐 Language Versions

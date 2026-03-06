@@ -53,6 +53,9 @@ LLM_MODELS = {
     "executor": os.getenv("LLM_EXECUTOR_MODEL", "gpt-4o"),
     "reflector": os.getenv("LLM_REFLECTOR_MODEL", "gpt-4o"),
     "expert_analysis": os.getenv("LLM_EXPERT_MODEL", "gpt-4o"),
+    "summarizer": os.getenv("LLM_SUMMARIZER_MODEL", os.getenv("LLM_DEFAULT_MODEL", "gpt-4o")),
+    "reflector_validator": os.getenv("LLM_REFLECTOR_VALIDATOR_MODEL", os.getenv("LLM_REFLECTOR_MODEL", "gpt-4o")),
+    "planner_crisis_expert": os.getenv("LLM_PLANNER_CRISIS_EXPERT_MODEL", os.getenv("LLM_PLANNER_MODEL", "gpt-4o")),
 }
 
 # 为不同角色设置独立的LLM温度参数
@@ -64,6 +67,9 @@ LLM_TEMPERATURES = {
     "executor": 0.3,  # 执行器需要稳定可靠的工具调用
     "reflector": 0.2,  # 反思器需要精确的分析和判断
     "expert_analysis": 0.7,  # 专家分析需要更多创造性思维
+    "summarizer": 0.2,  # 摘要需要稳定、简洁输出
+    "reflector_validator": 0.1,  # 二值判定需要更高确定性
+    "planner_crisis_expert": 0.4,  # 危机重规划需平衡稳定性与探索性
 }
 
 # ============================================================================
@@ -86,6 +92,11 @@ LLM_THINKING = {
     "executor": os.getenv("LLM_EXECUTOR_THINKING", os.getenv("LLM_DEFAULT_THINKING", "off")),
     "reflector": os.getenv("LLM_REFLECTOR_THINKING", os.getenv("LLM_DEFAULT_THINKING", "off")),
     "expert_analysis": os.getenv("LLM_EXPERT_THINKING", os.getenv("LLM_DEFAULT_THINKING", "off")),
+    "summarizer": os.getenv("LLM_SUMMARIZER_THINKING", os.getenv("LLM_DEFAULT_THINKING", "off")),
+    "reflector_validator": os.getenv("LLM_REFLECTOR_VALIDATOR_THINKING", os.getenv("LLM_DEFAULT_THINKING", "off")),
+    "planner_crisis_expert": os.getenv(
+        "LLM_PLANNER_CRISIS_EXPERT_THINKING", os.getenv("LLM_DEFAULT_THINKING", "off")
+    ),
 }
 
 # ============================================================================
@@ -109,6 +120,15 @@ ANTHROPIC_MODELS = {
     "executor": os.getenv("ANTHROPIC_EXECUTOR_MODEL", "claude-3-5-sonnet-20240620"),
     "reflector": os.getenv("ANTHROPIC_REFLECTOR_MODEL", "claude-3-5-sonnet-20240620"),
     "expert_analysis": os.getenv("ANTHROPIC_EXPERT_MODEL", "claude-3-5-sonnet-20240620"),
+    "summarizer": os.getenv("ANTHROPIC_SUMMARIZER_MODEL", os.getenv("ANTHROPIC_DEFAULT_MODEL", "claude-3-5-sonnet-20240620")),
+    "reflector_validator": os.getenv(
+        "ANTHROPIC_REFLECTOR_VALIDATOR_MODEL",
+        os.getenv("ANTHROPIC_REFLECTOR_MODEL", "claude-3-5-sonnet-20240620"),
+    ),
+    "planner_crisis_expert": os.getenv(
+        "ANTHROPIC_PLANNER_CRISIS_EXPERT_MODEL",
+        os.getenv("ANTHROPIC_PLANNER_MODEL", "claude-3-5-sonnet-20240620"),
+    ),
 }
 
 # ============================================================================
@@ -187,7 +207,7 @@ NO_CAUSAL_GRAPH = os.getenv("NO_CAUSAL_GRAPH", "false").lower() == "true"
 WEB_HOST = os.getenv("WEB_HOST", "127.0.0.1")
 
 # Web UI 服务端口
-WEB_PORT = int(os.getenv("WEB_PORT", "8000"))
+WEB_PORT = int(os.getenv("WEB_PORT", "8088"))
 
 # ============================================================================
 # 知识服务配置

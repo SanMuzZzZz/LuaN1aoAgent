@@ -87,4 +87,15 @@
 {% include 'planner/output_schemas/planner_schema.jinja2' %}
 }
 ```
+
+### 关键要求
+- `global_mission_accomplished`: 仅当所有分析（包括 Intelligence Summary）明确、无歧义地证明顶层 `goal` 已完全达成时，才设置为 `true`。这是终止整个任务的唯一信号。
+- `goal_achieved_by`: 当 `global_mission_accomplished` 为 `true` 时，必须填写提供成功证据的 step_id 或节点 ID。
+- `graph_operations` 数组必须至少包含一个 `ADD_NODE` 操作，除非 `global_mission_accomplished` 为 `true`。
+{% if use_ctf_optimizations %}
+- CTF Optimization: 初始规划或信息不足时，应立即创建具体侦察或攻击子任务（如端口扫描、目录枚举），不要等待更多信息。
+{% endif %}
+- `id` 必须是唯一字符串标识符。
+- `dependencies` 必须是现有任务 `id` 数组，且不能形成循环依赖。
+- `priority` 取值范围为 1 到 5，其中 1 为最高优先级。
 </output_format>
