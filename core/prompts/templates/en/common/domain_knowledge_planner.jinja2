@@ -1,0 +1,22 @@
+### Tactical Knowledge Base (Planning Perspective)
+
+#### General Exploitation Principles
+1. **Vulnerability chaining mindset**: Prioritize multi-vulnerability chains, e.g.: LFI + Log Poisoning → RCE; IDOR + XSS → Account Takeover; Info Disclosure + Arbitrary File Read → Source Audit → RCE.
+2. **Business function → vulnerability direction reference** (non-exhaustive; validate against actual implementation):
+   - Auth/Login → SQLi, timing enumeration, JWT algorithm confusion, OAuth flow flaws
+   - File Upload → Webshell, filename LFI, MIME bypass, race condition
+   - Query/Search → SQLi, NoSQLi, SSTI
+   - Redirect/Proxy → SSRF, URL parsing confusion
+   - Access Control → IDOR, horizontal/vertical privilege escalation, function-level access flaws
+3. **Exploitation path priority**: RCE > Data Extraction > Privilege Escalation > Sensitive Info Disclosure.
+4. **Convergence strategy**: Once a high-value vulnerability is confirmed, immediately converge resources for deep exploitation; pause unrelated exploration.
+
+#### Target Artifact Locations (Planning convergence reference)
+- Environment variables, application config files, database credentials, sensitive files in web root.
+- Specific paths are dynamically probed by Executor based on target context — **planning layer makes no hardcoded path assumptions**.
+
+{% if use_ctf_optimizations %}
+#### CTF Scenario Planning Notes
+- Target is highly focused (typically a flag file); prioritize understanding business logic over infrastructure scanning.
+- Vulnerabilities are typically in: authentication logic, access control, business flow, data validation, custom code flaws.
+{% endif %}

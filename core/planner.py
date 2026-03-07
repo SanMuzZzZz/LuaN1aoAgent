@@ -386,17 +386,22 @@ class Planner:
             pass
 
 
-    def _sanitize_graph_operations(self, ops: List[Dict]) -> List[Dict]:
+    def _sanitize_graph_operations(
+        self, ops: List[Dict], completed_node_ids: set = None
+    ) -> List[Dict]:
         """
-        净化图操作指令：去重 ADD_NODE，保留其他操作。
-        单次遍历完成，提高效率。
+        净化图操作指令：去重 ADD_NODE，代码层保护 completed 节点不被修改状态。
+        违规的 UPDATE_NODE 操作不静默丢弃，而是记录警告并跳过，
+        调用方可将警告注入下一轮 LLM 上下文实现可见反馈。
         """
         sanitized: List[Dict] = []
         seen_add_ids: set = set()
+        protected_ids: set = completed_node_ids or set()
+        self._last_sanitize_warnings: List[Dict] = []  # 供调用方读取，注入 LLM 反馈
 
         for op in ops:
             cmd = op.get("command")
-            
+
             if cmd == "ADD_NODE":
                 node_id = op.get("node_data", {}).get("id")
                 if not node_id or node_id == "None":
@@ -405,19 +410,40 @@ class Planner:
                     continue
                 seen_add_ids.add(node_id)
                 sanitized.append(op)
-            
+
             elif cmd in {"DELETE_NODE", "DEPRECATE_NODE", "UPDATE_NODE"}:
                 node_id = op.get("node_id")
                 if not node_id:
                     continue
-                if cmd == "UPDATE_NODE" and not op.get("updates"):
-                    continue
+                if cmd == "UPDATE_NODE":
+                    if not op.get("updates"):
+                        continue
+                    # 代码层强制保护：禁止修改 completed 节点的状态
+                    new_status = op.get("updates", {}).get("status")
+                    if new_status and new_status != "completed" and node_id in protected_ids:
+                        warning = {
+                            "error_code": "IMMUTABLE_STATUS_VIOLATION",
+                            "rejected_operation": op,
+                            "reason": (
+                                f"节点 '{node_id}' 当前状态为 completed（不可变历史事实），"
+                                f"禁止修改为 '{new_status}'。"
+                            ),
+                            "suggested_fix": (
+                                f"若需补充 '{node_id}' 的工作，请使用 ADD_NODE 创建新任务"
+                                f"并在 dependencies 中引用 '{node_id}'。"
+                            ),
+                        }
+                        self._last_sanitize_warnings.append(warning)
+                        _get_console().print(
+                            f"[yellow]⚠ Sanitizer: 拦截对已完成节点 '{node_id}' 的状态修改"
+                            f"（尝试改为 '{new_status}'）[/yellow]"
+                        )
+                        continue
                 sanitized.append(op)
-            
+
             else:
-                # 其他未知的或自定义的指令，直接保留
                 sanitized.append(op)
-                
+
         return sanitized
 
     async def plan(self, goal: str, causal_graph_summary: str = "") -> tuple[List[Dict], Dict]:
@@ -442,7 +468,9 @@ class Planner:
             self._write_run_log(plan_data)
             await self._emit_planning_completed(plan_data)
             if isinstance(plan_data, dict) and "graph_operations" in plan_data:
-                sanitized_ops = self._sanitize_graph_operations(plan_data["graph_operations"])
+                sanitized_ops = self._sanitize_graph_operations(
+                    plan_data["graph_operations"], completed_node_ids=set()
+                )
                 return sanitized_ops, call_metrics
             else:
                 raise ValueError("Planner输出格式错误，缺少 `graph_operations` 键。")
@@ -602,6 +630,11 @@ class Planner:
             if isinstance(plan_data, dict) and "graph_operations" in plan_data:
                 plan_data.setdefault("reasoning", {})
                 plan_data.setdefault("global_mission_briefing", "")
+                # 净化并保护 completed 节点
+                completed_ids = graph_manager.get_completed_node_ids() if graph_manager else set()
+                plan_data["graph_operations"] = self._sanitize_graph_operations(
+                    plan_data["graph_operations"], completed_node_ids=completed_ids
+                )
                 try:
                     import os
 
@@ -720,7 +753,7 @@ class Planner:
                         node_id = op.get("node_id")
                         if not node_id:
                             continue
-                        # 跳过对失败分支及其后代的更新，改为 DEPRECATE（由执行层统一处理为状态变更）
+                        # 跳过对失败分支及其后代的更新，改为 DEPRECATE
                         if node_id in dead_branch_ids and cmd == "UPDATE_NODE":
                             sanitized_ops.append(
                                 {
@@ -730,8 +763,18 @@ class Planner:
                                 }
                             )
                             continue
-                        if cmd == "UPDATE_NODE" and not op.get("updates"):
-                            continue
+                        if cmd == "UPDATE_NODE":
+                            if not op.get("updates"):
+                                continue
+                            # 保护 completed 节点（branch_replan 不应修改已完成任务状态）
+                            new_status = op.get("updates", {}).get("status")
+                            completed_ids = graph_manager.get_completed_node_ids()
+                            if new_status and new_status != "completed" and node_id in completed_ids:
+                                _get_console().print(
+                                    f"[yellow]⚠ BranchReplan Sanitizer: 拦截对已完成节点 '{node_id}'"
+                                    f" 的状态修改（尝试改为 '{new_status}'）[/yellow]"
+                                )
+                                continue
                         sanitized_ops.append(op)
                     else:
                         sanitized_ops.append(op)

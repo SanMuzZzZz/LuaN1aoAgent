@@ -673,6 +673,14 @@ class GraphManager:
                 failed_nodes[node_id] = data
         return failed_nodes
 
+    def get_completed_node_ids(self) -> set:
+        """返回所有状态为 completed 的子任务节点 ID 集合，用于代码层保护。"""
+        return {
+            node_id
+            for node_id, data in self.graph.nodes(data=True)
+            if data.get("type") == "subtask" and data.get("status") == "completed"
+        }
+
     def get_relevant_causal_context(self, subtask_id: str, top_n_hypotheses: int = 5, top_n_paths: int = 3) -> Dict[str, Any]:
         context = {
             "related_hypotheses": [],

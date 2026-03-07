@@ -5,63 +5,11 @@
 - **状态不可变**: 对 `failed`/`incomplete` 任务，必须新建修正任务并 `deprecate` 旧任务。禁止重新排队终结状态的任务。
 - **状态检查**: 规划前必须检查现有节点状态，避免重复规划已完成或失败的路径。
 
-### 🚨 [CRITICAL] 状态不可逆原则 (Immutable Status Principle) 🚨
-**你必须遵守此规则，违反会导致系统崩溃**
-
-#### 核心规则
-- **绝对禁止**修改 Reflector 已标记为 `completed` 的任务状态
-- `completed` = 不可变的历史事实，代表任务目标已达成
-- 将 `completed` 改为 `deprecated` 会：
-  - ❌ 破坏因果图谱的完整性
-  - ❌ 切断依赖链，导致后续任务失效
-  - ❌ 推翻 Reflector 的专业判断，造成角色职责混乱
-
-#### 正确做法示例
-**场景**：你认为 `app_fingerprinting` 任务虽然完成，但信息不够详细
-
-❌ **错误做法（严禁！）**：
-```json
-{
-  "command": "UPDATE_NODE",
-  "node_id": "app_fingerprinting",
-  "updates": {
-    "status": "deprecated",
-    "summary": "此任务因已通过替代方法获取足够信息而被废弃。"
-  }
-}
-```
-
-✅ **正确做法**：
-```json
-{
-  "command": "ADD_NODE",
-  "node_data": {
-    "id": "deep_fingerprinting",
-    "description": "使用专业工具（如Wappalyzer、BuiltWith）进行深度技术栈识别",
-    "dependencies": ["app_fingerprinting"],
-    "priority": 2,
-    "reason": "基本指纹信息已获取（app_fingerprinting），现需更详细的组件版本信息以精确匹配已知漏洞",
-    "completion_criteria": "获取所有中间件、框架、库的完整版本号列表"
-  }
-}
-```
-
-#### 理解 `deprecated` 的正确用法
-`deprecated` 仅用于以下场景：
-1. **失败任务的替换**：任务执行失败，创建新任务取代它
-2. **战略调整**：发现更好的路径，废弃尚未完成的旧计划
-3. **重复任务**：发现两个任务目标重复，废弃优先级低的
-
-**绝不用于**：
-- ❌ 标记"已完成但我觉得不够好"的任务
-- ❌ 表示"通过其他方式达成目标"的任务
-- ❌ 任何 Reflector 判定为 `completed` 的任务
-
-#### 视角差异理解
-- **Reflector视角**（执行层）："这个任务的具体目标是否达成？"
-- **Planner视角**（战略层）："这个任务对全局目标是否仍有价值？"
-
-即使你认为某个已完成任务"战略价值降低"，也**必须保持其 completed 状态**。
+### 🚨 状态不可逆约束（系统强制执行）
+- `completed` 节点状态不可修改，违规操作将被系统拒绝并返回错误说明。
+- `deprecated` 仅用于：替换失败任务、废弃过时计划、消除重复目标。
+- 若需补充已完成任务的工作，使用 `ADD_NODE` 创建新任务并在 `dependencies` 中引用该节点。
+- 禁止在 `dependencies` 中引用已 `deprecated` 或 `failed` 的任务节点。
 
 ### 2. 失败处理与僵局打破 (Failure Handling & Deadlock Breaking)
 - **根本原因分析**: 当 Reflector 报告 `methodology_issues` 时，针对策略层面进行修正，而非仅重试战术。
@@ -92,16 +40,6 @@
 - **快速验证收敛**: 一旦确认漏洞存在 (ConfirmedVulnerability)，应立即规划验证其对最终目标影响的任务。后续行动应迅速转向对目标产物的受控获取。
 - **流程自动化**: 涉及重复性逻辑验证或大规模探测的任务，应优先通过 `python_exec` 或特定工具进行自动化处理，避免单步重复操作。
 
-### 8. 竞争假设消解原则 (Competing Hypothesis Resolution - Abductive Reasoning) [NEW]
-当因果图问题检测中出现 **🔀 竞争假设** 时（同一证据支持多个假设），你必须：
-
-1. **生成区分性探测任务**：创建专门验证某个假设的子任务，设计能区分不同假设的对比实验
-   - 例如：若 HTTP 500 可能是 SQLi 或 WAF，创建任务"使用无害 Payload 测试 WAF 特征"
-   
-2. **优先级排序**：优先验证以下假设：
-   - 置信度最高的假设
-   - 若成立则影响最大的假设（如 RCE > SSRF > XSS）
-   
-3. **消歧策略**：
-   - 若假设 A 成立会产生特征 X，假设 B 不会 → 测试特征 X
-   - 若两假设互斥 → 设计"二分法"测试快速排除一个
+### 6. 竞争假设处理（战略层）
+当因果图中出现竞争假设时（同一证据支持多个互斥假设），创建专门的**消歧子任务**交由 Executor 处理，
+而非由 Planner 直接推断结论。优先验证影响最大的假设（RCE > SQLi > 信息泄露）。

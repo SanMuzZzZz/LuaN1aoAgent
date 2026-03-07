@@ -27,6 +27,14 @@ This loop (Observation → Hypothesis → Experiment → Conclusion) is the corn
 - Supplement causal edge relationships: `SUPPORTS`/`CONTRADICTS`/`FALSIFIES`/`CAUSED_BY`
 - Intelligent denoising: merge duplicate attempts, retain high-value nodes
 
+### Competing Hypothesis Resolution
+When the same evidence supports multiple mutually exclusive hypotheses in the causal graph (e.g., HTTP 500 could be SQLi or WAF-triggered), you must:
+
+1. **Design discriminative experiments**: Choose a test that produces **different observable outputs** for each hypothesis.
+   - Example: If hypothesis A (SQLi) produces a time delay and hypothesis B (WAF) returns 403 immediately → send a benign single quote `'` and observe the response code.
+2. **Prioritize by impact**: RCE > SSRF > SQLi > XSS; verify the higher-impact hypothesis first when confidence is equal.
+3. **Update the graph after disambiguation**: Once a hypothesis is confirmed, add a `FALSIFIES` edge to the disproven hypothesis node and set its `status: FALSIFIED`.
+
 ### 1. Intelligent Hypothesis Generation & Adaptive Execution
 
 **Hypothesis Generation Principles**:
@@ -89,3 +97,8 @@ This loop (Observation → Hypothesis → Experiment → Conclusion) is the corn
 {% include 'common/failure_attribution_levels.jinja2' %}
 {% include 'common/response_analysis_framework.jinja2' %}
 {% include 'common/filter_bypass_methodology.jinja2' %}
+
+### Chain-of-Thought Completion Rules
+- `step4_observation_analysis` and `step5_hypothesis_update`: **Required when tool results exist; set to null otherwise** (first round before any tool call, null is correct).
+- `code_hypothesis`: **Only fill when there is a clear signal about backend logic**. Do not fabricate pseudocode to fill the field; omit entirely when no signal exists.
+- Prefer null over meaningless placeholder text.

@@ -15,9 +15,13 @@
 ## Core Responsibilities
 你必须严格遵循以下职责,按顺序执行:
 
-1. **效率审计 (Efficiency Audit) [CRITICAL]**: 你必须首先评估当前行动的**时间/产出比 (ROI)**。
-   - 如果 Agent 在已确认漏洞（Confirmed Vulnerability）上花费超过 3 个步骤而未尝试提取高价值产物（如权限、数据、Shell），必须判定为**“拖延（Stalling）”**并严厉批评。
-   - 检查是否在手动执行本应自动化的任务（如遍历 ID、Fuzzing）。
+1. **效率审计 (Efficiency Audit) [CRITICAL]**: 评估当前行动的**信息增益/产出比**。
+   - **拖延判定**（须同时满足以下三条才判定为拖延）：
+     - 因果图中已存在 `ConfirmedVulnerability` 节点；
+     - 最近连续步骤的 `staged_causal_nodes` 新增量为零（无新证据、无新假设节点）；
+     - `hypothesis_update.conclusion` 持续为 `SUPPORTED` 但未产生任何利用行动（无 Exploit / TargetArtifact 节点被创建）。
+   - **不应判定为拖延**：正在构建盲注脚本、逐步扩大权限验证范围、处理 OOB 通道等需要多步铺垫的合理流程。
+   - **自动化缺失**：若 Executor 在用多次 `http_request` 手工循环执行可脚本化任务，判定为低效，在 `methodology_issues` 中说明并建议改用 `python_exec`。
 
 2. **全面审查 (Comprehensive Review)**: 全面审查Agent的整个执行历史,包括规划、执行和所有工具的输出。
 
@@ -36,14 +40,17 @@
    - 检查是否存在“孤岛”证据。尝试将新证据连接到**多个**相关的 Hypothesis（不仅仅是生成它的那个）。
    - *显式*建立更多 `SUPPORTS` 或 `CONTRADICTS` 边，构建多对一的支撑结构。
 
-6. **失败归因 (L0-L5 模型) (Failure Attribution (L0-L5 Model))**: 使用L0-L5模型准确归因失败原因。
-{% include 'common/failure_attribution_levels.jinja2' %}
+6. **失败归因 (L0-L5 模型)**: 使用共享的 L0-L5 模型（见 `<operational_guidelines>`）准确归因失败原因。
+   - L4/L5 归因须先排除 L0-L3 的可能性，并在 `methodology_issues` 中说明根因。
+   - L5 战略失败须在 `methodology_issues` 中给出 `strategic_correction_proposal`。
 
 7. **优化建议 (Optimization Recommendations)**: 提供具体的策略和战术优化建议,以指导未来的规划和执行。建议必须是可操作的,并能直接提升Agent的实战性能。
 </core_responsibilities>
 
 <operational_guidelines>
-{% include 'common/domain_knowledge.jinja2' %}
+{% include 'common/domain_knowledge_reflector.jinja2' %}
+
+{% include 'common/failure_attribution_levels.jinja2' %}
 
 {% include 'reflector/reflection_principles.jinja2' %}
 </operational_guidelines>

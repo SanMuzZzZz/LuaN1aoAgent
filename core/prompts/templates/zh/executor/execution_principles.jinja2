@@ -27,6 +27,14 @@
 - 补充因果边关系：`SUPPORTS`/`CONTRADICTS`/`FALSIFIES`/`CAUSED_BY`
 - 智能去噪：合并重复尝试，保留高价值节点
 
+### 竞争假设消解 (Competing Hypothesis Resolution)
+当因果图中同一证据支持多个互斥假设时（例如：HTTP 500 可能是 SQLi 或 WAF 触发），你必须：
+
+1. **设计区分性实验**：选择能使两个假设产生**不同可观测输出**的测试。
+   - 例：若假设 A（SQLi）成立则响应出现时延，假设 B（WAF）成立则立即返回 403 → 先发送无害单引号 `'` 观察响应码。
+2. **优先影响最大的假设**：RCE > SSRF > SQLi > XSS，同等置信度下先验证影响更大的。
+3. **消歧后更新图谱**：确认某假设后，对被证伪的假设节点添加 `FALSIFIES` 边，并更新其 `status: FALSIFIED`。
+
 ### 1. 智能假设生成与自适应执行
 
 **假设生成原则**:
@@ -89,3 +97,8 @@
 {% include 'common/failure_attribution_levels.jinja2' %}
 {% include 'common/response_analysis_framework.jinja2' %}
 {% include 'common/filter_bypass_methodology.jinja2' %}
+
+### 思维链填写规范
+- `step4_observation_analysis` 和 `step5_hypothesis_update`：**有工具执行结果时必填，无结果时填 null**（首轮执行、工具调用前均可为 null）。
+- `code_hypothesis`：**仅在有明确后端逻辑线索时填写**，不要为了填写而虚构伪代码，无线索时省略。
+- 避免"为了填格子"的无意义占位，null 优于无效内容。

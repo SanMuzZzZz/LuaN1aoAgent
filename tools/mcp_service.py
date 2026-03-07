@@ -473,6 +473,107 @@ async def retrieve_knowledge(
 
 
 @mcp.tool()
+async def distill_knowledge(insight_summary: str) -> str:
+    """
+    技能提炼与固化工具 (Skill Distillation Tool)。
+    用于将当前刚刚获得的宝贵经验（例如：通过试验成功绕过了某个WAF，或发现了某个组件的特定利用组合）
+    立即提炼并固化到永久技能库(AgentSkills)中。
+    
+    使用场景：
+    - 当你通过不断尝试，成功攻克了一个难题时。
+    - 当你通过 web_search 获取了新知识，并在目标环境验证有效时。
+    - 注意：不需要在任务最终结束前调用，这是一个随时可用的即时固化工具。
+
+    Args:
+        insight_summary: 对你刚学到的知识或技巧的详细总结。请包含：问题背景、遇到的困难、具体的绕过/漏洞利用方法（Payloads）、以及成功原因的分析。
+        
+    Returns:
+        JSON格式的提炼结果状态。
+    """
+    try:
+        llm = get_llm_client()
+        from core.skill_distiller import SkillDistiller
+        
+        # We run the distiller inline since it handles file writing directly
+        distiller = SkillDistiller(llm_client=llm)
+        await distiller.distill_and_update({"manual_insight": insight_summary})
+        
+        return json.dumps({
+            "success": True, 
+            "message": "知识已成功送入蒸馏器，相应的技能文档已更新或创建。"
+        }, ensure_ascii=False)
+        
+    except Exception as e:
+        logger.exception("distill_knowledge tool execution failed")
+        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+
+
+@mcp.tool()
+async def web_search(query: str, num_results: int = 5) -> str:
+    """
+    通用网络搜索引擎工具 (Web Search Tool)。
+    用于在互联网上搜索关于漏洞利用、绕过技巧、最新的CVE披露、开发文档、或任何通用知识。
+    如果你在执行渗透任务时遇到阻碍，且本地技能/知识库不足，应优先使用此工具进行广泛的情报收集。
+    
+    Args:
+        query: 检索的关键词 (例如: "SQL injection WAF bypass techniques", "CVE-2023-1234 exploit github")
+        num_results: 期望返回的结果数量 (默认: 5，最大推荐 10)
+        
+    Returns:
+        包含标题(title)、摘要(body)和链接(href)的JSON字符串搜索结果。
+    """
+    try:
+        try:
+            from duckduckgo_search import DDGS
+            with DDGS() as ddgs:
+                results = list(ddgs.text(query, max_results=num_results))
+                return json.dumps({"success": True, "query": query, "results": results}, ensure_ascii=False)
+        except ImportError:
+            # Fallback to pure httpx/bs4 scraping of DDG HTML if library is missing
+            import urllib.parse
+            from bs4 import BeautifulSoup
+            
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+            url = "https://html.duckduckgo.com/html/"
+            data = {"q": query}
+            
+            resp = await _httpx_client.post(url, headers=headers, data=data, follow_redirects=True, timeout=15)
+            
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            results = []
+            
+            for div in soup.find_all('div', class_='result'):
+                if len(results) >= num_results:
+                    break
+                    
+                a_tag = div.find('a', class_='result__url')
+                if not a_tag:
+                    continue
+                    
+                link = a_tag.get('href')
+                if link and 'uddg=' in link:
+                    link = urllib.parse.unquote(link.split('uddg=')[1].split('&')[0])
+                    
+                snippet_elem = div.find('a', class_='result__snippet')
+                snippet = snippet_elem.text.strip() if snippet_elem else ""
+                
+                title_elem = div.find('h2', class_='result__title')
+                title = title_elem.text.strip() if title_elem else ""
+                
+                if link and title:
+                    results.append({"title": title, "body": snippet, "href": link})
+                
+            if not results:
+                return json.dumps({"success": False, "error": "Search returned no results or was blocked by anti-bot. Try tweaking the query or installing 'duckduckgo-search' package via pip."}, ensure_ascii=False)
+                
+            return json.dumps({"success": True, "query": query, "results": results}, ensure_ascii=False)
+            
+    except Exception as e:
+        logger.exception("web_search tool execution failed")
+        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+
+
+@mcp.tool()
 async def shell_exec(command: str) -> str:
     """
     Shell命令执行接口 (异步非阻塞)。实时将输出打印到终端。
@@ -756,127 +857,6 @@ async def sqlmap_tool(
     except Exception as e:
         logger.exception("sqlmap execution failed")
         return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
-
-
-@mcp.tool()
-async def parse_html_form(url: str = None, html_content: str = None) -> str:
-    """
-    Robust HTML Form Parser tool.
-    Extracts all forms, inputs, selects, textareas, and CRITICALLY, submit buttons.
-    Addressing XBEN-071 failure where 'submit' parameter was missed.
-    
-    Args:
-        url: URL to fetch HTML from (uses shared session).
-        html_content: Raw HTML content (optional, overrides url).
-        
-    Returns:
-        JSON string describing findings forms and their parameters.
-    """
-    from bs4 import BeautifulSoup
-    from urllib.parse import urljoin
-
-    target_html = html_content
-    base_url = url or ""
-
-    if not target_html and url:
-        try:
-            resp = await _httpx_client.get(url, follow_redirects=True, timeout=10)
-            target_html = resp.text
-            base_url = str(resp.url)
-        except Exception as e:
-            return json.dumps({"success": False, "error": f"Failed to fetch URL: {str(e)}"})
-
-    if not target_html:
-        return json.dumps({"success": False, "error": "No HTML content provided"})
-
-    try:
-        soup = BeautifulSoup(target_html, 'html.parser')
-        forms_data = []
-
-        for i, form in enumerate(soup.find_all('form')):
-            action = form.get('action')
-            if action:
-                action_url = urljoin(base_url, action)
-            else:
-                action_url = base_url
-                
-            method = form.get('method', 'GET').upper()
-            
-            inputs = []
-            # Standard inputs
-            for inp in form.find_all('input'):
-                name = inp.get('name')
-                if not name: continue
-                inputs.append({
-                    "name": name,
-                    "type": inp.get('type', 'text'),
-                    "value": inp.get('value', ''),
-                    "required": inp.get('required') is not None
-                })
-            
-            # Selects
-            for sel in form.find_all('select'):
-                name = sel.get('name')
-                if not name: continue
-                options = [opt.get('value', opt.text) for opt in sel.find_all('option')]
-                inputs.append({
-                    "name": name, 
-                    "type": "select",
-                    "options": options,
-                    "value": options[0] if options else ""
-                })
-            
-            # Textareas
-            for ta in form.find_all('textarea'):
-                name = ta.get('name')
-                if not name: continue
-                inputs.append({
-                    "name": name,
-                    "type": "textarea",
-                    "value": ta.text or ""
-                })
-
-            # Buttons (CRITICAL for XBEN-071)
-            # Find both <button> and <input type="submit">
-            submit_buttons = []
-            for btn in form.find_all(['button', 'input']):
-                if btn.name == 'input' and btn.get('type') != 'submit':
-                    continue
-                if btn.name == 'button' and btn.get('type') not in [None, 'submit']:
-                    continue
-                    
-                btn_name = btn.get('name')
-                btn_value = btn.get('value', '')
-                
-                # If a button has a name, it IS a parameter when clicked
-                if btn_name:
-                    submit_buttons.append({
-                        "name": btn_name,
-                        "value": btn_value,
-                        "type": "submit"
-                    })
-                # Even if no name, it might be relevant for logic, but usually only named buttons send data
-            
-            # Combine
-            all_params = inputs + submit_buttons
-            
-            forms_data.append({
-                "form_index": i,
-                "action": action_url,
-                "method": method,
-                "params": all_params,
-                "param_names": [p['name'] for p in all_params]
-            })
-
-        return json.dumps({
-            "success": True, 
-            "forms_found": len(forms_data),
-            "forms": forms_data
-        }, ensure_ascii=False, indent=2)
-
-    except Exception as e:
-        return json.dumps({"success": False, "error": f"Parsing failed: {str(e)}"})
-
 
 @mcp.tool()
 async def dirsearch_scan(url: str, extensions: str = "php,html,js,txt", extra_args: str = "") -> str:

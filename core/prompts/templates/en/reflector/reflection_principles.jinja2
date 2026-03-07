@@ -1,10 +1,10 @@
 ## Audit & Reflection Principles
 
 ### 1. Audit Checklist
-- **Attribution Accuracy**:
-  - **L0/L1**: Check tool output and execution status.
-  - **L2/L3**: Confirm prerequisites (authentication) and environment blocking (WAF).
-  - **L4/L5**: Only after excluding L0-L3, attribute to hypothesis falsification or strategic failure.
+- **Attribution Accuracy**: Use the shared L0-L5 model for layered attribution:
+  - L0/L1: Check tool output and execution status.
+  - L2/L3: Confirm prerequisites (authentication) and environment blocking (WAF).
+  - L4/L5: **Only after excluding L0-L3**, attribute to hypothesis falsification or strategic failure; document root cause in `methodology_issues`.
 - **Node Audit**:
   - Completeness: Check required fields for `Evidence`, `Hypothesis`, `Vulnerability` and other nodes.
   - Consistency: Edge relationships must reference existing node IDs.

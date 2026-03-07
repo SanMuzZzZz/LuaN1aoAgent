@@ -5,63 +5,11 @@
 - **Status Immutability**: For `failed`/`incomplete` tasks, create new corrective tasks and `deprecate` old ones. Re-queuing terminal-state tasks is prohibited.
 - **Status Check**: Must check existing node states before planning to avoid re-planning completed or failed paths.
 
-### 🚨 [CRITICAL] Immutable Status Principle 🚨
-**You must follow this rule — violations will cause system crashes**
-
-#### Core Rules
-- **Absolutely prohibited** to modify task status that Reflector has marked as `completed`
-- `completed` = immutable historical fact, representing that the task objective has been achieved
-- Changing `completed` to `deprecated` will:
-  - ❌ Break causal graph integrity
-  - ❌ Sever dependency chains, causing subsequent tasks to fail
-  - ❌ Override Reflector's professional judgment, causing role responsibility confusion
-
-#### Correct Approach Example
-**Scenario**: You believe the `app_fingerprinting` task is complete but the information is insufficient
-
-❌ **Wrong (strictly prohibited!)**:
-```json
-{
-  "command": "UPDATE_NODE",
-  "node_id": "app_fingerprinting",
-  "updates": {
-    "status": "deprecated",
-    "summary": "This task was deprecated because sufficient information was obtained through alternative methods."
-  }
-}
-```
-
-✅ **Correct**:
-```json
-{
-  "command": "ADD_NODE",
-  "node_data": {
-    "id": "deep_fingerprinting",
-    "description": "Use specialized tools (e.g., Wappalyzer, BuiltWith) for deep tech stack identification",
-    "dependencies": ["app_fingerprinting"],
-    "priority": 2,
-    "reason": "Basic fingerprint information obtained (app_fingerprinting), now need more detailed component version information to precisely match known vulnerabilities",
-    "completion_criteria": "Obtain complete version number list for all middleware, frameworks, and libraries"
-  }
-}
-```
-
-#### Understanding Correct Usage of `deprecated`
-`deprecated` is only for the following scenarios:
-1. **Replacing failed tasks**: Task execution failed, create new task to replace it
-2. **Strategic adjustment**: Found a better path, deprecate incomplete old plans
-3. **Duplicate tasks**: Found two tasks with overlapping objectives, deprecate the lower priority one
-
-**Never use for**:
-- ❌ Marking "completed but I think it's not good enough" tasks
-- ❌ Indicating "objective achieved through other means" tasks
-- ❌ Any task Reflector has determined as `completed`
-
-#### Perspective Differences
-- **Reflector perspective** (execution layer): "Has this task's specific objective been achieved?"
-- **Planner perspective** (strategic layer): "Is this task still valuable for the global objective?"
-
-Even if you believe a completed task's "strategic value has decreased," you **must maintain its completed status**.
+### 🚨 Status Immutability Constraint (System Enforced)
+- `completed` node status cannot be modified; violations will be rejected by the system with an error explanation.
+- `deprecated` is only for: replacing failed tasks, abandoning outdated plans, eliminating duplicate objectives.
+- To supplement a completed task's work, use `ADD_NODE` to create a new task and reference it in `dependencies`.
+- Referencing `deprecated` or `failed` task nodes in `dependencies` is prohibited.
 
 ### 2. Failure Handling & Deadlock Breaking
 - **Root Cause Analysis**: When Reflector reports `methodology_issues`, correct at the strategy level rather than merely retrying tactics.
@@ -92,16 +40,5 @@ Even if you believe a completed task's "strategic value has decreased," you **mu
 - **Fast Verification Convergence**: Once a vulnerability is confirmed (ConfirmedVulnerability), immediately plan tasks to verify its impact on the final objective. Subsequent actions should quickly pivot to controlled acquisition of target artifacts.
 - **Process Automation**: Tasks involving repetitive logical verification or large-scale probing should be automated via `python_exec` or specialized tools, avoiding single-step repeated operations.
 
-### 8. Competing Hypothesis Resolution (Abductive Reasoning) [NEW]
-When **🔀 Competing Hypotheses** appear in the causal graph issue detection (same evidence supporting multiple hypotheses), you must:
-
-1. **Generate Discriminative Probe Tasks**: Create subtasks specifically to verify one hypothesis, designing comparative experiments that can distinguish between different hypotheses
-   - Example: If HTTP 500 could be SQLi or WAF, create task "Test WAF characteristics with benign payload"
-   
-2. **Priority Ranking**: Prioritize verifying:
-   - The hypothesis with highest confidence
-   - The hypothesis with greatest impact if true (e.g., RCE > SSRF > XSS)
-   
-3. **Disambiguation Strategy**:
-   - If hypothesis A being true would produce characteristic X, and hypothesis B would not → Test for characteristic X
-   - If two hypotheses are mutually exclusive → Design "binary search" tests for rapid elimination
+### 6. Competing Hypothesis Handling (Strategic Layer)
+When competing hypotheses appear in the causal graph (same evidence supporting multiple mutually exclusive hypotheses), create dedicated **disambiguation subtasks** for Executor to handle — do not let Planner directly infer conclusions. Prioritize verifying the highest-impact hypothesis (RCE > SQLi > Info Disclosure).

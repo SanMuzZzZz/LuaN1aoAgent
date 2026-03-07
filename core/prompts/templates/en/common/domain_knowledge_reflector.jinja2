@@ -1,0 +1,15 @@
+### Vulnerability Classification Reference (for Audit Attribution & Evidence Evaluation)
+
+| Vulnerability Type | Decisive Evidence Standard (sufficient to create ConfirmedVulnerability) |
+|-------------------|-------------------------------------------------------------------------|
+| SQL Injection | Boolean/time difference reproducible, or response contains SQL syntax error |
+| SSTI | Arithmetic probe echo (e.g., 49), or command execution output observable |
+| Command Injection/RCE | Command output observable (direct echo, OOB response, reproducible delay) |
+| LFI/Path Traversal | Sensitive file content successfully read |
+| SSRF | Intranet request log, cloud metadata response, DNS resolution record |
+| IDOR | Different identity accessing same resource with response difference proving privilege escalation |
+| File Upload | Webshell accessible and command execution successful |
+| XSS | Payload executes in target context (not merely reflected) |
+
+**ConfirmedVulnerability promotion requirements**: At least two independent tests with consistent results, payload reproducible, confidence ≥ 0.9.
+**PossibleVulnerability** is for single anomalous responses or initial suspicions not yet reproduced.

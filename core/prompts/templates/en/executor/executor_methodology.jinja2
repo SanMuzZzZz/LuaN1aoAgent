@@ -1,13 +1,7 @@
-### Action Selection Principles
-
-1.  **Hypothesis-Driven**: Random tool calls are prohibited. Every action must verify a specific vulnerability hypothesis.
-2.  **Minimality**: Prioritize the simplest, most direct payloads {% raw %}(e.g., `id`, `whoami`, `{{7*7}}`){% endraw %}.
-3.  **Evidence First**: Actions must produce observable evidence (errors, differences, echoes).
-4.  **Progressive Escalation**: Only attempt complex payloads after initial probes succeed.
-5.  **Tool Selection**:
-    - Single probe → `http_request`
-    - Batch/Fuzz/Logic scripts → `python_exec` (do not simulate loops with multiple http_request calls)
-    - Specialized tools → Use preferentially (e.g., `dirsearch`, `sqlmap`)
+### Core Action Constraints
+- Every action must verify a specific hypothesis; purposeless tool calls are prohibited.
+- Start with the simplest probe; escalate to complex payloads only after initial success.
+- See the tool selection guide below for detailed tool decisions.
 
 ### 🧠 Knowledge Retrieval Protocol
 

@@ -197,53 +197,15 @@ for user_id in range(1, 100):
 ### 调用自动化工具
 **使用**: `shell_exec`
 
-**示例**: 调用sqlmap
+**示例**: 调用sqlmap（从保守参数开始，避免 --dump 过于激进）
 ```json
 {
   "tool": "shell_exec",
   "params": {
-    "command": "sqlmap -u 'http://target.com/search?id=1' --batch --dump"
+    "command": "sqlmap -u 'http://target.com/search?id=1' --batch --level=1 --risk=1 --dbs"
   }
 }
 ```
-
-## 反模式（注意与避免）
-
-### ❌ 向量固化 (Vector Fixation)
-**问题**: 在一个注入点上连续失败后，重复尝试相似的Payload
-
-**正确做法**: 
-- 立即停止并重新评估
-- 切换到不同的参数、功能点或漏洞假设
-- 或触发知识检索/专家分析
-
-### ❌ 假设跳跃 (Assumption Leap)
-**问题**: 基于微弱证据直接跳到复杂攻击
-
-**错误示例**: 发现开放的80端口 → 直接尝试Webshell上传
-
-**正确流程**: 
-1. 信息收集（获取页面、识别技术栈）
-2. 漏洞识别（发现上传功能）
-3. 漏洞验证（测试文件类型过滤）
-4. 漏洞利用（上传Webshell）
-
-### ❌ 用多个http_request模拟循环
-**问题**: 
-```json
-[
-  {"tool": "http_request", "params": {"url": "...?id=1"}},
-  {"tool": "http_request", "params": {"url": "...?id=2"}},
-  {"tool": "http_request", "params": {"url": "...?id=3"}}
-]
-```
-
-**正确做法**: 使用`python_exec`实现循环
-
-### ❌ 无假设的工具调用
-**问题**: "尝试一下nmap扫描看看"（没有明确假设）
-
-**正确做法**: "假设目标开放了数据库端口，使用nmap -p 3306,5432,27017验证"
 
 ## 决策流程图
 
@@ -253,38 +215,16 @@ for user_id in range(1, 100):
 是否有明确假设？
  ├─ 否 → 停止，先形成假设
  └─ 是 ↓
-     是否需要循环/迭代？
+     是否需要循环/迭代/批量？
       ├─ 是 → 使用 python_exec
       └─ 否 ↓
-          是否需要系统命令？
+          是否需要系统命令/专用工具？
            ├─ 是 → 使用 shell_exec
            └─ 否 ↓
                是否是单个HTTP请求？
                 ├─ 是 → 使用 http_request
                 └─ 否 ↓
-                    是否需要专业知识？
-                     ├─ 是 → 使用 expert_analysis
-                     └─ 否 → 使用 retrieve_knowledge
+                    需要专项知识/绕过技巧？
+                     ├─ 是 → expert_analysis
+                     └─ 否 → retrieve_knowledge
 ```
-
-## 早停与切换机制
-
-### 早停触发条件
-- 连续两轮无新证据
-- 连续两轮无状态变化
-- 假设被证伪（L4_FALSIFIED）
-
-### 切换策略
-1. 执行失败归因（L0-L5）
-2. 根据归因结果:
-   - L1/L2 → 修复工具调用或前提条件
-   - L3 → 切换绕过策略或攻击向量
-   - L4 → 形成新假设
-   - L5 → 请求Planner重新规划
-
-### 知识检索升级
-- 标准方法失败后
-- 遇到特定技术栈/WAF
-- 需要最新绕过技巧时
-
-触发: `retrieve_knowledge` → 如果仍无效 → `expert_analysis`
