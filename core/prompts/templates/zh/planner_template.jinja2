@@ -89,7 +89,8 @@
 ```
 
 ### 关键要求
-- `global_mission_accomplished`: 仅当所有分析（包括 Intelligence Summary）明确、无歧义地证明顶层 `goal` 已完全达成时，才设置为 `true`。这是终止整个任务的唯一信号。
+- `global_mission_accomplished`: 仅当顶层 `goal` 已完全达成时设置为 `true`，这是终止整个任务的唯一信号。
+  - **强制规则**：若 `intelligence_summary.audit_result.status` 为 `"goal_achieved"`，**必须**将此字段设为 `true`，无需额外验证，这表明 Reflector 已确认目标产物已获取。
 - `goal_achieved_by`: 当 `global_mission_accomplished` 为 `true` 时，必须填写提供成功证据的 step_id 或节点 ID。
 - `graph_operations` 数组必须至少包含一个 `ADD_NODE` 操作，除非 `global_mission_accomplished` 为 `true`。
 {% if use_ctf_optimizations %}

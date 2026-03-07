@@ -206,20 +206,24 @@ async def stop_knowledge_service():
 
 def _aggregate_intelligence(completed_reflections: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     """
-    汇总多个反思器输出为情报摘要. 
-    
+    汇总多个反思器输出为情报摘要.
+
     将多个子任务的反思结果汇总为统一的情报摘要，优先处理已达成目标的状态
-    和目标产物类型的artifacts。
-    
+    和目标产物类型的artifacts。对 findings/artifacts/insights 进行去重，
+    避免并行子任务发现相同信息时在 Planner 上下文中重复出现。
+
     Args:
         completed_reflections: 已完成的反思结果字典，key为子任务ID，value为反思输出
-        
+
     Returns:
         Dict[str, Any]: 汇总的情报摘要，包含findings、audit_result、artifacts等字段
     """
     all_findings = []
     all_artifacts = []
     all_insights = []
+    seen_finding_keys: set = set()
+    seen_artifact_keys: set = set()
+    seen_insight_keys: set = set()
 
     # 检查是否有任何反思结果标记了 goal_achieved
     goal_achieved = False
@@ -236,18 +240,27 @@ def _aggregate_intelligence(completed_reflections: Dict[str, Dict[str, Any]]) ->
             goal_achieved = True
             aggregated_completion_check = goal_achievement_reason
 
-        # 提取 key_findings
-        findings = reflection.get('key_findings', [])
-        all_findings.extend(findings)
+        # 提取 key_findings（基于前80字符去重）
+        for finding in reflection.get('key_findings', []):
+            key = str(finding)[:80]
+            if key not in seen_finding_keys:
+                seen_finding_keys.add(key)
+                all_findings.append(finding)
 
-        # 提取 validated_nodes
-        nodes = reflection.get('validated_nodes', [])
-        all_artifacts.extend(nodes)
+        # 提取 validated_nodes（基于节点 id 去重）
+        for node in reflection.get('validated_nodes', []):
+            node_key = node.get('id', str(node)[:80]) if isinstance(node, dict) else str(node)[:80]
+            if node_key not in seen_artifact_keys:
+                seen_artifact_keys.add(node_key)
+                all_artifacts.append(node)
 
-        # 提取 insight
+        # 提取 insight（基于内容前80字符去重）
         insight = reflection.get('insight')
         if insight:
-            all_insights.append(insight)
+            insight_key = str(insight)[:80]
+            if insight_key not in seen_insight_keys:
+                seen_insight_keys.add(insight_key)
+                all_insights.append(insight)
 
     # 构建汇总的情报摘要
     aggregated_status = 'goal_achieved' if goal_achieved else 'AGGREGATED'
@@ -338,10 +351,37 @@ def process_graph_commands(operations: List[Dict], graph_manager: GraphManager) 
             mission_briefing=node_data.get('mission_briefing')
         )
 
+    # ADD_NODE 完成后校验 DAG 完整性：检测环形依赖
+    import networkx as nx
+    subtask_subgraph_nodes = [
+        n for n, d in graph_manager.graph.nodes(data=True)
+        if d.get('type') in ('task', 'subtask')
+    ]
+    subgraph = graph_manager.graph.subgraph(subtask_subgraph_nodes)
+    if not nx.is_directed_acyclic_graph(subgraph):
+        try:
+            cycles = list(nx.simple_cycles(subgraph))
+        except Exception:
+            cycles = ["（无法枚举）"]
+        console.print(
+            f"🚨 [DAG 校验] 检测到任务图中存在环形依赖，可能导致所有子任务永久阻塞！\n"
+            f"   涉及环路: {cycles}",
+            style="bold red"
+        )
+
     # 2. 然后执行所有 DELETE/DEPRECATE 操作，将其状态更新为 deprecated
     for op in delete_ops + deprecate_ops:
         node_id = op.get("node_id")
         if node_id:
+            # [CRITICAL] 保护已完成节点，禁止废弃
+            if graph_manager.graph.has_node(node_id):
+                current_status = graph_manager.graph.nodes[node_id].get('status')
+                if current_status == 'completed':
+                    console.print(
+                        f"⚠️  [状态保护] 禁止废弃已完成节点 {node_id}（Reflector 判定已完成，状态不可逆）。",
+                        style="bold yellow"
+                    )
+                    continue
             reason = op.get("reason", "未提供原因")
             graph_manager.update_node(node_id, {"status": "deprecated", "summary": f"任务已被规划器废弃。原因: {reason}"})
             deleted_node_ids.add(node_id)
@@ -878,27 +918,29 @@ def verify_and_handle_orphans(operations: List[Dict], graph_manager: GraphManage
     return operations + fix_operations
 
 def get_next_executable_subtask_batch(graph: GraphManager) -> List[str]:
-    """获取下一个可并行执行的任务批次。"""
-    pending_subtasks = [
-        node for node, data in graph.graph.nodes(data=True)
-        if data.get('type') == 'subtask' and data.get('status') in ['pending', 'ready', 'active', 'in_progress']
-    ]
+    """获取下一个可并行执行的任务批次。
 
-    non_terminal_subtasks = [
-        node for node in pending_subtasks
-        if graph.graph.nodes[node].get('status') not in ['completed', 'failed', 'deprecated', 'stalled_orphan', 'completed_error']
-    ]
-
+    注：`in_progress` 状态不纳入调度候选。正常执行流程中，asyncio.gather
+    完成后所有子任务均会进入 Reflection 并更新状态；`in_progress` 仅在
+    进程异常崩溃重启后可能残留，此时应在启动恢复逻辑中将其重置为 `pending`，
+    而非在正常调度中重新入队（避免重复执行）。
+    """
     executable_tasks = []
-    for node in non_terminal_subtasks:
-        dependencies = [u for u, v in graph.graph.in_edges(node) if graph.graph.edges[u, v].get('type') == 'dependency']
-        if all(str(graph.graph.nodes[dep].get('status', '')).startswith(('completed', 'deprecated', 'failed')) for dep in dependencies):
+    for node, data in graph.graph.nodes(data=True):
+        if data.get('type') != 'subtask':
+            continue
+        if data.get('status') not in ('pending', 'ready', 'active'):
+            continue
+        dependencies = [
+            u for u, v in graph.graph.in_edges(node)
+            if graph.graph.edges[u, v].get('type') == 'dependency'
+        ]
+        if all(
+            str(graph.graph.nodes[dep].get('status', '')).startswith(('completed', 'deprecated', 'failed'))
+            for dep in dependencies
+        ):
             executable_tasks.append(node)
 
-    if not executable_tasks:
-        return []
-
-    # 返回所有可执行的任务，以提高并发效率
     return executable_tasks
 
 
@@ -1679,10 +1721,8 @@ async def main():
             completed_results = await asyncio.gather(*tasks, return_exceptions=True)
 
 # ==================================================
-            # 3. Reflection & Branch Re-planning (REFLECT & BRANCH RE-PLAN)
+            # 3. Reflection (REFLECT)
 # ==================================================
-            branches_to_replan = [] # Store branches that need immediate replanning
-
             for i, result_or_exc in enumerate(completed_results):
                 subtask_id = subtask_batch[i]
                 try:
@@ -1737,21 +1777,22 @@ async def main():
                         # Sanitize JSON output to prevent issues with special characters in Rich parsing
                         safe_reflection_json = sanitize_for_rich(json.dumps(display_output, indent=2, ensure_ascii=False))
                         console.print(Panel(safe_reflection_json, style="cyan"))
-                    # Check if branch replanning is triggered
                     audit_result = reflection_output.get("audit_result", {})
-                    
+
                     # 保存 Reflector 标记的关键成功步骤到子任务节点
                     critical_success_step = audit_result.get("critical_success_step_id")
                     if critical_success_step and graph_manager.graph.has_node(critical_success_step):
                         graph_manager.update_node(subtask_id, {"critical_success_step_id": critical_success_step})
                         console.print(Panel(f"子任务 {subtask_id} 的关键成功步骤: {critical_success_step}", style="green"))
-                    
+
                     if audit_result.get("is_strategic_failure"):
-                        console.print(Panel(f"检测到子任务 {subtask_id} 的战略性失败。触发该分支的即时重新规划...", title="🚨 分支重新规划", style="bold red"))
-                        branches_to_replan.append((subtask_id, reflection_output))
-                    else:
-                        # Only proceed to global planning if not a strategic failure
-                        completed_reflections[subtask_id] = reflection_output
+                        console.print(Panel(
+                            f"检测到子任务 {subtask_id} 的战略性失败（L4/L5），将由 Planner 统一制定替代方案。",
+                            title="⚠️ 战略失败", style="bold yellow"
+                        ))
+
+                    # 所有反思结果统一汇入 completed_reflections，由 Global Planner 裁决
+                    completed_reflections[subtask_id] = reflection_output
 
                     causal_graph_updates = reflection_output.get("causal_graph_updates", {})
                     if causal_graph_updates:
@@ -1813,68 +1854,6 @@ async def main():
                     graph_manager.update_node(subtask_id, {'status': 'completed_error', 'summary': f"Critical error during reflection: {error_message}"})
                     # Clean up staged nodes even if an error occurred
                     graph_manager.clear_staged_causal_nodes(subtask_id)
-
-            # If there are branches needing immediate replanning, execute them
-            if branches_to_replan:
-                for subtask_id, reflection in branches_to_replan:
-                    if effective_output_mode in ["default", "debug"]:
-                        console.print(Panel(f"正在为失败的分支 {subtask_id} 生成新计划...", title="Planner - 分支再生", style="purple"))
-                    failure_reason = reflection.get("audit_result", {}).get("completion_check", "未提供具体失败原因。")
-
-                    # Call the new branch replanning method
-                    branch_replan_ops, branch_replan_metrics = await planner.regenerate_branch_plan(
-                        goal=goal,
-                        graph_manager=graph_manager,
-                        failed_branch_root_id=subtask_id,
-                        failure_reason=failure_reason
-                    )
-
-                    update_global_metrics(metrics, branch_replan_metrics)
-                    run_log.append({"event": "branch_replan", "subtask_id": subtask_id, "data": branch_replan_ops, "metrics": branch_replan_metrics, "timestamp": time.time()})
-
-                    if branch_replan_ops:
-                        # Human-in-the-loop: Branch replan approval
-                        if HUMAN_IN_THE_LOOP:
-                            if effective_output_mode in ["default", "debug"]:
-                                console.print(Panel("等待人工审核分支再生计划...", title="人机协同", style="yellow"))
-                            try:
-                                await broker.emit("intervention.required", {"op_id": llm.op_id, "type": "branch_replan_approval"}, op_id=llm.op_id)
-                            except Exception:
-                                pass
-                            
-                            cli_task = asyncio.create_task(handle_cli_approval(llm.op_id, branch_replan_ops))
-                            decision = await intervention_manager.request_approval(llm.op_id, branch_replan_ops)
-                            cli_task.cancel()
-                            
-                            if decision["action"] == "REJECT":
-                                console.print(Panel(f"分支再生计划被拒绝，跳过分支 {subtask_id} 的重新规划。", style="yellow"))
-                                continue
-                            elif decision["action"] == "MODIFY":
-                                branch_replan_ops = decision.get("modified_plan", branch_replan_ops)
-                                console.print(Panel("使用修改后的分支再生计划。", style="green"))
-                            else:  # APPROVE
-                                console.print(Panel("分支再生计划已批准。", style="green"))
-                        
-                        if effective_output_mode in ["default", "debug"]:
-                            console.print(f"应用为分支 {subtask_id} 生成的新计划...")
-                        verified_ops = verify_and_handle_orphans(branch_replan_ops, graph_manager, console)
-                        process_graph_commands(verified_ops, graph_manager)
-                        try:
-                            await broker.emit("graph.changed", {"reason": "branch_replan_applied"}, op_id=llm.op_id)
-                        except Exception:
-                            pass
-                        if effective_output_mode in ["simple", "default", "debug"]:
-                            next_executable_tasks = get_next_executable_subtask_batch(graph_manager)
-                            graph_manager.print_graph_structure(console, highlight_nodes=next_executable_tasks)
-                        if effective_output_mode in ["default", "debug"]:
-                            # Output causal graph structure after branch replan
-                            try:
-                                graph_manager.print_causal_graph(console, max_nodes=100)
-                            except Exception as e:
-                                console.print(Panel(f"打印因果图失败: {e}", title="因果图错误", style="red"))
-
-                # Clear completed_reflections to prevent conflict between global and branch planning
-                completed_reflections = {}
 
             # Save logs after each batch of executor cycles and reflections
             if effective_output_mode in ["default", "debug"]:

@@ -16,6 +16,7 @@
 - **Alternatives**: When tools fail, plan using `python_exec` or manual methods; simple retries are strictly prohibited.
 - **Pending Tasks**: After analyzing reasons for `pending` tasks, create more specific new tasks and deprecate the originals.
 - **Pattern Recognition**: If the same pattern fails repeatedly, force a strategy-level adjustment (e.g., switch attack vectors).
+- **Strategic Failure Handling**: When the intelligence summary contains a subtask with `is_strategic_failure: true`, it means that direction has been falsified at the strategic level (L4/L5 attribution). You must: ① use `DEPRECATE_NODE` to deprecate the subtask and its descendants; ② create a new replacement path that fundamentally avoids the known failure cause; ③ prohibit reusing the same attack vector or underlying assumptions in the new path.
 
 ### 3. Resource Allocation & Priority
 - **Value-Driven**: Dynamically adjust priorities based on functional importance and exploitation probability.

@@ -811,6 +811,26 @@ class GraphManager:
             raise ValueError(f"子任务 {subtask_id} 不存在于图中。")
 
         self._ensure_node_defaults(subtask_id)
+
+        # 上限保护：防止 staged_causal_nodes 无界增长导致 Reflector 提示词膨胀
+        MAX_STAGED_NODES = 30
+        current_staged = self.graph.nodes[subtask_id].get("staged_causal_nodes", [])
+        remaining_capacity = MAX_STAGED_NODES - len(current_staged)
+        if remaining_capacity <= 0:
+            logging.warning(
+                "GraphManager.stage_proposed_causal_nodes: 子任务 %s 的 staged_causal_nodes "
+                "已达上限 (%d)，忽略新提交的 %d 个节点。",
+                subtask_id, MAX_STAGED_NODES, len(proposed_nodes)
+            )
+            return
+        if len(proposed_nodes) > remaining_capacity:
+            logging.warning(
+                "GraphManager.stage_proposed_causal_nodes: 子任务 %s 提交 %d 个节点，"
+                "仅接受前 %d 个（上限 %d）。",
+                subtask_id, len(proposed_nodes), remaining_capacity, MAX_STAGED_NODES
+            )
+            proposed_nodes = proposed_nodes[:remaining_capacity]
+
         normalized_nodes: List[Dict] = []
         for node_data in proposed_nodes:
             if not isinstance(node_data, dict):

@@ -415,6 +415,26 @@ class Planner:
                 node_id = op.get("node_id")
                 if not node_id:
                     continue
+                # 代码层强制保护：禁止对 completed 节点执行任何修改（包括废弃）
+                if node_id in protected_ids:
+                    if cmd in {"DELETE_NODE", "DEPRECATE_NODE"}:
+                        warning = {
+                            "error_code": "IMMUTABLE_STATUS_VIOLATION",
+                            "rejected_operation": op,
+                            "reason": (
+                                f"节点 '{node_id}' 当前状态为 completed（不可变历史事实），"
+                                f"禁止执行 {cmd} 操作。"
+                            ),
+                            "suggested_fix": (
+                                f"已完成节点不可废弃。若需扩展其工作，使用 ADD_NODE 创建新任务"
+                                f"并在 dependencies 中引用 '{node_id}'。"
+                            ),
+                        }
+                        self._last_sanitize_warnings.append(warning)
+                        _get_console().print(
+                            f"[yellow]⚠ Sanitizer: 拦截对已完成节点 '{node_id}' 的 {cmd} 操作[/yellow]"
+                        )
+                        continue
                 if cmd == "UPDATE_NODE":
                     if not op.get("updates"):
                         continue

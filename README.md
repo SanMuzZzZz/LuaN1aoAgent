@@ -502,104 +502,22 @@ LuaN1aoAgent/
 
 ## 🔐 Security Disclaimer
 
-**⚠️ IMPORTANT: This software is intended for authorized security testing and educational purposes only. Please read the following carefully.**
+**⚠️ IMPORTANT: This software is intended for authorized security testing and educational purposes only.**
 
-### Usage Restrictions
+By downloading, installing, or using LuaN1ao, you expressly acknowledge and agree to the following:
 
-By using LuaN1ao, you acknowledge and agree to the following terms:
+- **Strictly Authorized Use**: You must obtain explicit written consent from system owners before testing. Unauthorized access is illegal and prohibited.
+- **No Warranties**: This software is provided "AS IS", without warranty of any kind.
+- **Assumption of Risk**: The tool contains high-privilege execution capabilities (`shell_exec`, `python_exec`). Running it in an isolated environment (like Docker or a VM) is strongly recommended. Do not use it in production environments.
+- **Limitation of Liability**: The developers and contributors are not responsible for any damage, data loss, or legal consequences resulting from the use or misuse of this tool. You assume full responsibility for your actions. 
 
-#### 1. Authorization Requirements
+**If you do not agree to these terms, do not use this software.**
 
-- **Explicit Authorization Required**: You **MUST** obtain **explicit written authorization** from system owners before testing any systems, networks, or applications.
-- **Scope Limitation**: Testing activities must be strictly limited to the authorized scope and must not exceed authorized boundaries.
-- **Educational & Research Use**: This tool is suitable for cybersecurity education, academic research, and authorized security assessments.
+## 👥 Contributors
 
-#### 2. Legal Compliance
-
-- **Comply with Laws**: You are solely responsible for ensuring that your use of this tool complies with all applicable local, national, and international laws and regulations.
-- **Legal Consequences**: Unauthorized penetration testing is **ILLEGAL** and may result in criminal prosecution, civil lawsuits, and substantial fines.
-- **Personal Liability**: Users assume full responsibility for all legal consequences arising from improper use of this tool.
-
-#### 3. Ethical Use
-
-- **Responsible Disclosure**: Discovered security vulnerabilities should follow Responsible Disclosure principles.
-- **Professional Standards**: Use of this tool must comply with professional security research standards and industry best practices.
-- **Confidentiality Obligations**: Respect the privacy and confidentiality of any vulnerabilities discovered during testing; do not disclose or exploit them without authorization.
-
-#### 4. Prohibited Activities
-
-**This software MUST NOT be used for:**
-
-- ❌ Unauthorized access to computer systems, networks, or data
-- ❌ Malicious attacks, destruction, or service disruption
-- ❌ Theft, tampering, or destruction of data
-- ❌ Any illegal or criminal activities
-- ❌ Privacy violations or breach of confidentiality agreements
-- ❌ Corporate espionage or unfair competition
-
-### Technical Risk Warnings
-
-#### 5. Code Execution Risks
-
-- **High-Privilege Tools**: LuaN1ao includes high-privilege tools such as `shell_exec` and `python_exec` with the capability to execute arbitrary system commands and code.
-- **Potential Destructiveness**: Improper use may cause **irreversible damage** to target systems, including but not limited to:
-  - System crashes or service interruptions
-  - Data loss or corruption
-  - Configuration file modifications
-  - Security mechanism compromise
-
-#### 6. Isolation Environment Requirements
-
-- **Mandatory Isolation**: **Strongly recommended to run in the following isolated environments:**
-  - Docker containers (recommended)
-  - Dedicated virtual machines (VMware, VirtualBox, KVM, etc.)
-  - Completely isolated sandbox environments
-- **Network Isolation**: Test environments should be physically or logically isolated from production networks.
-- **Data Isolation**: Do not run on systems containing real user data or sensitive information.
-
-#### 7. Production Environment Prohibition
-
-- **No Production Use**: Never run LuaN1ao on production environments, critical business systems, or systems containing sensitive data.
-- **Test Environments Only**: Use only in dedicated test, development, or sandbox environments.
-
-### Disclaimer and Limitation of Liability
-
-#### 8. Software Warranty Statement
-
-- **Provided "AS IS"**: This software is provided "AS IS" without warranty of any kind, express or implied.
-- **No Fitness Warranty**: No warranty of merchantability, fitness for a particular purpose, or non-infringement.
-- **No Results Guarantee**: No guarantee that the software will discover all vulnerabilities or achieve expected results.
-
-#### 9. Limitation of Liability
-
-**THE AUTHORS AND CONTRIBUTORS EXPRESSLY DISCLAIM ALL LIABILITY FOR MISUSE OF THIS SOFTWARE.**
-
-Under no circumstances shall developers, contributors, or copyright holders be liable for:
-
-- ✗ Any direct, indirect, incidental, special, punitive, or consequential damages arising from use or inability to use this software
-- ✗ Unauthorized system access or data breaches
-- ✗ System damage, data loss, or business interruption
-- ✗ Legal proceedings, fines, or other legal consequences
-- ✗ Loss of goodwill, profits, or other economic losses
-- ✗ Even if advised of the possibility of such damages
-
-#### 10. User Full Responsibility Statement
-
-- **Independent Judgment**: Users have complete autonomy and judgment in the decision to use this tool.
-- **Assumption of Risk**: All risks of using this software are assumed by the user.
-- **Full Responsibility**: Users assume full responsibility for all actions using this tool and their consequences.
-
-### Informed Consent
-
-**By downloading, installing, configuring, or using LuaN1ao, you expressly represent that:**
-
-1. ✅ You have completely read and fully understand all terms of this disclaimer
-2. ✅ You agree to be bound by this disclaimer
-3. ✅ You commit to use this tool only within authorized scope
-4. ✅ You understand and accept all risks of using this tool
-5. ✅ You acknowledge that developers are not liable for any of your usage actions
-
-**If you do not agree to any of the above terms, immediately cease using this software and delete all related files.**
+<a href="https://github.com/SanMuzZzZz/LuaN1aoAgent/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=SanMuzZzZz/LuaN1aoAgent" alt="Contributors" />
+</a>
 
 ---
 

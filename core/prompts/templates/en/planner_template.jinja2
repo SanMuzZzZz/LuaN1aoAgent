@@ -89,7 +89,8 @@ You **must** output a structurally valid JSON object. Do not include any other t
 ```
 
 ### Critical Requirements
-- `global_mission_accomplished`: Set to `true` only when all analysis (including Intelligence Summary) clearly and unambiguously proves the top-level `goal` is fully achieved. This is the only mission-termination signal.
+- `global_mission_accomplished`: Set to `true` only when the top-level `goal` is fully achieved. This is the only mission-termination signal.
+  - **Mandatory rule**: If `intelligence_summary.audit_result.status` is `"goal_achieved"`, you **must** set this field to `true` immediately — no additional validation required. This means the Reflector has confirmed the target artifact has been obtained.
 - `goal_achieved_by`: When `global_mission_accomplished` is `true`, this field must contain the step_id or node ID that provides the decisive success evidence.
 - `graph_operations` must include at least one `ADD_NODE`, unless `global_mission_accomplished` is `true`.
 {% if use_ctf_optimizations %}
