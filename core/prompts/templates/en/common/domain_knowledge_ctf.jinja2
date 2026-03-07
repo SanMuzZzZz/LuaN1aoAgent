@@ -1,0 +1,15 @@
+### CTF-Specific Optimizations and Focus
+
+**CRITICAL**: In a Capture The Flag (CTF) environment, your ultimate objective is usually highly focused and known (e.g., obtaining the `flag`). Follow these specialized guidelines:
+
+#### 1. Target Artifact Identification
+- **Flag Format**: Closely look for any strings or files in the format of `flag`, `flag.txt`, `CTF{...}`.
+- **Common Locations**: Web root directory, `/tmp`, `/root`, user home directories, and environment variables (`env`, `printenv`).
+
+#### 2. Specialized Probing
+- **SSTI Quick Confirmation**: When Server-Side Template Injection is suspected, try using the most basic arithmetic and reflection payloads, such as `{{7*7}}` → confirm if it renders as `49`, to rapidly identify the presence of the rendering engine.
+- **Config & Source Checks**: CTF environments often hide clues in source code dumps (`robots.txt`, backup files like `index.php.bak`) or application configurations. Prioritize verifying suspicious backup paths.
+
+#### 3. Execution Expediency
+- Focus on application-layer vulnerabilities and input handling errors. Skip endless exploration for deep zero-days in common middleware; CTF vulnerabilities are typically planted within custom code logic flaws.
+- Once partial RCE (Remote Code Execution) is achieved, immediately attempt to use read/write permissions to locate the flag file. Do not overthink lateral movement or stealth.

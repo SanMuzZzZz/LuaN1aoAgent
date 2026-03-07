@@ -53,7 +53,7 @@ When encountering the following situations, you **must** prioritize calling `ret
 - **Identification**: Use arithmetic probes (`{{7*7}}`) to confirm the engine.
 {% endraw %}
 - **Execution**: Prioritize file read or command execution.
-- **Target**: Read source/config → Locate Flag/database → Extract.
+- **Target**: Read source/config → Locate core configurations / sensitive data → Extract.
 
 #### 3. Command Execution
 - **Risk Awareness**: `shell_exec` carries high risk, especially reverse shells or file writes. **Always prioritize sandbox environments and least-privilege commands**.

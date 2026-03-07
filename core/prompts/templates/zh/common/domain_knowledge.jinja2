@@ -35,16 +35,12 @@
 #### 3. 服务器端模板注入 (SSTI)
 {% raw %}
 - **引擎识别 (关键)**:
-  - `{{7*7}}` (49) -> Jinja2/Twig
-  - `${7*7}` (49) -> Freemarker/Java
-  - `<%=7*7%>` (49) -> ERB
-  - `#{7*7}` (49) -> Smarty
-- **沙箱逃逸 (Python/Jinja2)**:
-  - `{{config.__class__.__init__.__globals__['os'].popen('id').read()}}`
-  - `{{''.__class__.__mro__[1].__subclasses__()}}` (寻找 `subprocess.Popen` 或 `os`)
+  - 探针验证 -> Jinja2/Twig 等
+  - `<%=...%>` -> ERB 等
+  - 寻找沙箱逃逸链条或基于 RCE 读取核心文件
 - **盲注**: 盲注时利用时间延迟 (`{% for x in range(10000) %}...{% endfor %}`) 或布尔差异。
 {% endraw %}
-- **进阶利用**: 成功获取 RCE 后，读取 `/etc/passwd`, `/etc/shadow`, 云平台元数据 (`169.254.169.254`)。
+- **进阶利用**: 成功获取 RCE 后，读取本地敏感系统文件或云平台元数据。
 
 #### 4. 文件上传 (File Upload)
 - **扩展名**: `.php5`, `.phtml`, `.php.jpg`, `.PhP`。
@@ -82,7 +78,10 @@
 
 #### 9. 目标产物识别 (Target Artifacts)
 - **常见位置**: 环境变量 (`env`, `printenv`), 配置文件 (`config.php`, `settings.py`), 数据库 (`users` 表), Web根目录, `/tmp`, `/root`, 用户目录。
-- **CTF**: 关注 `flag`, `flag.txt`, `CTF{...}` 格式。
+
+{% if use_ctf_optimizations %}
+{% include 'common/domain_knowledge_ctf.jinja2' %}
+{% endif %}
 
 #### 10. 漏洞组合与战果扩大 (Exploit Chaining & Post-Exploitation)
 - **漏洞链思维**:

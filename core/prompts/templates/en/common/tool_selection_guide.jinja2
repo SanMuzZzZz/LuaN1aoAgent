@@ -16,7 +16,7 @@
 {
   "tool": "http_request",
   "params": {
-    "url": "http://target.com/search?q={% raw %}{{7*7}}{% endraw %}",
+    "url": "http://target.com/search?q=[SSTI_PROBE]",
     "method": "GET"
   }
 }
@@ -82,7 +82,7 @@
   "tool": "expert_analysis",
   "params": {
     "query": "Jinja2 SSTI sandbox escape latest bypass techniques",
-    "context": "Confirmed Jinja2 template injection, {% raw %}{{7*7}}{% endraw %} returns 49, but {% raw %}{{config}}{% endraw %} is filtered"
+    "context": "Confirmed Jinja2 template injection, [SSTI_PROBE] returns 49, but {% raw %}{{config}}{% endraw %} is filtered"
   }
 }
 ```
@@ -188,7 +188,7 @@ for user_id in range(1, 100):
 {
   "tool": "http_request",
   "params": {
-    "url": "http://target.com/render?template={% raw %}{{7*7}}{% endraw %}",
+    "url": "http://target.com/render?template=[SSTI_PROBE]",
     "method": "GET"
   }
 }

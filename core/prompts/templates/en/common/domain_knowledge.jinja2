@@ -5,11 +5,7 @@
 - **Incremental Approach**: Probe → Confirm → Exploit. Never jump directly to complex exploits.
 - **Evidence Preservation**: Record every key response (status code, content, length, timing).
 
-{% if use_ctf_optimizations %}
-#### CTF-Specific Priorities
-- Focus on application-layer vulnerabilities, especially input handling errors.
-- Verify write/read permissions early.
-{% endif %}
+
 
 ---
 
@@ -27,10 +23,10 @@
 
 #### 3. SSTI (Server-Side Template Injection)
 {% raw %}
-- **Identification**: `{{7*7}}` → 49, `{{7*'7'}}` → 7777777 (Jinja2/Twig distinction).
+- **Identification**: Use generalized probes to differentiate engines (e.g., distinguishing Jinja2 from Twig).
 {% endraw %}
-- **Exploitation**: RCE via Jinja2 sandbox escape, configuration file read, module import/reflection.
-- **Advanced exploitation**: Sandbox escape, filter bypass, chain constructs.
+- **Exploitation**: RCE via sandbox escape, configuration file read, module import/reflection.
+- **Advanced exploitation**: Filter bypass, chain constructs.
 
 #### 4. File-Related Vulnerabilities
 - **LFI (Local File Inclusion)**: `../../../etc/passwd`, PHP wrappers (`php://filter`, `data://`), null byte truncation, double encoding.
@@ -63,7 +59,10 @@
 
 #### 9. Target Artifacts
 - **Common locations**: Environment variables (`env`, `printenv`), config files (`config.php`, `settings.py`), database (`users` table), web root, `/tmp`, `/root`, user directories.
-- **CTF**: Look for `flag`, `flag.txt`, `CTF{...}` format.
+
+{% if use_ctf_optimizations %}
+{% include 'common/domain_knowledge_ctf.jinja2' %}
+{% endif %}
 
 #### 10. Exploit Chaining & Post-Exploitation
 - **Chain thinking**:

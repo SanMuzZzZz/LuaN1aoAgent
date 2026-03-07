@@ -148,6 +148,7 @@ class PromptManager:
             "tools_section": tools_section,
             "failure_patterns": failure_patterns_text,
             "active_constraints": context.get("active_constraints", []),
+            "use_ctf_optimizations": SCENARIO_MODE == "ctf",
         }
 
         return self.executor_template.render(**input_variables)
@@ -213,6 +214,7 @@ class PromptManager:
             if dependency_context
             else "[]",
             "failure_patterns": failure_patterns_text,
+            "use_ctf_optimizations": SCENARIO_MODE == "ctf",
         }
 
         # 6. 反思上下文

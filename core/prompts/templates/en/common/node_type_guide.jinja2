@@ -6,4 +6,4 @@
 - **PossibleVulnerability**: Preliminary suspicion, must include `node_type: "PossibleVulnerability"` and `confidence`.
 - **ConfirmedVulnerability**: Verified by decisive testing, must include `node_type: "ConfirmedVulnerability"`, `confidence ≥ 0.9`, `status: "CONFIRMED"`.
 - **Exploit**: Payload exploiting the vulnerability, must include `node_type: "Exploit"` and `exploit_payload`.
-- **TargetArtifact**: Final target artifact of the task. In CTF scenarios, this is typically the flag. Node must include `node_type: "TargetArtifact"` and `data.value` (content validation determined by configurable termination condition regex).
+- **TargetArtifact**: Final target artifact of the task. This is the crucial credential or core file required by the task objective. Node must include `node_type: "TargetArtifact"` and `data.value` (content validation determined by configurable termination condition regex).
