@@ -1,5 +1,6 @@
 openai
 anthropic
+litellm
 requests>=2.32.0
 python-dotenv
 networkx

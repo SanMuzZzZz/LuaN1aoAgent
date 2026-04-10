@@ -24,6 +24,8 @@ from conf.config import (
     ANTHROPIC_FALLBACK_API_KEY,
     ANTHROPIC_MODELS,
     ANTHROPIC_VERSION,
+    LITELLM_MODELS,
+    LITELLM_API_BASE_URL,
 )
 
 # 导入事件代理
@@ -48,7 +50,17 @@ class LLMClient:
             "deepseek-reasoner": {"input": 0.004, "output": 0.016}, # Approx.
         }
         # self.cny_to_usd_rate = 7.0 # No longer needed as all costs will be in CNY.
-        if self.provider == "anthropic":
+        if self.provider == "litellm":
+            # LiteLLM universal provider – supports 100+ LLMs via a single SDK.
+            # Model names use the "provider/model" convention, e.g. "openai/gpt-4o".
+            # Per-provider API keys are read automatically from env (OPENAI_API_KEY, etc.).
+            self.models = LITELLM_MODELS
+            self.api_url = LITELLM_API_BASE_URL  # optional override
+            self.api_key = LLM_API_KEY  # optional fallback key
+            self.fallback_api_key = LLM_FALLBACK_API_KEY
+            self.prompt_token_cost = 0.0  # LiteLLM has built-in cost tracking
+            self.completion_token_cost = 0.0
+        elif self.provider == "anthropic":
             self.api_url = ANTHROPIC_API_BASE_URL
             self.api_key = ANTHROPIC_API_KEY
             self.fallback_api_key = ANTHROPIC_FALLBACK_API_KEY
@@ -189,6 +201,83 @@ class LLMClient:
 
         return headers, payload
 
+    async def _call_litellm(
+        self,
+        current_messages: list,
+        model_name: str,
+        temperature: float,
+        role: str,
+        expect_json: bool,
+        api_key_override: str | None = None,
+    ) -> tuple[str, dict | None]:
+        """
+        通过 LiteLLM SDK 调用任意 LLM 提供商。
+
+        LiteLLM 统一了 100+ 提供商（OpenAI, Anthropic, Gemini, Mistral, Ollama, Azure, Bedrock 等）
+        的调用接口，模型名称使用 \"provider/model\" 格式，例如 \"openai/gpt-4o\"、\"anthropic/claude-3-5-sonnet-20240620\"。
+
+        Returns:
+            tuple: (content_string, call_metrics)
+        """
+        import litellm
+
+        # 构建 litellm.acompletion 的关键字参数
+        kwargs: dict[str, Any] = {
+            "model": model_name,
+            "messages": current_messages,
+            "temperature": temperature,
+            "stream": False,
+        }
+
+        # 可选: api_base 覆盖（用于自定义代理 / 本地部署）
+        if self.api_url:
+            kwargs["api_base"] = self.api_url
+
+        # 可选: 显式传入 api_key（覆盖 LiteLLM 自动从环境变量读取的行为）
+        effective_key = api_key_override or self.api_key
+        if effective_key:
+            kwargs["api_key"] = effective_key
+
+        # 强制 JSON 输出（OpenAI 兼容格式）
+        if expect_json:
+            kwargs["response_format"] = {"type": "json_object"}
+
+        # 透传 extra_body / thinking 配置
+        if LLM_EXTRA_BODY_ENABLED:
+            thinking_mode = LLM_THINKING.get(role, LLM_THINKING.get("default", "off")).lower()
+            if thinking_mode in ["hidden", "visible"]:
+                kwargs["extra_body"] = {"thinking": thinking_mode}
+
+        # 抑制 LiteLLM 自身的冗余日志
+        litellm.suppress_debug_info = True
+
+        # 异步调用
+        response = await litellm.acompletion(**kwargs)
+
+        # ------ 提取内容 ------
+        content_string = response.choices[0].message.content or ""
+
+        # ------ 提取 usage 指标 ------
+        usage_data = None
+        call_metrics = None
+        if hasattr(response, "usage") and response.usage:
+            usage_data = {
+                "prompt_tokens": getattr(response.usage, "prompt_tokens", 0) or 0,
+                "completion_tokens": getattr(response.usage, "completion_tokens", 0) or 0,
+            }
+            call_metrics = self._update_metrics(usage_data, model_name)
+
+        # 尝试利用 LiteLLM 内置的精确成本计算
+        try:
+            cost = litellm.completion_cost(completion_response=response)
+            if cost and call_metrics:
+                # 转换 USD -> CNY (近似汇率)
+                call_metrics["cost_cny"] = cost * 7.0
+        except Exception:
+            pass  # 部分提供商可能缺少定价数据，静默忽略
+
+        return content_string, call_metrics
+
     async def _extract_response_content(self, api_response_json: dict, model_name: str) -> tuple[str, dict]:
         """
         从LLM API响应中提取内容和指标。
@@ -319,29 +408,37 @@ class LLMClient:
 
         while json_parsing_retries <= MAX_JSON_PARSE_RETRIES:
             try:
-                # 准备API请求
-                if self.provider == "anthropic":
-                    headers, payload = self._prepare_anthropic_payload(current_messages, model_name)
-                else:  # OpenAI
-                    headers, payload = self._prepare_openai_payload(
-                        current_messages, model_name, temperature, role, expect_json
+                # ---- LiteLLM 路径：使用 SDK 直接调用，无需手工构造 HTTP 请求 ----
+                if self.provider == "litellm":
+                    content_string, call_metrics = await self._call_litellm(
+                        current_messages, model_name, temperature, role, expect_json,
+                        api_key_override=current_api_key if current_api_key != self.api_key else None,
                     )
-
-                # 更新headers中的API key
-                if self.provider == "anthropic":
-                    headers["x-api-key"] = current_api_key
                 else:
-                    headers["Authorization"] = f"Bearer {current_api_key}"
+                    # ---- 原生 OpenAI / Anthropic HTTP 路径 ----
+                    # 准备API请求
+                    if self.provider == "anthropic":
+                        headers, payload = self._prepare_anthropic_payload(current_messages, model_name)
+                    else:  # OpenAI
+                        headers, payload = self._prepare_openai_payload(
+                            current_messages, model_name, temperature, role, expect_json
+                        )
 
-                # 发送请求
-                response = await self.client.post(self.api_url, headers=headers, json=payload, timeout=1200.0)
+                    # 更新headers中的API key
+                    if self.provider == "anthropic":
+                        headers["x-api-key"] = current_api_key
+                    else:
+                        headers["Authorization"] = f"Bearer {current_api_key}"
 
-                if response.status_code != 200:
-                    raise Exception(f"LLM API请求失败: {response.status_code} {response.text}")
+                    # 发送请求
+                    response = await self.client.post(self.api_url, headers=headers, json=payload, timeout=1200.0)
 
-                # 提取响应内容
-                api_response_json = json.loads(response.text)
-                content_string, call_metrics = await self._extract_response_content(api_response_json, model_name)
+                    if response.status_code != 200:
+                        raise Exception(f"LLM API请求失败: {response.status_code} {response.text}")
+
+                    # 提取响应内容
+                    api_response_json = json.loads(response.text)
+                    content_string, call_metrics = await self._extract_response_content(api_response_json, model_name)
 
                 # 发送响应事件
                 if broker and self.op_id:
@@ -370,7 +467,7 @@ class LLMClient:
                 else:
                     return content_string, call_metrics
 
-            except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError) as e:
+            except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError, ConnectionError, TimeoutError) as e:
                 should_continue, network_retries = await self._handle_network_error(e, network_retries, MAX_NETWORK_RETRIES)
                 if should_continue:
                     continue
@@ -655,8 +752,9 @@ if __name__ == "__main__":
 
     async def main():
         provider = "openai"
-        if len(sys.argv) > 1 and sys.argv[1] == "anthropic":
-            provider = "anthropic"
+        if len(sys.argv) > 1:
+            if sys.argv[1] in ("anthropic", "litellm"):
+                provider = sys.argv[1]
 
         # Manually override the provider for testing
         from conf import config

@@ -423,7 +423,7 @@ async def _build_executor_prompt(
     context = {
         "causal_context": prompt_context.get("causal_context", {}) if prompt_context else {},
         "dependencies": prompt_context.get("dependencies", []) if prompt_context else [],
-        "causal_graph_summary": prompt_context.get("causal_graph_summary", "因果链图谱为空。") if prompt_context else "因果链图谱为空。",
+        "causal_graph_summary": prompt_context.get("causal_graph_summary", "Le graphe de la chaîne causale est vide.") if prompt_context else "Le graphe de la chaîne causale est vide.",
         "key_facts": prompt_context.get("key_facts", []) if prompt_context else [],
         "active_hypotheses": subtask_data.get("active_hypotheses") or [],
     }
@@ -482,7 +482,7 @@ async def _handle_local_tool(tool_name: str, tool_params: dict, graph_manager: G
             "note": f"查询参数: node_type={node_type_filter!r}, query={query!r}, limit={limit}",
         }, ensure_ascii=False, indent=2)
 
-    return json.dumps({"success": False, "error": f"未知本地工具: {tool_name}"}, ensure_ascii=False)
+    return json.dumps({"success": False, "error": f"Outil local inconnu: {tool_name}"}, ensure_ascii=False)
 
 
 async def run_executor_cycle(
@@ -578,10 +578,10 @@ async def run_executor_cycle(
                 bulletin_lines = []
                 for f in new_findings:
                     bulletin_lines.append(
-                        f"  - [{f['node_type']}] 来自子任务 {f['from_subtask']}: **{f['title']}** — {f['description'][:120]}"
+                        f"  - [{f['node_type']}] from subtask {f['from_subtask']}: **{f['title']}** — {f['description'][:120]}"
                     )
                 bulletin_msg = (
-                    f"📢 [共享公告板] 其他并行子任务新增了 {len(new_findings)} 条线索（暂存状态，尚未经 Reflector 审核，请作为参考而非已确认事实）：\n"
+                    f"📢 [Shared Bulletin Board] Other parallel subtasks have been added. {len(new_findings)} This is a lead (currently stored and not yet reviewed by Reflector; please use it for reference only and not as confirmed fact).：\n"
                     + "\n".join(bulletin_lines)
                 )
                 messages.append({"role": "user", "content": bulletin_msg})
@@ -703,7 +703,7 @@ async def run_executor_cycle(
             return (subtask_id, "aborted_by_halt_signal", cycle_metrics)
 
         if not current_step_ops and not is_final_step:
-            _get_console().print("LLM在本轮思考中未提供可执行的动作（EXECUTE_NOW），子任务结束。", style="yellow")
+            _get_console().print("Since LLM did not provide any executable action (EXECUTE_NOW) in this round of thinking, the subtask ends.", style="yellow")
             return (subtask_id, "stalled_no_plan", cycle_metrics)
 
         # Execute tools in parallel
@@ -714,7 +714,7 @@ async def run_executor_cycle(
         for i, op in enumerate(current_step_ops):
             step_id = op.get("node_id")
             if not step_id or step_id == "None":
-                _get_console().print(f"⚠️ 跳过无效EXECUTE_NOW操作（缺少node_id）: {op}", style="yellow")
+                _get_console().print(f"⚠️ Skip invalid EXECUTE_NOW operations (missing node_id): {op}", style="yellow")
                 continue
             
             # Ensure step_id is globally unique by prepending subtask_id
