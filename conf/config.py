@@ -28,7 +28,7 @@ SCENARIO_MODE = os.getenv("SCENARIO_MODE", "general").lower()
 OUTPUT_MODE = os.getenv("OUTPUT_MODE", "default").lower()
 
 # 提示词语言 / Prompt Language: "zh" (中文), "en" (English)
-PROMPT_LANGUAGE = os.getenv("PROMPT_LANGUAGE", "zh").lower()
+PROMPT_LANGUAGE = os.getenv("PROMPT_LANGUAGE", "en").lower()
 
 # ============================================================================
 # LLM API 配置
@@ -130,6 +130,41 @@ ANTHROPIC_MODELS = {
         os.getenv("ANTHROPIC_PLANNER_MODEL", "claude-3-5-sonnet-20240620"),
     ),
 }
+
+# ============================================================================
+# LiteLLM 通用配置 (支持 100+ LLM 提供商)
+# ============================================================================
+
+# 当 LLM_PROVIDER="litellm" 时使用以下配置。
+# 模型名称使用 LiteLLM 的 provider/model 格式，例如：
+#   "openai/gpt-4o", "anthropic/claude-3-5-sonnet-20240620",
+#   "gemini/gemini-pro", "ollama/llama3", "mistral/mistral-large-latest",
+#   "azure/gpt-4o", "bedrock/anthropic.claude-3-sonnet" 等
+# 完整列表见: https://docs.litellm.ai/docs/providers
+#
+# 提供商专属的 API Key 通过各自环境变量传入（LiteLLM 自动读取），例如：
+#   OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, MISTRAL_API_KEY 等
+# 也可通过 LLM_API_KEY 统一指定（将作为 api_key 参数传递给 litellm）。
+
+LITELLM_MODELS = {
+    "default": os.getenv("LITELLM_DEFAULT_MODEL", "openai/gpt-4o"),
+    "planner": os.getenv("LITELLM_PLANNER_MODEL", "openai/gpt-4o"),
+    "executor": os.getenv("LITELLM_EXECUTOR_MODEL", "openai/gpt-4o"),
+    "reflector": os.getenv("LITELLM_REFLECTOR_MODEL", "openai/gpt-4o"),
+    "expert_analysis": os.getenv("LITELLM_EXPERT_MODEL", "openai/gpt-4o"),
+    "summarizer": os.getenv("LITELLM_SUMMARIZER_MODEL", os.getenv("LITELLM_DEFAULT_MODEL", "openai/gpt-4o")),
+    "reflector_validator": os.getenv(
+        "LITELLM_REFLECTOR_VALIDATOR_MODEL",
+        os.getenv("LITELLM_REFLECTOR_MODEL", "openai/gpt-4o"),
+    ),
+    "planner_crisis_expert": os.getenv(
+        "LITELLM_PLANNER_CRISIS_EXPERT_MODEL",
+        os.getenv("LITELLM_PLANNER_MODEL", "openai/gpt-4o"),
+    ),
+}
+
+# LiteLLM 可选的 API Base URL 覆盖（用于自定义代理或本地部署）
+LITELLM_API_BASE_URL = os.getenv("LITELLM_API_BASE_URL", None)
 
 # ============================================================================
 # 执行器行为配置

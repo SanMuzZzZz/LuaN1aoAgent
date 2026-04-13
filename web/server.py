@@ -6,6 +6,7 @@ import sys
 import subprocess
 import uuid
 import time
+from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 
@@ -30,14 +31,19 @@ from core.database.models import SessionModel, GraphNodeModel, GraphEdgeModel, E
 from core.intervention import intervention_manager # Added this line
 from conf.config import WEB_HOST, WEB_PORT
 
-# 配置 SSE 日志
+# Configure SSE logging
 _sse_logger = logging.getLogger("web.sse")
 
-# 进程跟踪字典: {op_id -> subprocess.Popen}
-# 用于在终止任务时直接kill进程
+# Process tracking dict: {op_id -> subprocess.Popen}
+# Used to directly kill processes when terminating tasks
 _running_processes: Dict[str, subprocess.Popen] = {}
 
-app = FastAPI(title="鸾鸟自主渗透系统 Web (DB Mode)")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_db()
+    yield
+
+app = FastAPI(title="Luanniao Autonomous Penetration System Web (DB Mode)", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -53,10 +59,6 @@ os.makedirs("web/templates", exist_ok=True)
 
 app.mount("/static", StaticFiles(directory="web/static"), name="static")
 templates = Jinja2Templates(directory="web/templates")
-
-@app.on_event("startup")
-async def startup_event():
-    await init_db()
 
 # --- Helper Functions for Graph Reconstruction ---
 
@@ -158,7 +160,7 @@ def _reconstruct_graph_data(nodes: List[GraphNodeModel], edges: List[GraphEdgeMo
             "thought": data.get("thought"),
             "goal": data.get("goal"),
             "completed_at": data.get("completed_at"),
-            "is_goal_achieved": data.get("is_goal_achieved", False),  # 标记成功路径终点
+            "is_goal_achieved": data.get("is_goal_achieved", False),  # Mark the endpoint of the success path
         }
         node_entry.update(tool_info)
         frontend_nodes.append(node_entry)
@@ -247,7 +249,7 @@ async def api_ops():
 
 @app.post("/api/ops/reorder")
 async def api_ops_reorder(payload: Dict[str, Any]):
-    """持久化保存任务列表顺序"""
+    """Persistently save the task list order"""
     order = payload.get("order") or []
     if not isinstance(order, list):
         raise HTTPException(status_code=400, detail="order must be a list of op_ids")
@@ -433,7 +435,7 @@ async def api_ops_abort(op_id: str):
         if not s:
             raise HTTPException(status_code=404, detail="Session not found")
         
-        # 1. 更新数据库状态
+        # 1. Update database status
         await session.execute(
             update(SessionModel)
             .where(SessionModel.id == op_id)
@@ -441,21 +443,21 @@ async def api_ops_abort(op_id: str):
         )
         await session.commit()
         
-    # 2. 直接强杀整个进程组
-    # 由于进程以 start_new_session=True 启动，Agent 及其所有子进程（MCP工具等）
-    # 都在同一个独立进程组中，使用 os.killpg + SIGKILL 可以一次性全部终止
+    # 2. Directly kill the entire process group
+    # Since the process is started with start_new_session=True, the Agent and all its child processes (MCP tools, etc.)
+    # are in the same independent process group; using os.killpg + SIGKILL terminates them all at once
     process_killed = False
     if op_id in _running_processes:
         proc = _running_processes[op_id]
         try:
             if proc.poll() is None:
                 try:
-                    # 直接 SIGKILL 整个进程组，确保所有子进程都被终止
+                    # Directly SIGKILL the entire process group to ensure all child processes are terminated
                     pgid = os.getpgid(proc.pid)
                     os.killpg(pgid, signal.SIGKILL)
                     proc.wait()
                 except ProcessLookupError:
-                    # 进程在 kill 之前已经退出
+                    # Process exited before kill
                     pass
                 process_killed = True
                 _sse_logger.info(f"Process group for op_id '{op_id}' killed (PID: {proc.pid})")
@@ -476,7 +478,7 @@ async def api_ops_abort(op_id: str):
 
 @app.patch("/api/ops/{op_id}")
 async def api_ops_rename(op_id: str, payload: Dict[str, Any]):
-    """重命名任务（更新显示名称）"""
+    """Rename a task (update display name)"""
     new_name = (payload.get("name") or "").strip()
     
     if not new_name:
@@ -645,11 +647,11 @@ async def api_ops_create(payload: Dict[str, Any]):
     goal = (payload.get("goal") or "").strip()
     task_name = (payload.get("task_name") or f"web_task_{int(time.time())}").strip()
     
-    # 新增配置选项
-    human_in_the_loop = payload.get("human_in_the_loop", False)  # 人机协同模式
-    output_mode = payload.get("output_mode", "default")  # 输出模式: simple, default, debug
+    # New configuration options
+    human_in_the_loop = payload.get("human_in_the_loop", False)  # Human-in-the-loop mode
+    output_mode = payload.get("output_mode", "default")  # Output mode: simple, default, debug
     
-    # LLM模型配置（可选）
+    # LLM model configuration (optional)
     llm_planner_model = payload.get("llm_planner_model", "").strip()
     llm_executor_model = payload.get("llm_executor_model", "").strip()
     llm_reflector_model = payload.get("llm_reflector_model", "").strip()
@@ -672,7 +674,7 @@ async def api_ops_create(payload: Dict[str, Any]):
         "--output-mode", output_mode,
     ]
     
-    # 添加可选的LLM模型配置
+    # Add optional LLM model configuration
     if llm_planner_model:
         command.extend(["--llm-planner-model", llm_planner_model])
     if llm_executor_model:
@@ -680,7 +682,7 @@ async def api_ops_create(payload: Dict[str, Any]):
     if llm_reflector_model:
         command.extend(["--llm-reflector-model", llm_reflector_model])
 
-    # 设置环境变量传递人机协同配置
+    # Set environment variables to pass human-in-the-loop configuration
     env = os.environ.copy()
     if human_in_the_loop:
         env["HUMAN_IN_THE_LOOP"] = "true"
@@ -690,7 +692,7 @@ async def api_ops_create(payload: Dict[str, Any]):
     # Use subprocess.Popen to start agent.py as a detached process
     # This prevents the web server from being blocked by the agent task
     try:
-        # 先在数据库中创建 session 记录，这样前端刷新时能立即看到新任务
+        # First create the session record in the database so the frontend can see the new task immediately on refresh
         async with AsyncSessionLocal() as session:
             new_session = SessionModel(
                 id=op_id,
@@ -723,9 +725,9 @@ async def api_ops_create(payload: Dict[str, Any]):
         process = subprocess.Popen(command, start_new_session=True, 
                                    stdout=stdout_log,  # Log stdout to file
                                    stderr=stderr_log,  # Log stderr to file
-                                   env=env)  # 传递环境变量
+                                   env=env)  # Pass environment variables
         
-        # 保存进程引用到跟踪字典，以便后续可以直接kill
+        # Save process reference in tracking dict for direct kill later
         _running_processes[op_id] = process
         
         _sse_logger.info(f"Agent task '{task_name}' (op_id: {op_id}) started with PID: {process.pid}, HITL: {human_in_the_loop}")
@@ -746,7 +748,7 @@ async def api_ops_create(payload: Dict[str, Any]):
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request, "index.html")
 
 if __name__ == "__main__":
     import uvicorn
