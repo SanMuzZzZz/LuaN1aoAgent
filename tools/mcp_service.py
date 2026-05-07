@@ -233,8 +233,8 @@ def complete_mission(reason: str, evidence: str, task_id: str) -> str:
     try:
         ev = evidence.strip() if isinstance(evidence, str) else ""
 
-        # 创建终止信号文件
-        halt_file_path = f"/tmp/{task_id}.halt"
+        safe_task_id = os.path.basename(task_id)
+        halt_file_path = f"/tmp/{safe_task_id}.halt"
         with open(halt_file_path, "w", encoding="utf-8") as f:
             json.dump({"reason": reason, "evidence": ev}, f, ensure_ascii=False, indent=2)
 
@@ -919,15 +919,13 @@ async def dirsearch_scan(url: str, extensions: str = "php,html,js,txt", extra_ar
                 filtered_args.append(arg)
             i += 1
     
-    cmd = f"dirsearch -u {url} -e {extensions} -q"
-    if filtered_args:
-        cmd += " " + " ".join(filtered_args)
+    cmd = ["dirsearch", "-u", url, "-e", extensions, "-q"] + filtered_args
 
     output_lines = []
     try:
-        process = await asyncio.create_subprocess_shell(
-            cmd,
-            stdout=asyncio.subprocess.PIPE, 
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT
         )
 
