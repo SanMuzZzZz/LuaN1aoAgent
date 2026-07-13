@@ -9,7 +9,9 @@ import time
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException, Request, Query
+import secrets
+
+from fastapi import FastAPI, HTTPException, Request, Query, Depends
 from fastapi.responses import StreamingResponse, JSONResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -39,13 +41,25 @@ _running_processes: Dict[str, subprocess.Popen] = {}
 
 app = FastAPI(title="鸾鸟自主渗透系统 Web (DB Mode)")
 
+_WEB_ALLOWED_ORIGINS = os.getenv("WEB_ALLOWED_ORIGINS", "").strip()
+_cors_origins = [o.strip() for o in _WEB_ALLOWED_ORIGINS.split(",") if o.strip()] if _WEB_ALLOWED_ORIGINS else []
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=bool(_cors_origins),
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+_WEB_API_TOKEN = os.getenv("WEB_API_TOKEN", "")
+
+def _require_api_token(request: Request):
+    if not _WEB_API_TOKEN:
+        return
+    token = request.headers.get("X-API-Token") or request.query_params.get("token")
+    if not secrets.compare_digest(token or "", _WEB_API_TOKEN):
+        raise HTTPException(status_code=403, detail="Invalid or missing API token")
 
 # Mount static files and templates
 os.makedirs("web/static", exist_ok=True)
@@ -374,7 +388,7 @@ async def api_submit_intervention_decision(op_id: str, payload: Dict[str, Any]):
     return {"ok": True}
 
 
-@app.post("/api/ops/{op_id}/inject_task")
+@app.post("/api/ops/{op_id}/inject_task", dependencies=[Depends(_require_api_token)])
 async def api_ops_inject_task(op_id: str, payload: Dict[str, Any]):
     description = (payload.get("description") or "").strip()
     dependencies = payload.get("dependencies") or []
@@ -397,7 +411,7 @@ async def api_mcp_config():
     return _load_mcp_config()
 
 
-@app.post("/api/mcp/add")
+@app.post("/api/mcp/add", dependencies=[Depends(_require_api_token)])
 async def api_mcp_add(payload: Dict[str, Any]):
     name = (payload.get("name") or "").strip()
     command = (payload.get("command") or "").strip()
@@ -423,7 +437,7 @@ async def api_mcp_add(payload: Dict[str, Any]):
     reloaded = await _reload_mcp_sessions()
     return {"ok": True, "name": name, "reloaded": reloaded}
 
-@app.post("/api/ops/{op_id}/abort")
+@app.post("/api/ops/{op_id}/abort", dependencies=[Depends(_require_api_token)])
 async def api_ops_abort(op_id: str):
     import signal
     
@@ -498,7 +512,7 @@ async def api_ops_rename(op_id: str, payload: Dict[str, Any]):
     _sse_logger.info(f"Task '{op_id}' renamed to '{new_name}'")
     return {"ok": True, "name": new_name}
 
-@app.delete("/api/ops/{op_id}")
+@app.delete("/api/ops/{op_id}", dependencies=[Depends(_require_api_token)])
 async def api_ops_delete(op_id: str):
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(SessionModel).where(SessionModel.id == op_id))
@@ -640,7 +654,7 @@ async def api_events(request: Request, op_id: str):
     return EventSourceResponse(event_generator())
 
 # Legacy/Compatibility Routes
-@app.post("/api/ops")
+@app.post("/api/ops", dependencies=[Depends(_require_api_token)])
 async def api_ops_create(payload: Dict[str, Any]):
     goal = (payload.get("goal") or "").strip()
     task_name = (payload.get("task_name") or f"web_task_{int(time.time())}").strip()
