@@ -1,0 +1,51 @@
+{
+  "name": "luaniao-security-agent",
+  "version": "2.0.0",
+  "private": false,
+  "type": "module",
+  "description": "Pi SDK based security agent with Planner, Executor, Observer and tri-graph runtime state.",
+  "license": "Apache-2.0",
+  "scripts": {
+    "build": "npm run build:server && npm run build:web",
+    "build:server": "tsc -p tsconfig.json",
+    "build:web": "tsc -p web/tsconfig.json && vite build --config web/vite.config.ts",
+    "test": "npm run build && node --test --test-force-exit \"dist/**/*.test.js\" && vitest run --config web/vite.config.ts",
+    "test:web": "vitest run --config web/vite.config.ts",
+    "start": "node dist/src/cli.js",
+    "web": "node dist/src/web-server.js",
+    "web:dev": "vite --config web/vite.config.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "latest",
+    "@earendil-works/pi-tui": "0.80.3",
+    "@mozilla/readability": "^0.6.0",
+    "antd": "^6.5.0",
+    "cytoscape": "^3.34.0",
+    "cytoscape-elk": "^2.3.0",
+    "jsdom": "^26.1.0",
+    "lucide-react": "^0.468.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-resizable-panels": "^4.12.1",
+    "react-virtuoso": "^4.14.0",
+    "turndown": "^7.2.4",
+    "turndown-plugin-gfm": "^1.0.2",
+    "typebox": "latest"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@types/jsdom": "^21.1.7",
+    "@types/node": "latest",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/turndown": "^5.0.6",
+    "@vitejs/plugin-react": "^6.0.3",
+    "typescript": "latest",
+    "vite": "^8.1.4",
+    "vitest": "^4.1.10"
+  },
+  "engines": {
+    "node": ">=25"
+  }
+}

@@ -1,33 +1,37 @@
 <p align="center">
-  <img src="imgs/logo.png" alt="LuaN1ao Logo" width="200" />
+  <img src="docs/assets/logo.png" alt="LuaN1aoAgent logo" width="200" />
 </p>
 
 <h1 align="center">LuaN1aoAgent</h1>
 
 <h2 align="center">
 
-**Cognitive-Driven AI Hackers**
+**Cognitive-Driven Autonomous Security Agent**
 
 </h2>
 
 <div align="center">
 
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
-[![Architecture: P-E-R](https://img.shields.io/badge/Architecture-P--E--R-purple.svg)](#system-architecture)
-[![Powered by LLM](https://img.shields.io/badge/Powered%20by-LLM-ff69b4.svg)](#)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
+[![GitHub Release](https://img.shields.io/github/v/release/SanMuzZzZz/LuaN1aoAgent?sort=semver)](https://github.com/SanMuzZzZz/LuaN1aoAgent/releases/latest)
+[![Node.js 25+](https://img.shields.io/badge/Node.js-25%2B-339933.svg?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Runtime: Pi SDK](https://img.shields.io/badge/Runtime-Pi%20SDK-111827.svg)](#system-architecture)
+[![Architecture: P-E-O](https://img.shields.io/badge/Architecture-P--E--O-7C3AED.svg)](#core-innovations)
+
 </div>
+
 <div align="center">
-<a href="https://zc.tencent.com/competition/competitionHackathon?code=cha004"><img src="imgs/tch.png" alt="[TCH]Top-RankedIntelligent Pentest Project" width="250" /></a>
+
+<a href="https://zc.tencent.com/competition/competitionHackathon?code=cha004"><img src="docs/assets/tch.png" alt="Top-Ranked Intelligent Pentest Project" width="250" /></a>
 
 ---
 
-**🧠 Think Like Human Experts** • **📊 Dynamic Graph Planning** • **🔄 Learn From Failures** • **🎯 Evidence-Driven Decisions**
+**🧠 Think in Graphs** • **⚙️ Act Autonomously** • **🔎 Preserve Evidence** • **🧭 Stay Observable**
 
-[🚀 Quick Start](#quick-start) • [✨ Core Innovations](#core-innovations) • [🏗️ System Architecture](#system-architecture) • [🗓️ Roadmap](#roadmap)
+[🚀 Quick Start](#quick-start) • [✨ Core Innovations](#core-innovations) • [🖥️ Showcase](#showcase) • [🧩 Skills](#recommended-skills) • [🏗️ Architecture](#system-architecture) • [🗓️ Roadmap](#roadmap)
 
-[🌐 中文版](README_zh.md) • [English Version](README.md)
+[🌐 中文版](README_CN.md) • [English](README.md)
 
 </div>
 
@@ -35,491 +39,468 @@
 
 ## 📖 Introduction
 
-**LuaN1ao (鸾鸟)** is a next-generation **Autonomous Penetration Testing Agent** powered by Large Language Models (LLMs).
+**LuaN1aoAgent v2** is a complete rewrite of LuaN1aoAgent, built on TypeScript and the Pi SDK for autonomous, authorized security research.
 
-Traditional automated scanning tools rely on predefined rules and struggle with complex real-world scenarios. LuaN1ao breaks through these limitations by innovatively integrating the **P-E-R (Planner-Executor-Reflector) Agent Collaboration Framework** with **Causal Graph Reasoning** technology.
+v2 keeps the original project's cognitive-driven direction while rebuilding its runtime around explicit Agent boundaries, durable events and artifacts, evidence-backed graph memory, and observable tool actions.
 
-LuaN1ao simulates the thinking patterns of human security experts:
+LuaN1aoAgent v2 separates responsibility into three roles:
 
-- 🎯 **Strategic Planning**: Dynamically plan attack paths based on global situational awareness
-- 🔍 **Evidence-Driven**: Build rigorous "Evidence-Hypothesis-Validation" logical chains
-- 🔄 **Continuous Evolution**: Learn from failures and autonomously adjust tactical strategies
-- 🧠 **Cognitive Loop**: Form a complete cognitive cycle of planning-execution-reflection
+- **Planner** controls goals, scope, dependencies, task budgets, and graph-level scheduling.
+- **Executor** autonomously decides how to complete one bounded task and performs tool loops in an isolated workspace.
+- **Observer** runs as two independent modes: a hot-path **Supervisor** for control decisions and an asynchronous **Projector** for durable graph updates.
 
-From information gathering to vulnerability exploitation, LuaN1ao elevates penetration testing from "automated tools" to an "autonomous agent".
+The system is designed around one principle: every important conclusion must remain traceable to persisted events, artifacts, and graph evidence.
+
+> [!IMPORTANT]
+> LuaN1aoAgent v2 is not an in-place refactor of the Python v1 runtime. It is a new implementation with different configuration, persistence, Agent lifecycle, and observability contracts.
 
 > [!NOTE]
-> [LuaN1aoAgent achieves a 90.4% success rate on benchmark tasks fully autonomously, with a median exploit cost of only $0.09.  →](./xbow-benchmark-results)
+> Benchmark results reported by v1 are not automatically attributed to v2. v2 benchmark results will be published only after reproducible reruns on a frozen release.
 
 <p align="center">
   <a href="https://github.com/SanMuzZzZz/LuaN1aoAgent">
-      <img src="https://img.shields.io/badge/⭐-Give%20us%20a%20Star-yellow?style=for-the-badge&logo=github" alt="Give us a Star">
+    <img src="https://img.shields.io/badge/Star-LuaN1aoAgent-yellow?style=for-the-badge&logo=github" alt="Star LuaN1aoAgent" />
   </a>
 </p>
 
 ---
 
-## 🖼️ Showcase
+## <a id="showcase"></a>🖥️ Showcase
 
-<https://github.com/user-attachments/assets/e2c19442-20db-40ab-a5c6-3bf5c9054ae8>
+<p align="center">
+  <img src="docs/assets/workbench-live-trace.png" alt="LuaN1aoAgent v2 live Agent trace with reasoning, actions, artifacts, and runtime inspection" width="100%" />
+</p>
 
-> 💡 _More demos coming soon!_
+<p align="center"><strong>Live Trace</strong> — inspect what each Agent is reasoning about, which action it takes, the associated task, and persisted artifacts.</p>
+
+<p align="center">
+  <img src="docs/assets/workbench-reasoning-graph.png" alt="LuaN1aoAgent v2 causal reasoning graph connecting evidence, hypotheses, vulnerabilities, and exploits" width="100%" />
+</p>
+
+<p align="center"><strong>Causal Reasoning Graph</strong> — trace evidence into hypotheses, confirmed vulnerabilities, and successful exploits.</p>
 
 ---
 
-## 🚀 Core Innovations
+## <a id="core-innovations"></a>🚀 Core Innovations
 
-### 1️⃣ **P-E-R Agent Collaboration Framework** ⭐⭐⭐
+### 1️⃣ **Planner-Executor-Observer Collaboration** ⭐⭐⭐
 
-LuaN1ao decouples penetration testing thinking into three independent yet collaborative cognitive roles, forming a complete decision-making loop:
+v2 replaces the shared-history P-E-R loop with explicit runtime boundaries.
 
-- **🧠 Planner**
-  - **Strategic Brain**: Dynamic planning based on global graph awareness
-  - **Adaptive Capability**: Identify dead ends and automatically generate alternative paths
-  - **Graph Operation Driven**: Output structured graph editing instructions rather than natural language
-  - **Parallel Scheduling**: Automatically identify parallelizable tasks based on topological dependencies
-  - **Adaptive Step Count**: Allocate extra execution steps (`max_steps`) per subtask for complex tasks (blind injection extraction, multi-stage bypass, etc.)
+#### Planner
 
-- **⚙️ Executor**
-  - **Tactical Execution**: Focus on single sub-task tool invocation and result analysis
-  - **Tool Orchestration**: Unified scheduling of security tools via MCP (Model Context Protocol)
-  - **Context Compression**: Intelligent message history management to avoid token overflow
-  - **Fault Tolerance**: Automatic handling of network transient errors and tool invocation failures
-  - **Hypothesis Persistence**: Hypotheses from `formulate_hypotheses` are preserved across steps and survive context compression
-  - **Parallel Discovery Sharing**: Parallel subtasks exchange high-value findings in real-time via a shared bulletin board (ConfirmedVulnerability and high-confidence KeyFact)
-  - **First-Step Guidance**: When no confirmed vulnerabilities exist, automatically prompts the agent to formulate a hypothesis framework before blind exploration
+- Reads compact task, reasoning, and operation graph views.
+- Creates or patches goal-level tasks instead of prescribing low-level actions.
+- Controls dependencies, priority, parallel groups, scope, and task budgets.
+- Schedules one deterministic admitted wave per planning cycle.
+- Submits decisions through the structured `planner_submit` terminating tool.
 
-- **⚖️ Reflector**
-  - **Audit Analysis**: Review task execution and validate artifact effectiveness
-  - **Failure Attribution**: L1-L4 level failure pattern analysis to prevent repeated errors
-  - **Intelligence Generation**: Extract attack intelligence and build knowledge accumulation
-  - **Termination Control**: Judge goal achievement or task entrapment
+#### Executor
 
-**Key Advantages**: Role separation avoids the "split personality" problem of single agents. Each component focuses on its core responsibilities and collaborates via event bus.
+- Receives a bounded `TaskEnvelope` and independently chooses its tool strategy.
+- Records public intent, tool input, tool output, usage, errors, and final task results.
+- Preserves large outputs as immutable artifacts instead of inflating Agent context.
+- Submits results through the structured `task_result_submit` terminating tool.
+
+#### Observer
+
+- **Supervisor mode** inspects recent Executor actions and decides whether to continue, checkpoint, stop, or return control to Planner.
+- **Projector mode** asynchronously converts normalized observations into evidence-backed reasoning and operation graph deltas.
+- Each invocation uses a fresh Pi session without sharing hidden model history.
+- Supervisor and Projector submit through `control_submit` and `graph_delta_submit`.
 
 ### 2️⃣ **Causal Graph Reasoning** ⭐⭐⭐
 
-LuaN1ao rejects blind guessing and LLM hallucinations, constructing explicit causal graphs to drive testing decisions:
+LuaN1ao turns observations into explicit, traceable reasoning chains instead of relying on conclusions hidden in model history:
 
 ```mermaid
-graph LR
-    E[🔍 Evidence<br/>Evidence Node] -->|Support| H[💭 Hypothesis<br/>Hypothesis Node]
-    H -->|Validation| V[⚠️ Vulnerability<br/>Vulnerability Node]
-    V -->|Exploitation| X[💥 Exploit<br/>Exploit Node]
+flowchart LR
+    Evidence[Evidence] -->|supports / contradicts| Hypothesis[Hypothesis]
+    Hypothesis -->|confirms| Vulnerability[Vulnerability]
+    Vulnerability -->|exploited by| Exploit[Exploit]
+    Evidence -. observed on .-> Endpoint[WebEndpoint / Service]
 ```
 
-**Core Principles**:
+- **Evidence first**: reasoning nodes and edges preserve references to the events that support them.
+- **Explicit uncertainty**: hypotheses remain distinct from confirmed vulnerabilities and successful exploits.
+- **Enforced provenance**: confirmed `Vulnerability` nodes and successful `Exploit` nodes cannot be written without evidence references.
+- **Asynchronous projection**: Observer Projector converts normalized execution observations into graph deltas without blocking the Executor loop.
+- **Cross-graph context**: the Reasoning Graph links conclusions to concrete entities in the Operation Graph.
 
-- **Evidence First**: Any hypothesis requires explicit prior evidence support
-- **Confidence Quantification**: Each causal edge has a confidence score to avoid blind advancement
-- **Traceability**: Complete recording of reasoning chains for failure tracing and experience reuse
-- **Hallucination Prevention**: Mandatory evidence validation, rejecting unfounded attacks
+### 3️⃣ **Plan-on-Graph Dynamic Task Planning** ⭐⭐⭐
 
-**Example Scenario**:
+The Planner maintains an evolving Task Graph rather than regenerating a linear checklist:
 
+```mermaid
+flowchart LR
+    Goal --> Recon[Recon Task]
+    Goal --> Auth[Auth Task]
+    Recon --> Milestone[Service Profile]
+    Milestone --> Validate[Validation Task]
+    Auth --> Validate
+    Blocker -. blocks .-> Validate
 ```
-Evidence: Port scan discovers 3306/tcp open
-  ↓ (Confidence 0.8)
-Hypothesis: Target runs MySQL service
-  ↓ (Validation successful)
-Vulnerability: MySQL weak password/unauthorized access
-  ↓ (Attempt exploitation)
-Exploit: mysql -h target -u root -p [brute-force/empty password]
-```
 
-### 3️⃣ **Plan-on-Graph (PoG) Dynamic Task Planning** ⭐⭐⭐
+- **Structured graph operations**: `create_tasks`, `patch_task`, `replace_dependencies`, `set_task_status`, and `set_node_status` form the planning language.
+- **Local adaptation**: new evidence patches the relevant tasks and dependencies instead of discarding the whole plan.
+- **Dependency-aware scheduling**: only ready tasks enter a deterministic admitted wave; independent tasks may run concurrently.
+- **Evidence-backed decisions**: every Planner command carries a reason and can cite the graph nodes or events it is based on.
+- **Task/action separation**: goals, tasks, milestones, blockers, and scope live in the Task Graph; low-level tool actions remain in the append-only ExecutionLog.
 
-Say goodbye to static task lists. LuaN1ao models penetration testing plans as dynamically evolving **Directed Acyclic Graphs (DAGs)**:
+| Capability | Linear task list | LuaN1ao PoG |
+|---|---|---|
+| Plan structure | Ordered steps | Dependency graph |
+| Adaptation | Regenerate the plan | Patch affected nodes and edges |
+| Scheduling | Manual ordering | Dependency-aware admitted waves |
+| Traceability | Natural-language history | Structured commands and persisted events |
 
-**Core Features**:
+### 4️⃣ **Evidence and Artifact Fidelity** ⭐⭐⭐
 
-- **Graph Operation Language**: Planner outputs standardized graph editing operations (`ADD_NODE`, `UPDATE_NODE`, `DEPRECATE_NODE`)
-- **Real-time Adaptation**: Task graphs deform in real-time with testing progress
-  - Discover new ports → Automatically mount service scanning subgraphs
-  - Encounter WAF → Insert bypass strategy nodes
-  - Path blocked → Automatically prune or branch planning
-- **Topological Dependency Management**: Automatically identify and **parallelize** independent tasks based on DAG topology
-- **State Tracking**: Each node contains a state machine (`pending`, `in_progress`, `completed`, `failed`, `deprecated`)
+Every Pi event is normalized before it enters the runtime ledger:
 
-**Comparison with Traditional Planning**:
-
-| Feature | Traditional Task List | Plan-on-Graph |
-|---------|----------------------|---------------|
-| Structure | Linear list | Directed graph |
-| Dependency Management | Manual sorting | Topological auto-sorting |
-| Parallel Capability | None | Auto-identify parallel paths |
-| Dynamic Adjustment | Regenerate | Local graph editing |
-| Visualization | Difficult | Native support (Web UI) |
-
-**Visualization Example**: Start the Web Server to view the task graph evolution in real-time in the browser.
+- Public Agent intent is preserved separately from tool calls.
+- Tool start and finish events retain their `toolCallId` correlation.
+- Small outputs stay inline for immediate inspection.
+- Large outputs spill to content-addressed artifacts with preview and provenance references.
+- Projector inputs use bounded observation batches and explicit artifact references.
+- Confirmed vulnerability and exploit nodes require evidence references.
 
 ---
 
-## Core Capabilities
+## 🧰 Core Capabilities
 
-### Tool Integration (MCP Protocol)
+### Structured Agent Control
 
-LuaN1ao achieves unified integration and scheduling of tools through the **Model Context Protocol (MCP)**:
+- Schema-validated Planner, Executor, Supervisor, and Projector terminal submissions.
+- Deterministic task admission with dependency-aware parallel scheduling.
+- Per-task turn budgets and global run-time budgets.
+- Retryable provider failure classification and bounded fresh-session retries.
+- Explicit Planner conflict detection and atomic command batches.
 
-- **HTTP/HTTPS Requests**: Support for custom headers, proxies, timeout control
-- **Shell Command Execution**: Securely encapsulated system command invocation (containerized execution recommended)
-- **Python Code Execution**: Dynamic execution of Python scripts for complex logic processing
-- **Metacognitive Tools**: `think` (deep thinking), `formulate_hypotheses` (hypothesis generation), `reflect_on_failure` (failure reflection)
-- **Task Control**: `halt_task` (early task termination)
-- **Local Graph Query**: `query_causal_graph` (direct in-process causal graph lookup, zero MCP latency)
+### Tool Runtime
 
-> 💡 **Extensibility**: New tools can be easily integrated via `mcp.json` (e.g., Metasploit, Nuclei, Burp Suite API)
+Executors use Pi coding tools inside the configured sandbox boundary:
 
-### Knowledge Enhancement (RAG)
+- `read`, `grep`, `find`, and `ls` for workspace inspection.
+- `bash` for controlled command execution.
+- `web_fetch` for fetching public HTTP(S) references, advisories, and PoC writeups into bounded Markdown previews.
+- `web_search` for public web search through Brave Search when `BRAVE_SEARCH_API_KEY` or `BRAVE_API_KEY` is set, with HTML search fallbacks when no key is available.
+- `vulnerability_search` for CVE/advisory research through NVD and public web references, preserving weak negative semantics when no public hit is found.
+- `artifact_read` and `artifact_write` for durable cross-task material.
+- `task_result_submit` for structured task completion or checkpoint handoff.
 
-- **Vector Retrieval**: Efficient knowledge base retrieval based on FAISS
-- **Domain Knowledge**: Integration of PayloadsAllTheThings and other open-source security knowledge bases
-- **Dynamic Learning**: Continuous addition of custom knowledge documents
+Public research results are treated as hypotheses or intelligence leads until the Executor validates them against the authorized target with sandboxed tools. Optional `NVD_API_KEY` increases NVD rate limits but is not required.
 
-### Web Visualization (New Architecture)
+Planner receives `graph_query` and `graph_trace` for compact task, reasoning, operation, and session views. Executor receives the graph closure and dependency outcomes selected by Runtime as explicit input rather than direct access to the control-plane graph store.
 
-The Web UI is now a standalone service powered by a database, enabling persistent task monitoring and management.
+### <a id="recommended-skills"></a>Recommended Agent Skills
 
-- **Real-time Monitoring**: Browser view of dynamic task graph evolution and live logs.
-- **Node Details**: Click nodes to view execution logs, artifacts, state transitions.
-- **Task Management**: Create, abort, and **delete** historical tasks.
-- **Data Persistence**: All task data is stored in SQLite (`luan1ao.db`), preserving history across restarts.
+LuaN1ao uses the Agent Skills convention through the Pi runtime. These optional community collections provide useful security references and task-specific workflows:
 
-### Human-in-the-Loop (HITL) Mode
+| Collection | Recommended for |
+|---|---|
+| [Eyadkelleh/awesome-skills-security](https://github.com/Eyadkelleh/awesome-skills-security) | Curated fuzzing payloads, password and username lists, sensitive-data patterns, web-shell samples, and LLM security testing resources |
+| [ljagiello/ctf-skills](https://github.com/ljagiello/ctf-skills) | CTF and lab workflows covering Web, Pwn, Crypto, Reverse Engineering, Forensics, OSINT, AI/ML, malware analysis, and writeups |
 
-LuaN1ao Agent supports a Human-in-the-Loop (HITL) mode, allowing experts to supervise and intervene in the decision-making process.
+Install them globally for the Pi Agent runtime:
 
-- **Enable**: Set `HUMAN_IN_THE_LOOP=true` in `.env`.
-- **Approval**: The agent pauses after generating a plan (initial or dynamic), waiting for human approval via Web UI or CLI.
-- **Modification**: Experts can reject or directly modify the plan (JSON editing) before execution.
-- **Injection**: Supports real-time injection of new sub-tasks via the Web UI ("Active Intervention").
+```bash
+npx skills add Eyadkelleh/awesome-skills-security \
+  --skill '*' --agent pi --global --yes
 
-**Interaction Methods**:
+npx skills add ljagiello/ctf-skills \
+  --skill '*' --agent pi --global --yes
+```
 
-- **Web UI**: Approval modal pops up automatically. Use "Modify" to edit plans or "Add Task" button to inject tasks.
-- **CLI**: Prompts with `HITL >`. Type `y` to approve, `n` to reject, or `m` to modify (opens system editor).
+Installed skills are discovered from `~/.pi/agent/skills/` on the next Agent run. They remain separate third-party projects with their own licenses and update cycles.
 
----
+### Sandbox Isolation
 
-## <a id="roadmap"></a>🗓️ Roadmap
+- macOS uses Seatbelt through `sandbox-exec` when available.
+- Linux supports Bubblewrap isolation.
+- Executor workspaces and runtime roots are resolved explicitly.
+- Host paths outside allowed roots fail closed under forced sandbox modes.
+- Agent runtime state is not exposed to isolated Executor sessions as implicit context.
 
-- [ ] **Experience Self-Evolution**
-  - Cross-task long-term memory
-  - Automatic extraction of successful attack patterns into vector library
-  - Intelligent recommendations based on historical experience
+### Durable Runtime State
 
-- [x] **Human-in-the-Loop Mode**
-  - Pre-high-risk operation confirmation mechanism
-  - Runtime task graph editing interface (Graph Injection)
-  - Expert intervention and strategy injection
+Each fresh CLI invocation creates an isolated session under `.agent-runtime/sessions/<session>/`. The TUI prints the selected session path at startup. A session contains:
 
-- [ ] **Tool Ecosystem Expansion**
-  - Integration of Metasploit RPC interface
-  - Support for Nuclei, Xray, AWVS scanners
-  - Docker sandboxed tool execution environment
-
-- [ ] **Multimodal Capabilities**
-  - Image recognition (CAPTCHA, screenshot analysis)
-  - Traffic analysis (PCAP file parsing)
-
-### Long-term Vision
-
-- [ ] **Collaborative Agent Network**: Multi-agent distributed collaboration
-- [ ] **Reinforcement Learning Integration**: Autonomous optimization of attack strategies through environmental interaction, achieving self-evolution and strategy convergence of agents in complex scenarios
-- [ ] **Compliance Report Generation**: Automatic generation of compliant penetration testing reports
+| Path | Purpose |
+|---|---|
+| `state.sqlite` | Graphs, execution events, projector watermarks, artifacts, and runtime state |
+| `execution.jsonl` | Append-only audit mirror of normalized execution events |
+| `graph-deltas.jsonl` | Replayable graph delta mirror |
+| `artifacts/` | Large outputs and durable task artifacts |
+| `web-auth.sqlite` | Local Web workbench users and sessions |
 
 ---
 
 ## 📋 System Requirements
 
-| Component | Requirements | Notes |
-|-----------|--------------|-------|
-| **Operating System** | Linux (recommended) / macOS / Windows (WSL2) | Recommended to run in isolated environments |
-| **Python** | 3.10+ | Requires support for asyncio and type hints |
-| **LLM API** | OpenAI compatible format | Supports GPT-4o, DeepSeek, Claude-3.5, etc. |
-| **Memory** | Minimum 4GB, recommended 8GB+ | RAG services and LLM inference require memory |
-| **Network** | Internet connection | Access to LLM APIs and knowledge base updates |
+| Component | Requirement | Notes |
+|---|---|---|
+| Operating system | macOS or Linux | Windows has not been validated as a v2 release target |
+| Node.js | 25+ | Must support the built-in `node:sqlite` runtime used by v2 |
+| LLM API | OpenAI-compatible | Chat Completions by default; Responses API is optional |
+| Terminal | ANSI-compatible TTY | Required for the interactive Agent timeline |
+| Browser | Current Chromium, Firefox, or Safari | Used by the authenticated Web workbench |
 
-> ⚠️ **Security Notice**: LuaN1ao includes high-privilege tools like `shell_exec` and `python_exec`. **Strongly recommend running in Docker containers or virtual machines** to avoid potential risks to the host system.
+> [!WARNING]
+> Executor tools can run shell commands. Use an isolated host, VM, or container and restrict every run to targets you are explicitly authorized to test.
 
 ---
 
-## 🚀 Quick Start
+## <a id="quick-start"></a>🚀 Quick Start
 
-### Step 1: Installation
+### 1. Clone and install
 
 ```bash
-# Clone repository
 git clone https://github.com/SanMuzZzZz/LuaN1aoAgent.git
 cd LuaN1aoAgent
-
-# Create virtual environment (recommended)
-python3 -m venv venv
-source venv/bin/activate  # Linux/macOS
-# Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
+npm ci
+npm run build
 ```
 
-### Step 2: Configuration
+### 2. Configure the LLM runtime
 
-#### 2.1 Environment Variables Configuration
-
-```bash
-# Copy configuration template
-cp .env.example .env
-
-# Edit .env file
-nano .env  # or use your preferred editor
-```
-
-**Core Configuration Items**:
+Create a local `.env` file:
 
 ```ini
-# LLM API Configuration (required)
-LLM_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxx
+LLM_API_KEY=your-api-key
 LLM_API_BASE_URL=https://api.openai.com/v1
+LLM_DEFAULT_MODEL=your-model-id
 
-# Recommended to use powerful models for better results
-LLM_DEFAULT_MODEL=gpt-4o
-LLM_PLANNER_MODEL=gpt-4o    # Planner requires strong reasoning capability
-LLM_EXECUTOR_MODEL=gpt-4o
-LLM_REFLECTOR_MODEL=gpt-4o
-
-OUTPUT_MODE=default    # simple/default/debug
+# Optional: openai-completions or openai-responses
+LLM_API_TYPE=openai-completions
 ```
 
-#### 2.2 Knowledge Base Initialization (Required for First Run)
+v2 reads `.env` locally. The file is ignored by Git and must never be committed.
 
-LuaN1ao relies on the **RAG (Retrieval-Augmented Generation)** system to obtain the latest security knowledge. The knowledge base needs to be initialized before the first run:
+### 3. Start an Agent run
 
 ```bash
-# 1. Clone PayloadsAllTheThings knowledge base
-mkdir -p knowledge_base
-git clone https://github.com/swisskyrepo/PayloadsAllTheThings \
-    knowledge_base/PayloadsAllTheThings
-
-# 2. Build vector index (takes a few minutes)
-cd rag
-python -m rag_kdprepare
+npm start -- \
+  --goal "在授权范围内评估 http://127.0.0.1:8080" \
+  --scope "仅限 http://127.0.0.1:8080" \
+  --max-cycles 8 \
+  --max-parallel-tasks 2
 ```
 
-> **Knowledge Base Description**: PayloadsAllTheThings contains rich attack payloads, bypass techniques, and vulnerability exploitation methods, making it a valuable resource for penetration testing.
+When stdin and stdout are attached to a TTY, the interactive Agent timeline starts automatically.
+Starting without `--resume` always creates a fresh session and never reads an older task graph.
 
-### Step 3: Running (New Architecture)
-
-The system now runs as two separate processes: the **Web Server** (dashboard) and the **Agent** (worker). They communicate via a local SQLite database (`luan1ao.db`).
-
-#### 1. Start the Web Server (Dashboard)
-
-Start the persistent web interface first. This process should remain running.
+Resume one specific unfinished session without repeating or replacing its Goal or authorized Scope:
 
 ```bash
-python -m web.server
+npm start -- --resume 20260720-080000Z-a1b2c3d4
 ```
 
-> Open your browser and visit: **<http://localhost:8088>**
+`--resume` accepts either the session name under `.agent-runtime/sessions/` or its full runtime path. Do not pass `--goal` or `--scope` when resuming.
 
-#### 2. Run an Agent Task
+### CLI options
 
-Open a **new terminal window** and run the agent. The agent will execute the task, write logs to the database, and exit when finished. The Web UI will update in real-time.
+```text
+--goal <text>                Agent goal
+--scope <text>               Authorized scope summary
+--runtime-dir <path>         Empty directory for a new runtime
+--resume <session>           Resume one runtime; restores Goal and Scope
+--max-cycles <number>        Maximum Planner cycles
+--max-parallel-tasks <n>     Maximum concurrent tasks
+--max-run-time-ms <number>   Global run timeout in milliseconds
+--json                       Disable TUI and print final JSON
+--jsonl                      Stream durable events as JSON Lines
+--no-tui                     Disable the interactive TUI
+--help                       Show CLI help
+```
+
+### Interactive controls
+
+| Key | Action |
+|---|---|
+| `Up` / `Down` | Select the previous or next Agent action |
+| `Enter` | Expand or collapse the selected action |
+| `Tab` / `Shift+Tab` | Cycle through all tasks or one task at a time |
+| `Ctrl+C` | Gracefully interrupt the active run |
+
+### Machine-readable execution
+
+Use JSON Lines when another process needs the complete durable event stream:
 
 ```bash
-# Basic usage
-python agent.py \
-    --goal "Perform comprehensive web security testing on http://testphp.vulnweb.com" \
-    --task-name "demo_test"
-
-# Enable --web flag to print the task URL
-python agent.py \
-    --goal "Scan localhost" \
-    --task-name "local_scan" \
-    --web
+npm start -- \
+  --goal "Inspect the authorized target" \
+  --scope "localhost only" \
+  --jsonl
 ```
 
-### Viewing Results
+The final JSONL record has `type: "result"`; all preceding records have `type: "event"`.
 
-- **Real-time**: Use the Web UI (<http://localhost:8088>) to monitor progress.
-- **Archives**: Task history is persisted in the database. Logs and metrics are also saved in `logs/TASK-NAME/TIMESTAMP/`:
+---
 
+## <a id="agent-workbench"></a>🖥️ Agent Workbench
+
+v2 includes two observation surfaces over the same durable runtime.
+
+### Terminal workbench
+
+The TUI focuses on the live execution loop:
+
+- Planner and runtime transitions.
+- Task-scoped Agent intent.
+- Correlated tool calls and result previews.
+- Expandable inline output and on-demand artifact-backed details, bounded to 64 KiB per artifact in the terminal.
+- Parallel Executor identity and aggregate task status.
+- Graceful interruption feedback.
+
+### Web workbench
+
+Start the authenticated Web service against the selected CLI session directory:
+
+```bash
+npm run web -- --runtime-dir .agent-runtime/sessions/<session> --port 8787
 ```
-logs/demo_test/20250204_120000/
-├── run_log.json          # Complete execution log (includes all P-E-R interactions)
-├── metrics.json          # Performance metrics and statistics
-└── console_output.log    # Formatted console output
-```
+
+Open <http://127.0.0.1:8787>. The first registered user becomes the administrator; later users are created as analysts.
+
+The Web workbench is an observability surface. It reads persisted graph, event, artifact, and runtime state, but does not start, stop, or mutate the Agent Controller.
 
 ---
 
 ## <a id="system-architecture"></a>🏗️ System Architecture
 
-### Overall Architecture Diagram
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                  User Goal                              │
-│            "Perform comprehensive penetration testing"   │
-└────────────────────────┬────────────────────────────────┘
-                         ▼
-┌─────────────────────────────────────────────────────────┐
-│              P-E-R Cognitive Layer                      │
-│  ┌──────────┐      ┌──────────┐      ┌──────────┐      │
-│  │ Planner  │ ───> │ Executor │ ───> │Reflector │      │
-│  │          │      │          │      │          │      │
-│  └──────────┘      └──────────┘      └──────────┘      │
-│       │                  │                  │            │
-│       └──────────────────┴──────────────────┘            │
-│                         ▲                                │
-│                         │  LLM API Calls                  │
-└─────────────────────────┼────────────────────────────────┘
-                          │
-┌─────────────────────────┴────────────────────────────────┐
-│               Core Engine                               │
-│  ┌────────────────────────────────────────────────┐     │
-│  │ GraphManager                                   │     │
-│  │ • Task Graph Management (DAG)                  │     │
-│  │ • State Tracking and Updates                   │     │
-│  │ • Topological Sorting and Dependency Resolution│     │
-│  │ • Parallel Task Scheduling                     │     │
-│  │ • Shared Bulletin Board (shared_findings)      │     │
-│  │ • Causal Graph Tiered Storage                  │     │
-│  └────────────────────────────────────────────────┘     │
-│  ┌────────────────────────────────────────────────┐     │
-│  │ Database Layer (SQLite)                        │     │
-│  │ • Persistence for Tasks, Graphs, Logs          │     │
-│  │ • Decoupled State Management                   │     │
-│  └────────────────────────────────────────────────┘     │
-│  ┌────────────────────────────────────────────────┐     │
-│  │ EventBroker (Global)                           │     │
-│  │ • Inter-component Communication                │     │
-│  │ • Event Publishing/Subscription                │     │
-│  └────────────────────────────────────────────────┘     │
-└─────────────────────────┬────────────────────────────────┘
-                          │
-┌─────────────────────────┴────────────────────────────────┐
-│            Capability Layer                            │
-│  ┌────────────────────┐  ┌──────────────────────────┐   │
-│  │ RAG Knowledge      │  │ MCP Tool Server          │   │
-│  │ Service            │  │                          │   │
-│  │ • FAISS Vector Retrieval│ • http_request           │   │
-│  │ • Knowledge Document Parsing│ • shell_exec             │   │
-│  │ • Similarity Search │ • python_exec            │   │
-│  │                    │  • think/formulate_hyp.  │   │
-│  └────────────────────┘  │ • halt_task              │   │
-│                          │ • query_causal_graph(local)│ │
-│                          └──────────────────────────┘   │
-└──────────────────────────────────────────────────────────┘
-```
-
-### P-E-R Collaboration Flow
-
 ```mermaid
-sequenceDiagram
-    participant U as User
-    participant P as Planner
-    participant G as GraphManager
-    participant E as Executor
-    participant R as Reflector
-    participant DB as SQLite DB
-    participant W as Web UI
+flowchart TB
+    User[User goal and authorized scope] --> Controller
 
-    U->>P: Input Goal
-    P->>G: Initialize Task Graph
-    G->>DB: Persist Initial State
-    W->>DB: Poll for Updates (SSE)
-    
-    loop P-E-R Cycle
-        P->>G: Analyze graph, generate graph edit operations
-        G->>G: Update graph structure
-        G->>DB: Sync Updates
-        G->>E: Assign pending sub-tasks
-        
-        E->>E: Execute Tools
-        E->>DB: Log Events
-        
-        E->>R: Request reflection
-        R->>R: Analyze success/failure
-        R->>G: Update node status
-        G->>DB: Sync Updates
+    subgraph Runtime[LuaN1ao Runtime]
+        Controller --> Planner
+        Planner --> TaskGraph[(Task Graph)]
+        TaskGraph --> Scheduler[Deterministic wave scheduler]
+        Scheduler --> ExecutorA[Executor session A]
+        Scheduler --> ExecutorB[Executor session B]
+        ExecutorA --> ExecutionLog[(ExecutionLog)]
+        ExecutorB --> ExecutionLog
+        ExecutionLog --> Supervisor
+        ExecutionLog --> Projector
+        Supervisor --> Controller
+        Projector --> ReasoningGraph[(Reasoning Graph)]
+        Projector --> OperationGraph[(Operation Graph)]
+        ExecutionLog --> Artifacts[(Artifact Store)]
     end
+
+    ExecutionLog --> TUI[Terminal workbench]
+    ExecutionLog --> Web[Authenticated Web workbench]
+    TaskGraph --> Web
+    ReasoningGraph --> Web
+    OperationGraph --> Web
 ```
 
-### Directory Structure
+### Runtime invariants
 
-```
+- Planner owns task graph decisions; Executor never edits task topology.
+- Executor owns low-level action selection within the `TaskEnvelope` boundary.
+- Supervisor controls continuation but does not project semantic graph facts.
+- Projector writes reasoning and operation graphs but cannot mutate task nodes.
+- Every Agent invocation has an explicit terminating tool contract.
+- Projector desired and committed watermarks are monotonic.
+- Graph mutations and committed projection watermarks are atomic.
+- Persisted events and artifacts remain the source of truth for observability.
+
+### Repository layout
+
+```text
 LuaN1aoAgent/
-├── agent.py                    # Main entry point, P-E-R cycle control
-├── requirements.txt            # Project dependencies
-├── pyproject.toml             # Project configuration and code quality tool settings
-├── mcp.json                   # MCP tool service configuration
-├── .env                       # Environment variables configuration (manual creation required)
-│
-├── conf/                      # Configuration module
-│   ├── config.py             # Core configuration items (LLM, scenarios, parameters)
-│   └── __init__.py
-│
-├── core/                      # Core engine
-│   ├── planner.py            # Planner implementation
-│   ├── executor.py           # Executor implementation
-│   ├── reflector.py          # Reflector implementation
-│   ├── graph_manager.py      # Graph manager
-│   ├── events.py             # Event bus
-│   ├── console.py            # Console output management
-│   ├── data_contracts.py     # Data contract definitions
-│   ├── tool_manager.py       # Tool manager
-│   ├── intervention.py       # Human-in-the-Loop manager
-│   ├── database/             # Database persistence layer
-│   │   ├── models.py         # SQLAlchemy models
-│   │   └── utils.py          # DB utilities
-│   └── prompts/              # Prompt template system
-│
-├── llm/                       # LLM abstraction layer
-│   ├── llm_client.py         # LLM client (unified interface)
-│   └── __init__.py
-│
-├── rag/                       # RAG knowledge enhancement
-│   ├── knowledge_service.py  # FastAPI knowledge service
-│   ├── rag_client.py         # RAG client
-│   ├── rag_kdprepare.py      # Knowledge base index construction
-│   ├── markdown_chunker.py   # Document chunking
-│   └── model_manager.py      # Embedding model management
-│
-├── tools/                     # Tool integration layer
-│   ├── mcp_service.py        # MCP service implementation
-│   ├── mcp_client.py         # MCP client
-│   └── __init__.py
-│
-├── web/                       # Web UI
-│   ├── server.py             # Web dashboard server
-│   ├── static/               # Frontend assets
-│   └── templates/            # HTML templates
-│
-├── knowledge_base/            # Knowledge base directory (manual creation required)
-│   └── PayloadsAllTheThings/ # Security knowledge base (clone required)
-│
-└── logs/                      # Runtime logs and metrics
-    └── TASK-NAME/
-        └── TIMESTAMP/
-            ├── run_log.json
-            ├── metrics.json
-            └── console_output.log
+├── src/
+│   ├── agents.ts                 # Planner, Executor, and Observer session factories
+│   ├── controller.ts             # Scheduling, lifecycle, supervision, and recovery
+│   ├── pi-runner.ts              # Pi invocation and normalized event logging
+│   ├── projection.ts             # Observation and graph projection contracts
+│   ├── executor-sandbox.ts       # macOS/Linux Executor isolation
+│   ├── stores/
+│   │   ├── execution-log.ts      # Durable event ledger
+│   │   ├── graph-store.ts        # Tri-graph persistence and atomic mutation
+│   │   ├── runtime-store.ts      # Execution and projector runtime state
+│   │   └── artifact-store.ts     # Content-addressed artifacts
+│   ├── tools/                    # Pi graph, artifact, and runtime tools
+│   ├── tui/                      # Interactive terminal workbench
+│   ├── cli.ts                    # CLI entry point
+│   └── web-server.ts             # Authenticated read-only workbench server
+├── web/                          # React Agent workbench
+├── test/                         # Runtime and transition tests
+├── package.json
+└── README.md
+```
+
+---
+
+## 🔄 v1 to v2
+
+| Area | v1 | v2 |
+|---|---|---|
+| Runtime | Python | TypeScript + Pi SDK |
+| Agent model | Planner / Executor / Reflector | Planner / Executor / Observer |
+| Observer behavior | Shared reflection loop | Independent Supervisor and Projector calls |
+| Memory | Task and causal graph state | Task, reasoning, and operation graphs |
+| Evidence | Mixed runtime and graph records | Normalized events, artifacts, and evidence references |
+| Parallelism | Shared runtime coordination | Deterministic admitted waves and task-scoped sessions |
+| Terminal | Formatted logs | Interactive grouped-action timeline |
+| Web UI | Task management dashboard | Authenticated runtime observability workbench |
+
+The Python v1 implementation remains available on the [`v1` branch](https://github.com/SanMuzZzZz/LuaN1aoAgent/tree/v1) and in the [`v1.0.0` release](https://github.com/SanMuzZzZz/LuaN1aoAgent/releases/tag/v1.0.0).
+
+---
+
+## <a id="roadmap"></a>🗓️ Roadmap
+
+- [x] Pi SDK Planner, Executor, and Observer runtime
+- [x] Tri-graph persistence and evidence projection
+- [x] Parallel task admission and isolated Executor sessions
+- [x] Isolated task sessions and graceful interruption
+- [x] Authenticated Web observability workbench
+- [x] Interactive grouped-action terminal timeline
+- [ ] Stable v2 extension API for additional tools
+- [ ] Human approval gates for high-risk actions
+- [ ] Packaged container runtime and deployment profiles
+- [ ] Reproducible public benchmark suite for v2
+- [ ] Cross-run capability memory with explicit provenance
+
+---
+
+## 🧪 Development
+
+```bash
+# Compile server and Web UI
+npm run build
+
+# Run all server and Web tests
+npm test
+
+# Run Web tests only
+npm run test:web
+
+# Start the Web UI development server
+npm run web:dev
 ```
 
 ---
 
 ## 🔐 Security Disclaimer
 
-**⚠️ IMPORTANT: This software is intended for authorized security testing and educational purposes only.**
+**This software is intended for authorized security testing, controlled research, and education only.**
 
-By downloading, installing, or using LuaN1ao, you expressly acknowledge and agree to the following:
+By downloading, installing, or using LuaN1ao, you acknowledge that:
 
-- **Strictly Authorized Use**: You must obtain explicit written consent from system owners before testing. Unauthorized access is illegal and prohibited.
-- **No Warranties**: This software is provided "AS IS", without warranty of any kind.
-- **Assumption of Risk**: The tool contains high-privilege execution capabilities (`shell_exec`, `python_exec`). Running it in an isolated environment (like Docker or a VM) is strongly recommended. Do not use it in production environments.
-- **Limitation of Liability**: The developers and contributors are not responsible for any damage, data loss, or legal consequences resulting from the use or misuse of this tool. You assume full responsibility for your actions.
+- You must obtain explicit authorization from the owner of every tested system.
+- You are responsible for defining and enforcing the allowed scope.
+- The software can execute shell commands and interact with network services.
+- Sandbox boundaries reduce risk but do not replace host isolation.
+- The software is provided "AS IS" without warranties or guarantees.
+- The maintainers and contributors are not responsible for damage, data loss, or legal consequences caused by misuse.
 
-**If you do not agree to these terms, do not use this software.**
+Run LuaN1ao only in an isolated environment and never target production systems without written authorization.
+
+---
 
 ## 👥 Contributors
 
@@ -529,61 +510,30 @@ By downloading, installing, or using LuaN1ao, you expressly acknowledge and agre
 
 ## 🤝 Contribution
 
-We welcome all forms of contributions! Whether reporting bugs, suggesting new features, improving documentation, or submitting code.
+Contributions are welcome, including bug reports, runtime tests, documentation, tool integrations, and architecture improvements.
 
-### How to Contribute
-
-1. **Report Issues**: Submit bug reports or feature requests on the [Issues](https://github.com/SanMuzZzZz/LuaN1aoAgent/issues) page
-2. **Submit Code**: Fork the repository, create a branch, and submit a Pull Request
-3. **Improve Documentation**: Correct errors, supplement explanations, add examples
-4. **Share Experience**: Share usage experiences and best practices in Discussions
-
-### Contribution Guidelines
-
-For detailed contribution processes and code standards, please refer to [CONTRIBUTING.md](CONTRIBUTING.md).
+1. Open an [Issue](https://github.com/SanMuzZzZz/LuaN1aoAgent/issues) for bugs or design proposals.
+2. Fork the repository and create a focused branch.
+3. Add tests for every changed Agent or runtime boundary.
+4. Submit a Pull Request with the behavioral change and verification evidence.
 
 ---
 
 ## 📝 License
 
-This project is licensed under the [Apache License 2.0](LICENSE).
-
-```
-Copyright 2025 LuaN1ao (鸾鸟) Project Contributors
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-```
+LuaN1aoAgent v2 is licensed under the [Apache License 2.0](LICENSE), consistent with the v1 project.
 
 ---
 
-## 📞 Contact Us
+## 📞 Contact
 
-- **GitHub Issues**: [Submit Issues](https://github.com/SanMuzZzZz/LuaN1aoAgent/issues)
-- **GitHub Discussions**: [Join Discussions](https://github.com/SanMuzZzZz/LuaN1aoAgent/discussions)
-- **Email**: <1614858685x@gmail.com>
-- **WeChat**: SanMuzZzZzZz
+- GitHub Issues: [SanMuzZzZz/LuaN1aoAgent Issues](https://github.com/SanMuzZzZz/LuaN1aoAgent/issues)
+- GitHub Discussions: [SanMuzZzZz/LuaN1aoAgent Discussions](https://github.com/SanMuzZzZz/LuaN1aoAgent/discussions)
+- Email: <1614858685x@gmail.com>
+- WeChat: `SanMuzZzZzZz`
 
 ---
 
 ## ⭐ Star History
 
-If LuaN1ao has been helpful to you, please give us a Star ⭐!
-
 [![Star History Chart](https://api.star-history.com/image?repos=SanMuzZzZz/LuaN1aoAgent&type=date&legend=top-left)](https://www.star-history.com/?repos=SanMuzZzZz%2FLuaN1aoAgent&type=date&legend=top-left)
-
----
-
-## 🌐 Language Versions
-
-- [English](README.md) (Default)
-- [简体中文](README_zh.md)
