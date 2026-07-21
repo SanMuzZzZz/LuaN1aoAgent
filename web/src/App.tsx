@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
-import { Alert, Avatar, Button, ConfigProvider, Drawer, Dropdown, Input, Popconfirm, Skeleton, Statistic, Switch, Tag, Tooltip, Typography } from "antd";
+import { Alert, Avatar, Badge, Button, ConfigProvider, Drawer, Dropdown, Input, Popconfirm, Skeleton, Spin, Statistic, Switch, Tag, Tooltip, Typography } from "antd";
 import { Activity, ChevronDown, Database, FileBox, LogOut, Menu, PanelRight, Play, RefreshCw, Share2, Square } from "lucide-react";
 import { stopRun } from "./api";
 import { Inspector } from "./components/Inspector";
@@ -30,6 +30,7 @@ export default function App({ user, onLogout }: { user: AuthUser; onLogout: () =
   const [startRunOpen, setStartRunOpen] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [actionError, setActionError] = useState<string>();
+  const [pendingStartDir, setPendingStartDir] = useState<string>();
   const dashboard = useRuntimeDashboard(runtimeDir);
   const data = dashboard.data;
 
@@ -49,6 +50,16 @@ export default function App({ user, onLogout }: { user: AuthUser; onLogout: () =
 
   const selectedTrace = data?.traceItems.find((item) => item.id === selectedTraceId);
   const runningNow = dashboard.activeRuns.some((run) => normalizeDir(run.runtimeDir) === normalizeDir(runtimeDir));
+  const dataMatchesDir = data ? normalizeDir(String(data.runtimeDir)) === normalizeDir(runtimeDir) : false;
+  const hasEvents = dataMatchesDir && (data?.overview.events.count ?? 0) > 0;
+  const initializing = !hasEvents && !dashboard.error && (runningNow || pendingStartDir === runtimeDir);
+
+  useEffect(() => {
+    if (pendingStartDir && (pendingStartDir !== runtimeDir || hasEvents)) {
+      setPendingStartDir(undefined);
+    }
+  }, [pendingStartDir, runtimeDir, hasEvents]);
+
   const sidebarSessions = useMemo(() => {
     const active = new Set(dashboard.activeRuns.map((run) => normalizeDir(run.runtimeDir)));
     if (!active.size) return dashboard.sessions;
@@ -104,6 +115,7 @@ export default function App({ user, onLogout }: { user: AuthUser; onLogout: () =
   const inspector = (
     <Inspector
       view={activeView}
+      runtimeDir={runtimeDir}
       trace={selectedTrace}
       node={selectedNode}
       edges={inspectorGraph.edges}
@@ -173,7 +185,7 @@ export default function App({ user, onLogout }: { user: AuthUser; onLogout: () =
             <section className="mission-band">
               <div className="mission-copy">
                 <span>当前目标</span>
-                <Typography.Title level={4}>{data?.overview.goal?.label || "等待运行态数据"}</Typography.Title>
+                <Typography.Title level={4}>{data?.overview.goal?.label || (initializing ? "任务启动中…" : "等待运行态数据")}</Typography.Title>
                 <p>{String(data?.overview.scope?.summary || data?.overview.scope?.label || "加载 Runtime 后展示目标、范围与当前执行状态。")}</p>
               </div>
               <div className="metric-strip">
@@ -189,11 +201,16 @@ export default function App({ user, onLogout }: { user: AuthUser; onLogout: () =
                 <Typography.Title level={4}>{activeView === "trace" ? "Agent 正在判断什么、执行什么、观察到什么" : GRAPH_LABELS[activeView as GraphKind]}</Typography.Title>
                 <p>{activeView === "trace" ? "选择任意事件，在右侧查看证据、Artifact、图引用与原始载荷。" : graphSubtitle(activeView as GraphKind)}</p>
               </div>
-              <div className="stage-meta"><Tag>{data?.graph.source || "source: -"}</Tag><span>{data?.loadedAt ? `更新于 ${formatTime(data.loadedAt)}` : "尚未加载"}</span></div>
+              <div className="stage-meta">
+                {runningNow ? <Badge status="processing" text="运行中" /> : null}
+                <Tag>{data?.graph.source || "source: -"}</Tag><span>{data?.loadedAt ? `更新于 ${formatTime(data.loadedAt)}` : "尚未加载"}</span>
+              </div>
             </section>
 
             <section className="stage-body">
-              {dashboard.loading && !data ? <Skeleton active paragraph={{ rows: 10 }} /> : activeView === "trace" ? (
+              {dashboard.loading && !data ? <Skeleton active paragraph={{ rows: 10 }} /> : initializing ? (
+                <RunInitializing goal={dataMatchesDir ? data?.overview.goal?.label : undefined} />
+              ) : activeView === "trace" ? (
                 <TraceView
                   items={data?.traceItems || []}
                   selectedTraceId={selectedTraceId}
@@ -229,6 +246,7 @@ export default function App({ user, onLogout }: { user: AuthUser; onLogout: () =
         onClose={() => setStartRunOpen(false)}
         onStarted={(dir) => {
           setStartRunOpen(false);
+          setPendingStartDir(dir);
           applyRuntime(dir);
         }}
       />
@@ -238,6 +256,17 @@ export default function App({ user, onLogout }: { user: AuthUser; onLogout: () =
 
 function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; value: number }) {
   return <div className="metric-item"><span>{icon}{label}</span><Statistic value={value} /></div>;
+}
+
+function RunInitializing({ goal }: { goal?: string }) {
+  return (
+    <div className="run-initializing">
+      <Spin size="large" />
+      <Typography.Title level={4}>任务已启动，正在初始化</Typography.Title>
+      <p>{goal || "Planner 正在进行首次规划，通常需要 30~90 秒。"}</p>
+      <span className="run-initializing-hint">产生执行事件后会自动出现在这里；页面每 5 秒自动刷新，无需手动操作。若长时间无事件，请检查 LLM 服务是否可用。</span>
+    </div>
+  );
 }
 
 function GitEdgeIcon() {

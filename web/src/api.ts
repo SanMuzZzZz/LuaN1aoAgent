@@ -1,4 +1,4 @@
-import type { ActiveRunsResponse, AuthResponse, RuntimeState, SessionsResponse, StartRunInput, StartRunResponse, StopRunResponse } from "./types";
+import type { ActiveRunsResponse, ArtifactContent, AuthResponse, RuntimeState, SessionsResponse, StartRunInput, StartRunResponse, StopRunResponse } from "./types";
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number, readonly code?: string) {
@@ -50,6 +50,10 @@ export function stopRun(runtimeDir: string): Promise<StopRunResponse> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ runtimeDir })
   });
+}
+
+export function fetchArtifact(runtimeDir: string, artifactRef: string, signal?: AbortSignal): Promise<ArtifactContent> {
+  return requestJson(`/api/artifact?runtimeDir=${encodeURIComponent(runtimeDir)}&artifactRef=${encodeURIComponent(artifactRef)}`, { signal });
 }
 
 export function fetchCurrentUser(signal?: AbortSignal): Promise<AuthResponse> {

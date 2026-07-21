@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
 import { createReadStream, existsSync } from "node:fs";
-import { readFile, stat } from "node:fs/promises";
+import { open, readFile, stat } from "node:fs/promises";
 import { basename, extname, join, relative, resolve, sep } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { WebAuthError, WebAuthService } from "./web-auth.js";
@@ -10,6 +10,7 @@ import { discoverRuntimeSessionDirs } from "./runtime-session-discovery.js";
 import {
   selectExactToolCallId,
   selectTraceIntent,
+  summarizePlannerCommands,
   summarizeTraceAction,
   traceActionHeading,
   traceNextStep,
@@ -67,6 +68,7 @@ type TraceItem = {
   action?: string;
   observation?: string;
   next?: string;
+  commandDetails?: string[];
   evidenceRefs: string[];
   artifactRefs: string[];
   graphNodeRefs: string[];
@@ -182,15 +184,31 @@ const server = createServer(async (request, response) => {
       await handleStopRun(request, response);
       return;
     }
+    if (url.pathname === "/api/artifact") {
+      const runtimeDir = url.searchParams.get("runtimeDir") ?? defaultRuntimeDir;
+      const artifactRef = url.searchParams.get("artifactRef") ?? "";
+      await sendJson(response, await readArtifactContent(runtimeDir, artifactRef));
+      return;
+    }
     await sendStatic(url.pathname, response);
   } catch (error) {
     if (error instanceof WebAuthError) {
       await sendJson(response, { error: { code: error.code, message: error.message } }, error.statusCode);
       return;
     }
+    if (error instanceof HttpError) {
+      await sendJson(response, { error: { code: error.code, message: error.message } }, error.statusCode);
+      return;
+    }
     await sendJson(response, { error: { code: "internal_error", message: error instanceof Error ? error.message : String(error) } }, 500);
   }
 });
+
+class HttpError extends Error {
+  constructor(readonly statusCode: number, readonly code: string, message: string) {
+    super(message);
+  }
+}
 
 server.listen(port, host, () => {
   console.log(`Luanniao Agent Trace listening on http://${host}:${port}`);
@@ -356,8 +374,51 @@ async function readRuntimeState(runtimeDirInput: string): Promise<JsonRecord> {
   };
 }
 
-async function readRuntimeSessions(rootDirInput: string): Promise<JsonRecord> {
-  const rootDir = resolve(cwd, rootDirInput);
+const MAX_ARTIFACT_TEXT_BYTES = 512 * 1024;
+const MAX_ARTIFACT_IMAGE_BYTES = 8 * 1024 * 1024;
+
+async function readArtifactContent(runtimeDirInput: string, artifactRef: string): Promise<JsonRecord> {
+  if (!/^artifact:[\w-]+$/i.test(artifactRef)) {
+    throw new HttpError(400, "invalid_request", "artifactRef 格式不正确");
+  }
+  const runtimeDir = resolve(cwd, runtimeDirInput);
+  const artifactsRoot = resolve(runtimeDir, "artifacts");
+  const records = await readJsonl<ArtifactRecord>(join(artifactsRoot, "index.jsonl"), 100_000);
+  const record = records.find((item) => item.artifactRef === artifactRef);
+  if (!record?.path) {
+    throw new HttpError(404, "artifact_not_found", "Artifact 不存在或不在当前索引中");
+  }
+  const filePath = resolve(record.path);
+  if (filePath !== artifactsRoot && !filePath.startsWith(`${artifactsRoot}${sep}`)) {
+    throw new HttpError(403, "forbidden", "Artifact 路径超出 runtime 目录");
+  }
+  const info = await statMaybe(filePath);
+  if (!info) {
+    throw new HttpError(404, "artifact_not_found", "Artifact 内容文件已丢失");
+  }
+  const isImage = stringValue(record.mediaType, "").startsWith("image/");
+  const limit = isImage ? MAX_ARTIFACT_IMAGE_BYTES : MAX_ARTIFACT_TEXT_BYTES;
+  const truncated = info.size > limit;
+  const buffer = Buffer.alloc(Math.min(info.size, limit));
+  const handle = await open(filePath, "r");
+  try {
+    await handle.read(buffer, 0, buffer.length, 0);
+  } finally {
+    await handle.close();
+  }
+  return {
+    artifactRef,
+    taskId: record.taskId,
+    kind: record.kind,
+    mediaType: record.mediaType,
+    byteLength: info.size,
+    truncated,
+    encoding: isImage ? "base64" : "utf8",
+    content: isImage ? buffer.toString("base64") : buffer.toString("utf8")
+  };
+}
+
+async function readRuntimeSessions(rootDirInput: string): Promise<JsonRecord> {  const rootDir = resolve(cwd, rootDirInput);
   const candidates = await discoverRuntimeSessionDirs(rootDir);
 
   const sessions = (await mapWithConcurrency(candidates, 8, (dir) => readRuntimeSession(rootDir, dir)))
@@ -727,6 +788,12 @@ function toAgentActionTraceItem(intent: WebEvent, actionEvents: WebEvent[], tool
   });
   const action = summarizeTraceAction(firstCall) || toolItem?.action;
   const heading = traceActionHeading(role, firstCall);
+  const commandDetails = firstCall?.name === "planner_submit"
+    ? summarizePlannerCommands(
+      callArgs.commands
+      ?? relatedPayloads.map((payload) => firstRecord(payload.plannerDecision)?.commands).find(Array.isArray)
+    )
+    : [];
   const lastEvent = actionEvents[actionEvents.length - 1] ?? intent;
   const evidenceRefs = uniqueStrings(actionEvents.flatMap((event) => eventEvidenceRefs(event)));
   const artifactRefs = uniqueStrings(actionEvents.flatMap((event) => event.artifactRefs ?? []));
@@ -748,6 +815,7 @@ function toAgentActionTraceItem(intent: WebEvent, actionEvents: WebEvent[], tool
     action,
     observation: toolItem?.observation,
     next: toolItem?.next,
+    commandDetails: commandDetails.length ? commandDetails : undefined,
     evidenceRefs,
     artifactRefs,
     graphNodeRefs: uniqueStrings([taskId, ...evidenceRefs]),
@@ -898,6 +966,7 @@ function toTraceItem(event: WebEvent): TraceItem {
   const next = inferNext(payload);
   const summary = summarizeEvent(event, payload, plannerDecision, taskEnvelope, taskResult, controlSignal);
   const detail = inferDetail(payload, readableSummary);
+  const commandDetails = summarizePlannerCommands(plannerDecision?.commands);
   const intentSource: TraceIntentSource = extractMessageText(payload)
     ? "recorded"
     : plannerDecision || taskResult || controlSignal
@@ -920,6 +989,7 @@ function toTraceItem(event: WebEvent): TraceItem {
     action,
     observation,
     next,
+    commandDetails: commandDetails.length ? commandDetails : undefined,
     evidenceRefs,
     artifactRefs,
     graphNodeRefs,

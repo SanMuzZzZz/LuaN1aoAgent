@@ -1,11 +1,14 @@
-import { Badge, Collapse, Descriptions, Empty, Tag, Typography } from "antd";
+import { useEffect, useState } from "react";
+import { Alert, Badge, Collapse, Descriptions, Empty, Modal, Spin, Tag, Typography } from "antd";
+import { fetchArtifact } from "../api";
 import { taskProgressItems, type TaskProgressItem } from "../graph";
-import type { AgentEvent, ArtifactRecord, GraphEdge, GraphNode, TaskSummary, TraceItem, ViewKey } from "../types";
+import type { AgentEvent, ArtifactContent, ArtifactRecord, GraphEdge, GraphNode, TaskSummary, TraceItem, ViewKey } from "../types";
 import { formatTime, isRecent, roleLabel, shortRef, valueText } from "../utils";
 import { looksLikeMarkdown, Markdown } from "./Markdown";
 
 interface InspectorProps {
   view: ViewKey;
+  runtimeDir: string;
   trace?: TraceItem;
   node?: GraphNode;
   edges: GraphEdge[];
@@ -21,7 +24,7 @@ export function Inspector(props: InspectorProps) {
         <span>INSPECTOR</span>
         <Typography.Title level={4}>{props.view === "trace" ? "当前步骤" : "节点详情"}</Typography.Title>
       </div>
-      {props.view === "trace" ? <TraceInspector trace={props.trace} artifacts={props.artifacts} /> : (
+      {props.view === "trace" ? <TraceInspector trace={props.trace} artifacts={props.artifacts} runtimeDir={props.runtimeDir} /> : (
         <NodeInspector node={props.node} edges={props.edges} />
       )}
       <RuntimeOverview tasks={props.tasks} agents={props.agents} />
@@ -29,7 +32,8 @@ export function Inspector(props: InspectorProps) {
   );
 }
 
-function TraceInspector({ trace, artifacts }: { trace?: TraceItem; artifacts: ArtifactRecord[] }) {
+function TraceInspector({ trace, artifacts, runtimeDir }: { trace?: TraceItem; artifacts: ArtifactRecord[]; runtimeDir: string }) {
+  const [viewingArtifact, setViewingArtifact] = useState<string>();
   if (!trace) return <Empty description="选择一条 Trace 查看详情" />;
   const artifactMap = new Map(artifacts.map((record) => [record.artifactRef, record]));
   return (
@@ -47,16 +51,98 @@ function TraceInspector({ trace, artifacts }: { trace?: TraceItem; artifacts: Ar
       ]} />
       <RefSection title="Evidence" refs={trace.evidenceRefs} />
       <RefSection title="Graph refs" refs={trace.graphNodeRefs} />
+      {trace.commandDetails?.length ? (
+        <div className="inspector-block">
+          <strong>命令明细</strong>
+          <div className="command-detail-list">{trace.commandDetails.map((line, index) => (
+            <div className="command-detail-row" key={index}>{line}</div>
+          ))}</div>
+        </div>
+      ) : null}
       <div className="inspector-block">
         <strong>Artifacts</strong>
         {trace.artifactRefs.length ? trace.artifactRefs.map((ref) => {
           const artifact = artifactMap.get(ref);
-          return <div className="artifact-row" key={ref}><span>{shortRef(ref, 32)}</span><small>{artifact?.kind || artifact?.mediaType || "artifact"}</small></div>;
+          return (
+            <button className="artifact-row artifact-row-button" key={ref} type="button" onClick={() => setViewingArtifact(ref)}>
+              <span>{shortRef(ref, 32)}</span>
+              <small>{artifact?.kind || artifact?.mediaType || "artifact"}{artifact?.byteLength ? ` · ${formatBytes(artifact.byteLength)}` : ""}</small>
+            </button>
+          );
         }) : <span className="muted-line">无关联 Artifact</span>}
       </div>
       <Collapse size="small" items={[{ key: "raw", label: trace.eventType === "agent_action" || trace.eventType === "tool_execution" ? "聚合事件" : "原始事件", children: <pre className="json-block">{JSON.stringify(trace.rawEvent, null, 2)}</pre> }]} />
+      <ArtifactViewer
+        runtimeDir={runtimeDir}
+        artifactRef={viewingArtifact}
+        fallback={viewingArtifact ? artifactMap.get(viewingArtifact) : undefined}
+        onClose={() => setViewingArtifact(undefined)}
+      />
     </section>
   );
+}
+
+function ArtifactViewer({ runtimeDir, artifactRef, fallback, onClose }: {
+  runtimeDir: string;
+  artifactRef?: string;
+  fallback?: ArtifactRecord;
+  onClose: () => void;
+}) {
+  const [content, setContent] = useState<ArtifactContent>();
+  const [error, setError] = useState<string>();
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!artifactRef) return;
+    const controller = new AbortController();
+    setContent(undefined);
+    setError(undefined);
+    setLoading(true);
+    fetchArtifact(runtimeDir, artifactRef, controller.signal)
+      .then((result) => { if (!controller.signal.aborted) setContent(result); })
+      .catch((cause) => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : String(cause)); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, [runtimeDir, artifactRef]);
+
+  const isImage = (content?.mediaType ?? fallback?.mediaType ?? "").startsWith("image/");
+  return (
+    <Modal
+      title={`Artifact ${shortRef(artifactRef, 30)}`}
+      open={Boolean(artifactRef)}
+      onCancel={onClose}
+      footer={null}
+      width={760}
+      destroyOnHidden
+    >
+      {loading ? <div className="artifact-loading"><Spin /> 正在加载内容…</div> : null}
+      {error ? (
+        <>
+          <Alert type="warning" showIcon message={`无法加载完整内容：${error}`} />
+          {fallback?.preview ? <pre className="json-block artifact-content">{fallback.preview}</pre> : null}
+        </>
+      ) : null}
+      {content ? (
+        <>
+          <div className="artifact-meta">
+            <Tag>{content.kind || content.mediaType || "artifact"}</Tag>
+            <span>{formatBytes(content.byteLength ?? 0)}{content.truncated ? "（内容过大，仅显示前段）" : ""}</span>
+          </div>
+          {isImage && content.encoding === "base64" ? (
+            <img className="artifact-image" src={`data:${content.mediaType};base64,${content.content}`} alt={content.artifactRef} />
+          ) : (
+            <pre className="json-block artifact-content">{content.content}</pre>
+          )}
+        </>
+      ) : null}
+    </Modal>
+  );
+}
+
+function formatBytes(value: number): string {
+  if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${value} B`;
 }
 
 function NodeInspector({ node, edges }: { node?: GraphNode; edges: GraphEdge[] }) {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { selectExactToolCallId, selectTraceIntent, summarizeTraceAction, traceActionHeading, traceNextStep } from "../src/web-trace-presentation.js";
+import { selectExactToolCallId, selectTraceIntent, summarizePlannerCommands, summarizeTraceAction, traceActionHeading, traceNextStep } from "../src/web-trace-presentation.js";
 
 test("uses the intent-declared tool call id instead of a nearby same-name call", () => {
   const calls = [{ id: "call:target", name: "read", arguments: { path: "target" } }];
@@ -73,4 +73,39 @@ test("summarizes structured actions without exposing full payloads", () => {
     name: "bash",
     arguments: { command: "curl -sS http://localhost:32770/" }
   }), "HTTP 验证 · GET · http://localhost:32770/");
+});
+
+test("summarizes planner commands with readable task details", () => {
+  assert.deepEqual(summarizePlannerCommands([
+    {
+      kind: "create_tasks",
+      tasks: [{
+        id: "task:auth-explore",
+        goal: "利用已验证的测试凭证登录后台，探索可用功能并寻找读取 /challenge/flag.txt 的路径。",
+        dependsOnTaskRefs: ["task:entry-recon"]
+      }]
+    },
+    { kind: "set_task_status", taskId: "task:entry-recon", status: "completed" },
+    { kind: "replace_dependencies", taskId: "task:flag-read", dependencyTaskIds: ["task:auth-explore"] },
+    { kind: "patch_task", taskId: "task:auth-explore", patch: { goal: "x", priority: 2 } }
+  ]), [
+    "创建任务 task:auth-explore：利用已验证的测试凭证登录后台，探索可用功能并寻找读取 /challenge/flag.txt 的路径。（依赖：task:entry-recon）",
+    "标记任务 task:entry-recon 为 completed",
+    "调整依赖 task:flag-read → task:auth-explore",
+    "更新任务 task:auth-explore：修改 goal、priority"
+  ]);
+});
+
+test("planner action summary carries the first command detail", () => {
+  const action = summarizeTraceAction({
+    name: "planner_submit",
+    arguments: {
+      decision: "apply_commands",
+      commands: [{
+        kind: "create_tasks",
+        tasks: [{ id: "task:auth-explore", goal: "登录后台并探索功能", dependsOnTaskRefs: [] }]
+      }]
+    }
+  });
+  assert.equal(action, "提交规划决策 · apply_commands · 创建任务 task:auth-explore：登录后台并探索功能（依赖：无）");
 });

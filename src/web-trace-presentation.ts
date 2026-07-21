@@ -183,8 +183,47 @@ function summarizePlannerAction(args: Record<string, unknown>): string {
   const decision = textValue(args.decision) || "unknown";
   const commands = arrayRecords(args.commands);
   if (!commands.length) return `提交规划决策 · ${decision}`;
-  const kinds = [...new Set(commands.map((command) => textValue(command.kind)).filter((value): value is string => Boolean(value)))];
-  return `提交规划决策 · ${decision} · ${kinds.join(" / ")}`;
+  const summaries = summarizePlannerCommands(commands);
+  const first = summaries[0];
+  const tail = summaries.length > 1 ? ` 等 ${summaries.length} 项` : "";
+  return `提交规划决策 · ${decision}${first ? ` · ${truncate(first, 140)}${tail}` : ""}`;
+}
+
+export function summarizePlannerCommands(commands: unknown): string[] {
+  return arrayRecords(commands)
+    .map((command) => summarizePlannerCommand(command))
+    .filter((value): value is string => Boolean(value));
+}
+
+function summarizePlannerCommand(command: Record<string, unknown>): string | undefined {
+  const kind = textValue(command.kind);
+  switch (kind) {
+    case "create_tasks": {
+      const tasks = arrayRecords(command.tasks);
+      if (!tasks.length) return "创建任务（无任务明细）";
+      return tasks.map((task) => {
+        const id = textValue(task.id) || "task:?";
+        const goal = truncate(oneLine(textValue(task.goal) || "无目标描述"), 90);
+        const deps = stringList(task.dependsOnTaskRefs);
+        return `创建任务 ${id}：${goal}（依赖：${deps.length ? deps.join("、") : "无"}）`;
+      }).join("；");
+    }
+    case "patch_task": {
+      const patch = isRecord(command.patch) ? command.patch : {};
+      const fields = Object.keys(patch).filter((key) => patch[key] !== undefined);
+      return `更新任务 ${textValue(command.taskId) || "task:?"}：修改 ${fields.join("、") || "（无字段）"}`;
+    }
+    case "replace_dependencies": {
+      const deps = stringList(command.dependencyTaskIds);
+      return `调整依赖 ${textValue(command.taskId) || "task:?"} → ${deps.join("、") || "（清空）"}`;
+    }
+    case "set_task_status":
+      return `标记任务 ${textValue(command.taskId) || "task:?"} 为 ${textValue(command.status) || "unknown"}`;
+    case "set_node_status":
+      return `更新节点 ${textValue(command.nodeId) || "node:?"} 状态为 ${textValue(command.status) || "unknown"}`;
+    default:
+      return kind ? `执行 ${kind}` : undefined;
+  }
 }
 
 function compactPath(path: string | undefined): string | undefined {
@@ -204,6 +243,10 @@ function arrayLength(value: unknown): number {
 
 function arrayRecords(value: unknown): Array<Record<string, unknown>> {
   return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && Boolean(item.trim())) : [];
 }
 
 function textValue(value: unknown): string | undefined {

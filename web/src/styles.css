@@ -326,3 +326,23 @@ button, input { letter-spacing: 0; }
 .markdown-body th, .markdown-body td { padding: 4px 10px; border: 1px solid #dfe5ee; text-align: left; }
 .markdown-body th { background: #f5f7fb; color: #172033; font-weight: 600; }
 .markdown-body hr { margin: 10px 0; border: 0; border-top: 1px solid #e5e9f0; }
+
+/* Planner command details (Inspector) */
+.command-detail-list { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+.command-detail-row { padding: 6px 8px; border-left: 2px solid #2563eb; border-radius: 4px; background: #f5f8fe; color: #3d485c; font-size: 12px; line-height: 1.6; word-break: break-word; }
+
+/* Run initializing / progress states */
+.run-initializing { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 64px 32px; border: 1px dashed #c9d6ee; border-radius: 10px; background: #fafbff; text-align: center; }
+.run-initializing h4 { margin: 8px 0 0 !important; }
+.run-initializing p { max-width: 560px; margin: 0; color: #3d485c; font-size: 13px; line-height: 1.7; }
+.run-initializing-hint { max-width: 560px; color: #8490a3; font-size: 12px; line-height: 1.7; }
+.stage-meta .ant-badge { margin-right: 4px; color: #3d485c; font-size: 12px; }
+
+/* Artifact viewer */
+button.artifact-row-button { width: 100%; text-align: left; background: none; border: 0; padding: 4px 6px; border-radius: 6px; cursor: pointer; font: inherit; display: flex; justify-content: space-between; gap: 8px; }
+button.artifact-row-button:hover { background: #f0f4fb; }
+button.artifact-row-button:hover span { color: #2563eb; }
+.artifact-loading { display: flex; align-items: center; gap: 10px; padding: 24px 0; color: #657187; font-size: 13px; justify-content: center; }
+.artifact-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: #657187; font-size: 12px; }
+.artifact-content { max-height: 60vh; }
+.artifact-image { max-width: 100%; border: 1px solid #e5e9f0; border-radius: 8px; }

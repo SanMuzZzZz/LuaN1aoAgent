@@ -70,6 +70,7 @@ export interface TraceItem {
   action?: string;
   observation?: string;
   next?: string;
+  commandDetails?: string[];
   evidenceRefs: string[];
   artifactRefs: string[];
   graphNodeRefs: string[];
@@ -141,6 +142,17 @@ export interface StopRunResponse {
   ok: boolean;
   runtimeDir: string;
   stopping: boolean;
+}
+
+export interface ArtifactContent {
+  artifactRef: string;
+  taskId?: string;
+  kind?: string;
+  mediaType?: string;
+  byteLength?: number;
+  truncated: boolean;
+  encoding: "utf8" | "base64";
+  content: string;
 }
 
 export interface RuntimeState {
