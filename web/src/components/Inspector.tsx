@@ -2,6 +2,7 @@ import { Badge, Collapse, Descriptions, Empty, Tag, Typography } from "antd";
 import { taskProgressItems, type TaskProgressItem } from "../graph";
 import type { AgentEvent, ArtifactRecord, GraphEdge, GraphNode, TaskSummary, TraceItem, ViewKey } from "../types";
 import { formatTime, isRecent, roleLabel, shortRef, valueText } from "../utils";
+import { looksLikeMarkdown, Markdown } from "./Markdown";
 
 interface InspectorProps {
   view: ViewKey;
@@ -35,7 +36,7 @@ function TraceInspector({ trace, artifacts }: { trace?: TraceItem; artifacts: Ar
     <section className="inspector-primary">
       <Tag color="blue">{roleLabel(trace.role)}</Tag>
       <Typography.Title level={5}>{trace.title}</Typography.Title>
-      <p>{trace.summary}</p>
+      {looksLikeMarkdown(trace.summary) ? <Markdown text={trace.summary} /> : <p>{trace.summary}</p>}
       <Descriptions size="small" column={1} colon={false} items={[
         { key: "intentSource", label: "摘要来源", children: trace.intentSource === "recorded" ? "Agent 公开输出" : trace.intentSource === "structured" ? "结构化理由" : "系统派生目的" },
         { key: "action", label: "动作", children: trace.action || "无外部动作" },

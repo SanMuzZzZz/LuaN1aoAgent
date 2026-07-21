@@ -363,7 +363,7 @@ npm run web -- --runtime-dir .agent-runtime/sessions/<session> --port 8787
 
 打开 <http://127.0.0.1:8787>。首个注册用户成为管理员，后续用户为分析员。
 
-Web 工作台属于观察面。它读取持久图、事件、Artifact 和运行状态，但不会启动、停止或修改 Agent Controller。
+Web 工作台主要用于观察：读取持久图、事件、Artifact 和运行状态。它也支持在 Web 进程内启动新任务（填写目标与授权范围）并优雅停止由本进程启动的任务；CLI 启动的 run 仍可被观察，但不能从 Web 侧停止。
 
 ---
 
@@ -425,7 +425,7 @@ LuaN1aoAgent/
 │   ├── tools/                    # Pi 图、Artifact 与运行时工具
 │   ├── tui/                      # 交互式终端工作台
 │   ├── cli.ts                    # CLI 入口
-│   └── web-server.ts             # 带认证的只读工作台服务
+│   └── web-server.ts             # 带认证的工作台服务（可启动/停止任务）
 ├── web/                          # React Agent 工作台
 ├── test/                         # 运行时与迁移测试
 ├── package.json

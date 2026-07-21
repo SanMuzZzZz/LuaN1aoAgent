@@ -363,7 +363,7 @@ npm run web -- --runtime-dir .agent-runtime/sessions/<session> --port 8787
 
 Open <http://127.0.0.1:8787>. The first registered user becomes the administrator; later users are created as analysts.
 
-The Web workbench is an observability surface. It reads persisted graph, event, artifact, and runtime state, but does not start, stop, or mutate the Agent Controller.
+The Web workbench is primarily an observability surface: it reads persisted graph, event, artifact, and runtime state. It can also start new runs inside the Web process (goal + authorized scope) and gracefully stop runs that it started; runs launched from the CLI remain observable but cannot be stopped from the Web UI.
 
 ---
 
@@ -425,7 +425,7 @@ LuaN1aoAgent/
 │   ├── tools/                    # Pi graph, artifact, and runtime tools
 │   ├── tui/                      # Interactive terminal workbench
 │   ├── cli.ts                    # CLI entry point
-│   └── web-server.ts             # Authenticated read-only workbench server
+│   └── web-server.ts             # Authenticated workbench server (start/stop runs)
 ├── web/                          # React Agent workbench
 ├── test/                         # Runtime and transition tests
 ├── package.json

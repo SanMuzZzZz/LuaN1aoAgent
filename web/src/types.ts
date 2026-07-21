@@ -103,6 +103,44 @@ export interface RuntimeSession {
   goal?: string;
   latestTask?: string;
   latestTaskStatus?: string;
+  running?: boolean;
+}
+
+export interface StartRunInput {
+  goal: string;
+  scope: string;
+  maxRunTimeMs?: number;
+  maxParallelTasks?: number;
+  maxPlannerCycles?: number;
+}
+
+export interface StartRunResponse {
+  runtimeDir: string;
+  name: string;
+  goal: string;
+  scope: string;
+  startedAt: string;
+  running: boolean;
+}
+
+export interface ActiveRun {
+  runtimeDir: string;
+  name: string;
+  goal: string;
+  scope: string;
+  startedAt: string;
+  running: boolean;
+}
+
+export interface ActiveRunsResponse {
+  loadedAt: string;
+  runs: ActiveRun[];
+}
+
+export interface StopRunResponse {
+  ok: boolean;
+  runtimeDir: string;
+  stopping: boolean;
 }
 
 export interface RuntimeState {

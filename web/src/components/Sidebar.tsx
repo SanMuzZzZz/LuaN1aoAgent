@@ -184,7 +184,7 @@ function SessionButton({ session, runtimeDir, onRuntimeChange }: SidebarProps & 
       type="button"
       onClick={() => onRuntimeChange(session.runtimeDir)}
     >
-      <span className="session-name">{session.name}</span>
+      <span className="session-name">{session.running ? <Badge status="processing" /> : null}{session.name}</span>
       <strong>{session.goal || session.latestTask || "暂无目标摘要"}</strong>
       <span className="session-meta">
         {session.taskCount} tasks · {session.eventCount} trace · {formatRelative(session.updatedAt)}

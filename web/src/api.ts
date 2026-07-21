@@ -1,4 +1,4 @@
-import type { AuthResponse, RuntimeState, SessionsResponse } from "./types";
+import type { ActiveRunsResponse, AuthResponse, RuntimeState, SessionsResponse, StartRunInput, StartRunResponse, StopRunResponse } from "./types";
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number, readonly code?: string) {
@@ -30,6 +30,26 @@ export function fetchRuntimeState(runtimeDir: string, signal?: AbortSignal): Pro
 
 export function fetchSessions(runtimeDir: string, signal?: AbortSignal): Promise<SessionsResponse> {
   return requestJson(`/api/sessions?rootDir=${encodeURIComponent(runtimeRoot(runtimeDir))}`, { signal });
+}
+
+export function startRun(input: StartRunInput): Promise<StartRunResponse> {
+  return requestJson("/api/runs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+}
+
+export function fetchRuns(signal?: AbortSignal): Promise<ActiveRunsResponse> {
+  return requestJson("/api/runs", { signal });
+}
+
+export function stopRun(runtimeDir: string): Promise<StopRunResponse> {
+  return requestJson("/api/runs/stop", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ runtimeDir })
+  });
 }
 
 export function fetchCurrentUser(signal?: AbortSignal): Promise<AuthResponse> {

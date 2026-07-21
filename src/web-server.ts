@@ -1,9 +1,11 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { randomUUID } from "node:crypto";
 import { createReadStream, existsSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { basename, extname, join, relative, resolve, sep } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { WebAuthError, WebAuthService } from "./web-auth.js";
+import { SecurityAgentController } from "./controller.js";
 import { discoverRuntimeSessionDirs } from "./runtime-session-discovery.js";
 import {
   selectExactToolCallId,
@@ -114,6 +116,16 @@ type RuntimeSession = {
   goal?: string;
   latestTask?: string;
   latestTaskStatus?: string;
+  running?: boolean;
+};
+
+type ActiveRun = {
+  runtimeDir: string;
+  runtimeInput: string;
+  goal: string;
+  scope: string;
+  startedAt: string;
+  controller: SecurityAgentController;
 };
 
 const args = parseArgs(process.argv.slice(2));
@@ -124,6 +136,7 @@ const staticRoot = resolve(cwd, "web", "dist");
 const defaultRuntimeDir = args["runtime-dir"] ?? ".agent-runtime";
 const authService = new WebAuthService(resolve(cwd, args["auth-db"] ?? ".agent-runtime/web-auth.sqlite"));
 const sessionCookieName = "luanniao_session";
+const activeRuns = new Map<string, ActiveRun>();
 
 const server = createServer(async (request, response) => {
   try {
@@ -147,6 +160,26 @@ const server = createServer(async (request, response) => {
     if (url.pathname === "/api/sessions") {
       const rootDir = url.searchParams.get("rootDir") ?? defaultRuntimeDir;
       await sendJson(response, await readRuntimeSessions(rootDir));
+      return;
+    }
+    if (url.pathname === "/api/runs") {
+      if (request.method === "POST") {
+        await handleStartRun(request, response);
+        return;
+      }
+      if (request.method === "GET") {
+        await sendJson(response, listActiveRuns());
+        return;
+      }
+      await sendJson(response, { error: { code: "method_not_allowed", message: "仅支持 GET/POST" } }, 405);
+      return;
+    }
+    if (url.pathname === "/api/runs/stop") {
+      if (request.method !== "POST") {
+        await sendJson(response, { error: { code: "method_not_allowed", message: "仅支持 POST" } }, 405);
+        return;
+      }
+      await handleStopRun(request, response);
       return;
     }
     await sendStatic(url.pathname, response);
@@ -203,6 +236,98 @@ async function handleAuthRequest(request: IncomingMessage, response: ServerRespo
   }
 
   await sendJson(response, { error: { code: "not_found", message: "认证接口不存在" } }, 404);
+}
+
+async function handleStartRun(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  const body = await readJsonBody(request);
+  const goal = stringValue(body.goal, "").trim();
+  const scope = stringValue(body.scope, "").trim();
+  if (!goal || !scope) {
+    await sendJson(response, { error: { code: "invalid_request", message: "goal 和 scope 不能为空" } }, 400);
+    return;
+  }
+  if (goal.length > 4000 || scope.length > 4000) {
+    await sendJson(response, { error: { code: "invalid_request", message: "goal/scope 长度不能超过 4000 字符" } }, 400);
+    return;
+  }
+
+  const timestamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z").replace("T", "-");
+  const runtimeDir = join(cwd, ".agent-runtime", "sessions", `${timestamp}-web-${randomUUID().slice(0, 8)}`);
+  const controller = new SecurityAgentController({ cwd, runtimeDir });
+  await controller.initialize();
+
+  const run: ActiveRun = {
+    runtimeDir,
+    runtimeInput: toRuntimeInput(runtimeDir),
+    goal,
+    scope,
+    startedAt: new Date().toISOString(),
+    controller
+  };
+  activeRuns.set(runtimeDir, run);
+
+  const options: Parameters<SecurityAgentController["runUntilDone"]>[0] = { userGoal: goal, scopeSummary: scope };
+  const maxRunTimeMs = optionalPositiveNumber(body.maxRunTimeMs);
+  const maxParallelTasks = optionalPositiveNumber(body.maxParallelTasks);
+  const maxPlannerCycles = optionalPositiveNumber(body.maxPlannerCycles);
+  if (maxRunTimeMs !== undefined) options.maxRunTimeMs = maxRunTimeMs;
+  if (maxParallelTasks !== undefined) options.maxParallelTasks = maxParallelTasks;
+  if (maxPlannerCycles !== undefined) options.maxPlannerCycles = maxPlannerCycles;
+
+  void controller.runUntilDone(options)
+    .then((result) => {
+      console.log(`[web run finished] ${run.runtimeInput}: completed=${result.completed} reason=${result.stoppedReason ?? "-"}`);
+    })
+    .catch((error: unknown) => {
+      console.error(`[web run failed] ${run.runtimeInput}:`, error instanceof Error ? error.message : error);
+    })
+    .finally(async () => {
+      activeRuns.delete(runtimeDir);
+      await controller.close().catch(() => undefined);
+    });
+
+  await sendJson(response, {
+    runtimeDir: run.runtimeInput,
+    name: basename(runtimeDir),
+    goal,
+    scope,
+    startedAt: run.startedAt,
+    running: true
+  }, 201);
+}
+
+function listActiveRuns(): JsonRecord {
+  return {
+    loadedAt: new Date().toISOString(),
+    runs: [...activeRuns.values()].map((run) => ({
+      runtimeDir: run.runtimeInput,
+      name: basename(run.runtimeDir),
+      goal: run.goal,
+      scope: run.scope,
+      startedAt: run.startedAt,
+      running: true
+    }))
+  };
+}
+
+async function handleStopRun(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  const body = await readJsonBody(request);
+  const input = stringValue(body.runtimeDir, "").trim();
+  if (!input) {
+    await sendJson(response, { error: { code: "invalid_request", message: "runtimeDir 不能为空" } }, 400);
+    return;
+  }
+  const run = activeRuns.get(resolve(cwd, input));
+  if (!run) {
+    await sendJson(response, { error: { code: "run_not_found", message: "任务未在运行中，或不属于本 Web 进程" } }, 404);
+    return;
+  }
+  void run.controller.requestStop("Stopped from web UI").catch(() => undefined);
+  await sendJson(response, { ok: true, runtimeDir: run.runtimeInput, stopping: true });
+}
+
+function optionalPositiveNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
 async function readRuntimeState(runtimeDirInput: string): Promise<JsonRecord> {
@@ -286,7 +411,8 @@ async function readRuntimeSession(rootDir: string, runtimeDir: string): Promise<
     artifactCount,
     goal: graphMeta.goal,
     latestTask: graphMeta.latestTask,
-    latestTaskStatus: graphMeta.latestTaskStatus
+    latestTaskStatus: graphMeta.latestTaskStatus,
+    running: activeRuns.has(runtimeDir)
   };
 }
 

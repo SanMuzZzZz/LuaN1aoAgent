@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchRuntimeState, fetchSessions } from "./api";
-import type { RuntimeSession, RuntimeState } from "./types";
+import { fetchRuns, fetchRuntimeState, fetchSessions } from "./api";
+import type { ActiveRun, RuntimeSession, RuntimeState } from "./types";
 
 export interface RuntimeDashboardState {
   data?: RuntimeState;
   sessions: RuntimeSession[];
+  activeRuns: ActiveRun[];
   loading: boolean;
   refreshing: boolean;
   error?: string;
@@ -16,6 +17,7 @@ export interface RuntimeDashboardState {
 export function useRuntimeDashboard(runtimeDir: string): RuntimeDashboardState {
   const [data, setData] = useState<RuntimeState>();
   const [sessions, setSessions] = useState<RuntimeSession[]>([]);
+  const [activeRuns, setActiveRuns] = useState<ActiveRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string>();
@@ -47,6 +49,9 @@ export function useRuntimeDashboard(runtimeDir: string): RuntimeDashboardState {
       if (requestId !== requestSequence.current) return;
       setData(stateResult);
       setError(undefined);
+      void fetchRuns()
+        .then((runsResult) => setActiveRuns(runsResult.runs || []))
+        .catch(() => undefined);
     } catch (requestError) {
       if (controller.signal.aborted) return;
       if (requestId === requestSequence.current) {
@@ -97,7 +102,7 @@ export function useRuntimeDashboard(runtimeDir: string): RuntimeDashboardState {
     };
   }, [autoRefresh, refresh]);
 
-  return { data, sessions, loading, refreshing, error, autoRefresh, setAutoRefresh, refresh };
+  return { data, sessions, activeRuns, loading, refreshing, error, autoRefresh, setAutoRefresh, refresh };
 }
 
 function errorText(error: unknown): string {

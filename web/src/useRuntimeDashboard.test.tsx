@@ -44,10 +44,10 @@ describe("useRuntimeDashboard", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     renderHook(() => useRuntimeDashboard("session-a"));
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     await act(async () => { vi.advanceTimersByTime(5000); await Promise.resolve(); await Promise.resolve(); });
-    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(3);
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(4);
   });
 });
 

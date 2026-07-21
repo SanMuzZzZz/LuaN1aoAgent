@@ -1,9 +1,11 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
-import { Alert, Avatar, Button, ConfigProvider, Drawer, Dropdown, Input, Skeleton, Statistic, Switch, Tag, Tooltip, Typography } from "antd";
-import { Activity, ChevronDown, Database, FileBox, LogOut, Menu, PanelRight, RefreshCw, Share2 } from "lucide-react";
+import { Alert, Avatar, Button, ConfigProvider, Drawer, Dropdown, Input, Popconfirm, Skeleton, Statistic, Switch, Tag, Tooltip, Typography } from "antd";
+import { Activity, ChevronDown, Database, FileBox, LogOut, Menu, PanelRight, Play, RefreshCw, Share2, Square } from "lucide-react";
+import { stopRun } from "./api";
 import { Inspector } from "./components/Inspector";
 import { ResizableWorkspace } from "./components/ResizableWorkspace";
 import { Sidebar } from "./components/Sidebar";
+import { StartRunModal } from "./components/StartRunModal";
 import { TraceView } from "./components/TraceView";
 import { projectTaskTree } from "./graph";
 import type { AuthUser, GraphKind, ViewKey } from "./types";
@@ -25,6 +27,9 @@ export default function App({ user, onLogout }: { user: AuthUser; onLogout: () =
   const [newestFirst, setNewestFirst] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false);
+  const [startRunOpen, setStartRunOpen] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const [actionError, setActionError] = useState<string>();
   const dashboard = useRuntimeDashboard(runtimeDir);
   const data = dashboard.data;
 
@@ -43,6 +48,25 @@ export default function App({ user, onLogout }: { user: AuthUser; onLogout: () =
   }, [activeView]);
 
   const selectedTrace = data?.traceItems.find((item) => item.id === selectedTraceId);
+  const runningNow = dashboard.activeRuns.some((run) => normalizeDir(run.runtimeDir) === normalizeDir(runtimeDir));
+  const sidebarSessions = useMemo(() => {
+    const active = new Set(dashboard.activeRuns.map((run) => normalizeDir(run.runtimeDir)));
+    if (!active.size) return dashboard.sessions;
+    return dashboard.sessions.map((session) =>
+      session.running || !active.has(normalizeDir(session.runtimeDir)) ? session : { ...session, running: true });
+  }, [dashboard.activeRuns, dashboard.sessions]);
+  const stopCurrentRun = async () => {
+    setStopping(true);
+    setActionError(undefined);
+    try {
+      await stopRun(runtimeDir);
+      await dashboard.refresh();
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setStopping(false);
+    }
+  };
   const inspectorGraph = useMemo(() => {
     if (!data) return { nodes: [], edges: [] };
     return activeView === "task" ? projectTaskTree(data.graph.nodes, data.graph.edges) : data.graph;
@@ -70,7 +94,7 @@ export default function App({ user, onLogout }: { user: AuthUser; onLogout: () =
     <Sidebar
       activeView={activeView}
       runtimeDir={runtimeDir}
-      sessions={dashboard.sessions}
+      sessions={sidebarSessions}
       agents={data?.overview.agents || {}}
       onViewChange={setView}
       onRuntimeChange={(value) => { setRuntimeDraft(value); applyRuntime(value); }}
@@ -107,6 +131,19 @@ export default function App({ user, onLogout }: { user: AuthUser; onLogout: () =
             <div className="runtime-controls">
               <Input value={runtimeDraft} onChange={(event) => setRuntimeDraft(event.target.value)} onPressEnter={() => applyRuntime()} prefix={<Database size={15} />} aria-label="Runtime 目录" />
               <Button className="runtime-load-button" onClick={() => applyRuntime()}>载入</Button>
+              <Tooltip title="启动新任务"><Button icon={<Play size={16} />} onClick={() => setStartRunOpen(true)}>启动任务</Button></Tooltip>
+              {runningNow ? (
+                <Popconfirm
+                  title="停止当前任务？"
+                  description="将优雅中断该 run，已产出的数据会保留。"
+                  okText="停止"
+                  cancelText="取消"
+                  okButtonProps={{ danger: true }}
+                  onConfirm={() => void stopCurrentRun()}
+                >
+                  <Button danger loading={stopping} icon={<Square size={15} />}>停止</Button>
+                </Popconfirm>
+              ) : null}
               <Tooltip title="刷新运行态"><Button type="primary" icon={<RefreshCw className={dashboard.refreshing ? "spin" : ""} size={16} />} onClick={() => void dashboard.refresh()} aria-label="刷新运行态" /></Tooltip>
               <label className="auto-refresh"><Switch size="small" checked={dashboard.autoRefresh} onChange={dashboard.setAutoRefresh} /><span>自动刷新</span></label>
               <Tooltip title="打开详情"><Button className="inspector-trigger" icon={<PanelRight size={18} />} onClick={() => setMobileInspectorOpen(true)} aria-label="打开详情" /></Tooltip>
@@ -132,6 +169,7 @@ export default function App({ user, onLogout }: { user: AuthUser; onLogout: () =
 
           <main className="content-area">
             {dashboard.error ? <Alert closable type="error" showIcon message={dashboard.error} /> : null}
+            {actionError ? <Alert closable type="error" showIcon message={actionError} onClose={() => setActionError(undefined)} /> : null}
             <section className="mission-band">
               <div className="mission-copy">
                 <span>当前目标</span>
@@ -186,6 +224,14 @@ export default function App({ user, onLogout }: { user: AuthUser; onLogout: () =
 
       <Drawer placement="left" width={286} open={mobileSidebarOpen} onClose={() => setMobileSidebarOpen(false)} closable={false} styles={{ body: { padding: 0 } }}>{sidebar}</Drawer>
       <Drawer placement="right" width={380} open={mobileInspectorOpen} onClose={() => setMobileInspectorOpen(false)} title="详情检查器">{inspector}</Drawer>
+      <StartRunModal
+        open={startRunOpen}
+        onClose={() => setStartRunOpen(false)}
+        onStarted={(dir) => {
+          setStartRunOpen(false);
+          applyRuntime(dir);
+        }}
+      />
     </ConfigProvider>
   );
 }
@@ -211,6 +257,10 @@ function updateUrl(runtimeDir: string, view: ViewKey) {
   url.searchParams.set("runtimeDir", runtimeDir);
   url.searchParams.set("view", view);
   window.history.replaceState({}, "", url);
+}
+
+function normalizeDir(value: string): string {
+  return value.replace(/\/+$/, "") || ".agent-runtime";
 }
 
 export const appTheme = {
