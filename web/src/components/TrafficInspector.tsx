@@ -186,11 +186,12 @@ function ReplayEditor({ runtimeDir, exchange, user, requestBody, loadRequestBody
       const encodedBody = bodyOverride
         ? bodyMode === "base64" ? normalizeBase64(body) : utf8ToBase64(body)
         : undefined;
+      const replayHeaders = headers.map(({ name, value }, ordinal) => ({ name, value, ordinal }));
       const result = await replayTrafficExchange(exchange.id, {
         runtimeDir,
         method: method.trim(),
         url: url.trim(),
-        headers: headers.map(({ name, value }, ordinal) => ({ name, value, ordinal })),
+        ...(sameHeaders(replayHeaders, exchange.request_headers) ? {} : { headers: replayHeaders }),
         ...(encodedBody === undefined ? {} : { body: { encoding: "base64" as const, data: encodedBody } }),
         ...(exchange.route_ref ? { route_ref: exchange.route_ref } : {}),
         ...(exchange.session_ref ? { session_ref: exchange.session_ref } : {}),
@@ -268,6 +269,12 @@ function modeDescription(exchange: TrafficExchange): React.ReactNode {
 
 function editableHeaders(headers?: TrafficHeaderEntry[]): EditableHeader[] {
   return (headers ?? []).map((header, index) => ({ ...header, key: `${header.ordinal}:${index}:${header.name}` }));
+}
+
+function sameHeaders(current: TrafficHeaderEntry[], source?: TrafficHeaderEntry[]): boolean {
+  const original = source ?? [];
+  return current.length === original.length
+    && current.every((header, index) => header.name === original[index].name && header.value === original[index].value);
 }
 
 function decodeBody(data: string): { bytes: Uint8Array; text?: string; json?: boolean } {

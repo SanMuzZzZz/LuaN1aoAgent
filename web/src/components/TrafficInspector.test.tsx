@@ -116,8 +116,15 @@ describe("TrafficInspector", () => {
     expect(screen.queryByRole("button", { name: "编辑并 Replay" })).not.toBeInTheDocument();
   });
 
-  it("keeps the complete source body when the editor is unchanged", async () => {
-    render(<TrafficInspector runtimeDir="runtime/a" exchange={exchange} user={admin} onSelectExchange={vi.fn()} onReplayed={vi.fn()} />);
+  it("keeps the complete source request when the editor is unchanged", async () => {
+    const source = {
+      ...exchange,
+      request_headers: [
+        ...(exchange.request_headers ?? []),
+        { name: "Proxy-Connection", value: "Keep-Alive", ordinal: 3 }
+      ]
+    };
+    render(<TrafficInspector runtimeDir="runtime/a" exchange={source} user={admin} onSelectExchange={vi.fn()} onReplayed={vi.fn()} />);
 
     fireEvent.click(screen.getByRole("button", { name: "编辑并 Replay" }));
     await waitFor(() => expect(screen.getByLabelText("Replay body")).toHaveValue('{"test":true}'));
@@ -130,6 +137,7 @@ describe("TrafficInspector", () => {
     await waitFor(() => expect(replayTrafficExchange).toHaveBeenCalled());
     const [, input] = vi.mocked(replayTrafficExchange).mock.calls[0];
     expect(input).not.toHaveProperty("body");
+    expect(input).not.toHaveProperty("headers");
   });
 
   it("confirms the target and submits an admin replay", async () => {
@@ -138,6 +146,7 @@ describe("TrafficInspector", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "编辑并 Replay" }));
     expect(screen.getAllByDisplayValue("X-Test")).toHaveLength(2);
+    fireEvent.change(screen.getByLabelText("Replay header value 2"), { target: { value: "edited" } });
     fireEvent.change(screen.getByLabelText("Replay body"), { target: { value: "hello" } });
     fireEvent.click(screen.getByRole("button", { name: "准备发送" }));
 
@@ -153,7 +162,7 @@ describe("TrafficInspector", () => {
       url: exchange.url,
       body: { encoding: "base64", data: "aGVsbG8=" },
       headers: expect.arrayContaining([
-        { name: "X-Test", value: "first", ordinal: 1 },
+        { name: "X-Test", value: "edited", ordinal: 1 },
         { name: "X-Test", value: "second", ordinal: 2 }
       ])
     })));
