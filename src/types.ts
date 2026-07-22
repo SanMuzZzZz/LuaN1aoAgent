@@ -15,6 +15,8 @@ export type OperationNodeType =
   | "WebEndpoint"
   | "Parameter"
   | "Credential"
+  | "AgentSession"
+  | "ShellSession"
   | "Session"
   | "File"
   | "Process";
@@ -47,6 +49,8 @@ export type EdgeType =
   | "authenticates_to"
   | "creates_session"
   | "session_on"
+  | "tunnels_to"
+  | "proxy_route"
   | "contains_file"
   | "spawns_process"
   | "decomposes_to"
@@ -59,6 +63,34 @@ export type EdgeType =
 
 export type JsonObject = Record<string, unknown>;
 
+export type OperationalStatus = "live" | "degraded" | "stale" | "closed";
+
+export interface AgentSession {
+  id: string;
+  graphKind: "operation";
+  type: "AgentSession";
+  label: string;
+  properties: JsonObject & {
+    status: OperationalStatus;
+    sessionId?: string;
+    agentSessionId?: string;
+  };
+  evidenceRefs?: string[];
+}
+
+export interface ShellSession {
+  id: string;
+  graphKind: "operation";
+  type: "ShellSession";
+  label: string;
+  properties: JsonObject & {
+    status: OperationalStatus;
+    sessionId?: string;
+    shellSessionId?: string;
+  };
+  evidenceRefs?: string[];
+}
+
 export type GraphNode = {
   id: string;
   graphKind: GraphKind;
@@ -69,6 +101,7 @@ export type GraphNode = {
 };
 
 export type GraphEdge = {
+  id?: string;
   from: string;
   to: string;
   type: EdgeType | string;

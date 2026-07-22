@@ -4,9 +4,44 @@ import { createReadStream, existsSync } from "node:fs";
 import { open, readFile, stat } from "node:fs/promises";
 import { basename, extname, join, relative, resolve, sep } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { WebAuthError, WebAuthService } from "./web-auth.js";
+import { WebAuthError, WebAuthService, type WebUser } from "./web-auth.js";
 import { SecurityAgentController } from "./controller.js";
+import {
+  bootstrapAgentRuntime,
+  createAgentTrafficProxyRegistry,
+  type AgentRuntimeLifecycle
+} from "./agent-runtime-bootstrap.js";
+import {
+  ConnectivitySupervisor,
+  ConnectivitySupervisorRegistry
+} from "./connectivity/connectivity-supervisor.js";
+import {
+  TrafficProxyClient,
+  TrafficProxyControlError,
+  type TrafficHeaderEntry,
+  type TrafficProxyContext,
+  type TrafficReplayInput,
+  type TrafficReplayResult
+} from "./connectivity/traffic-proxy-client.js";
+import { TrafficProxyManager } from "./connectivity/traffic-proxy-manager.js";
+import { SessionBroker, type SshSessionDefinition } from "./connectivity/session-broker.js";
+import { TunnelManager, type SshForward, type SshTunnelDefinition } from "./connectivity/tunnel-manager.js";
+import { OperationalTopology } from "./operational-topology.js";
+import { ConnectivityStore, type ConnectivityDefinition } from "./stores/connectivity-store.js";
+import { ExecutionLog } from "./stores/execution-log.js";
+import { SQLiteGraphStore } from "./stores/graph-store.js";
 import { discoverRuntimeSessionDirs } from "./runtime-session-discovery.js";
+import { RuntimePathPolicy, RuntimePathPolicyError } from "./runtime-path-policy.js";
+import {
+  clearCsrfCookie,
+  createCsrfToken,
+  csrfCookie,
+  csrfCookieName,
+  hasCapability,
+  requireRuntimeAccess,
+  validateMutationRequest,
+  WebSecurityError
+} from "./web-security.js";
 import {
   selectExactToolCallId,
   selectTraceIntent,
@@ -128,6 +163,9 @@ type ActiveRun = {
   scope: string;
   startedAt: string;
   controller: SecurityAgentController;
+  agentRuntime: AgentRuntimeLifecycle;
+  connectivitySupervisor: ConnectivitySupervisor;
+  completion?: Promise<void>;
 };
 
 const args = parseArgs(process.argv.slice(2));
@@ -137,39 +175,80 @@ const cwd = process.cwd();
 const staticRoot = resolve(cwd, "web", "dist");
 const defaultRuntimeDir = args["runtime-dir"] ?? ".agent-runtime";
 const authService = new WebAuthService(resolve(cwd, args["auth-db"] ?? ".agent-runtime/web-auth.sqlite"));
+const runtimePathPolicy = await RuntimePathPolicy.create(defaultRuntimeDir, { baseDir: cwd });
 const sessionCookieName = "luanniao_session";
+const MAX_CONCURRENT_TRAFFIC_REPLAYS = 4;
+let activeTrafficReplays = 0;
 const activeRuns = new Map<string, ActiveRun>();
+const connectivityManagers = new Map<string, {
+  store: ConnectivityStore;
+  graphStore: SQLiteGraphStore;
+  tunnels: TunnelManager;
+  sessions: SessionBroker;
+}>();
+const connectivitySupervisorResources = new WeakMap<ConnectivitySupervisor, {
+  store: ConnectivityStore;
+  graphStore: SQLiteGraphStore;
+  executionLog: ExecutionLog;
+}>();
+const connectivityRegistry = new ConnectivitySupervisorRegistry((runtimeDir) => {
+  const databasePath = join(runtimeDir, "state.sqlite");
+  const store = new ConnectivityStore(databasePath);
+  const graphStore = new SQLiteGraphStore(databasePath, join(runtimeDir, "graph-deltas.jsonl"));
+  const executionLog = new ExecutionLog(join(runtimeDir, "execution.jsonl"), databasePath);
+  const supervisor = new ConnectivitySupervisor(store, new OperationalTopology(graphStore), executionLog);
+  connectivitySupervisorResources.set(supervisor, { store, graphStore, executionLog });
+  return supervisor;
+}, (supervisor) => {
+  const resources = connectivitySupervisorResources.get(supervisor);
+  if (!resources) return;
+  connectivitySupervisorResources.delete(supervisor);
+  resources.executionLog.close();
+  resources.graphStore.close();
+  resources.store.close();
+});
+const trafficProxyRegistry = createAgentTrafficProxyRegistry();
 
 const server = createServer(async (request, response) => {
   try {
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? `${host}:${port}`}`);
+    if (url.pathname.startsWith("/api/")) {
+      validateMutationRequest(request, readCookie(request, csrfCookieName));
+    }
     if (url.pathname.startsWith("/api/auth/")) {
       await handleAuthRequest(request, response, url.pathname);
       return;
     }
+
+    let user: WebUser | undefined;
     if (url.pathname.startsWith("/api/")) {
-      const user = authService.authenticate(readCookie(request, sessionCookieName));
+      user = authService.authenticate(readCookie(request, sessionCookieName));
       if (!user) {
         await sendJson(response, { error: { code: "unauthorized", message: "请先登录" } }, 401);
         return;
       }
     }
     if (url.pathname === "/api/state") {
+      requireRuntimeAccess(user!, "viewer:metadata");
       const runtimeDir = url.searchParams.get("runtimeDir") ?? defaultRuntimeDir;
-      await sendJson(response, await readRuntimeState(runtimeDir));
+      const state = await readRuntimeState(runtimeDir);
+      await sendJson(response, hasCapability(user!, "admin:credential") ? state : redactCredentialRefs(state));
       return;
     }
     if (url.pathname === "/api/sessions") {
+      requireRuntimeAccess(user!, "viewer:metadata");
       const rootDir = url.searchParams.get("rootDir") ?? defaultRuntimeDir;
       await sendJson(response, await readRuntimeSessions(rootDir));
       return;
     }
     if (url.pathname === "/api/runs") {
       if (request.method === "POST") {
+        requireRuntimeAccess(user!, "operator:mutate");
         await handleStartRun(request, response);
         return;
       }
       if (request.method === "GET") {
+        requireRuntimeAccess(user!, "viewer:metadata");
         await sendJson(response, listActiveRuns());
         return;
       }
@@ -181,10 +260,78 @@ const server = createServer(async (request, response) => {
         await sendJson(response, { error: { code: "method_not_allowed", message: "仅支持 POST" } }, 405);
         return;
       }
+      requireRuntimeAccess(user!, "operator:mutate");
       await handleStopRun(request, response);
       return;
     }
+    if (url.pathname === "/api/connectivity") {
+      if (request.method !== "GET") {
+        await sendJson(response, { error: { code: "method_not_allowed", message: "仅支持 GET" } }, 405);
+        return;
+      }
+      requireRuntimeAccess(user!, "viewer:metadata");
+      await sendJson(response, await readConnectivity(url, hasCapability(user!, "admin:credential")));
+      return;
+    }
+    if (url.pathname === "/api/connectivity/tunnels" || url.pathname === "/api/connectivity/sessions") {
+      if (request.method !== "POST") {
+        await sendJson(response, { error: { code: "method_not_allowed", message: "仅支持 POST" } }, 405);
+        return;
+      }
+      requireRuntimeAccess(user!, "connectivity:manage");
+      await handleCreateConnectivity(request, response, url.pathname.endsWith("/tunnels") ? "tunnel" : "session");
+      return;
+    }
+    const connectivityActionRoute = /^\/api\/connectivity\/([^/]+)\/(start|stop|close)$/.exec(url.pathname);
+    if (connectivityActionRoute) {
+      if (request.method !== "POST") {
+        await sendJson(response, { error: { code: "method_not_allowed", message: "仅支持 POST" } }, 405);
+        return;
+      }
+      requireRuntimeAccess(user!, "connectivity:manage");
+      await handleConnectivityAction(request, response, decodeURIComponent(connectivityActionRoute[1]), connectivityActionRoute[2] as "start" | "stop" | "close");
+      return;
+    }
+    if (url.pathname === "/api/traffic/history") {
+      if (request.method !== "GET") {
+        await sendJson(response, { error: { code: "method_not_allowed", message: "仅支持 GET" } }, 405);
+        return;
+      }
+      requireRuntimeAccess(user!, "traffic:read-sensitive");
+      await sendJson(response, await readTrafficHistory(url));
+      return;
+    }
+    if (url.pathname === "/api/traffic/ca") {
+      if (request.method !== "GET") {
+        await sendJson(response, { error: { code: "method_not_allowed", message: "仅支持 GET" } }, 405);
+        return;
+      }
+      requireRuntimeAccess(user!, "traffic:read-sensitive");
+      await sendPublicCa(response, url);
+      return;
+    }
+    const trafficReplayRoute = /^\/api\/traffic\/history\/(\d+)\/replay$/.exec(url.pathname);
+    if (trafficReplayRoute) {
+      if (request.method !== "POST") {
+        await sendJson(response, { error: { code: "method_not_allowed", message: "仅支持 POST" } }, 405);
+        return;
+      }
+      requireRuntimeAccess(user!, "traffic:replay");
+      await handleTrafficReplay(request, response, user!, Number(trafficReplayRoute[1]));
+      return;
+    }
+    const trafficRoute = /^\/api\/traffic\/history\/(\d+)(\/body)?$/.exec(url.pathname);
+    if (trafficRoute) {
+      if (request.method !== "GET") {
+        await sendJson(response, { error: { code: "method_not_allowed", message: "仅支持 GET" } }, 405);
+        return;
+      }
+      requireRuntimeAccess(user!, "traffic:read-sensitive");
+      await sendJson(response, await readTrafficExchange(url, Number(trafficRoute[1]), Boolean(trafficRoute[2])));
+      return;
+    }
     if (url.pathname === "/api/artifact") {
+      requireRuntimeAccess(user!, "traffic:read-sensitive");
       const runtimeDir = url.searchParams.get("runtimeDir") ?? defaultRuntimeDir;
       const artifactRef = url.searchParams.get("artifactRef") ?? "";
       await sendJson(response, await readArtifactContent(runtimeDir, artifactRef));
@@ -192,15 +339,21 @@ const server = createServer(async (request, response) => {
     }
     await sendStatic(url.pathname, response);
   } catch (error) {
-    if (error instanceof WebAuthError) {
+    if (error instanceof WebAuthError || error instanceof WebSecurityError) {
       await sendJson(response, { error: { code: error.code, message: error.message } }, error.statusCode);
+      return;
+    }
+    if (error instanceof RuntimePathPolicyError) {
+      const statusCode = error.code === "runtime_path_not_found" ? 404 : error.code === "runtime_path_outside_root" ? 403 : 400;
+      await sendJson(response, { error: { code: error.code, message: error.message } }, statusCode);
       return;
     }
     if (error instanceof HttpError) {
       await sendJson(response, { error: { code: error.code, message: error.message } }, error.statusCode);
       return;
     }
-    await sendJson(response, { error: { code: "internal_error", message: error instanceof Error ? error.message : String(error) } }, 500);
+    console.error("[web request failed]", error instanceof Error ? error.message : String(error));
+    await sendJson(response, { error: { code: "internal_error", message: "服务器内部错误" } }, 500);
   }
 });
 
@@ -212,10 +365,48 @@ class HttpError extends Error {
 
 server.listen(port, host, () => {
   console.log(`Luanniao Agent Trace listening on http://${host}:${port}`);
-  console.log(`Runtime dir: ${resolve(cwd, defaultRuntimeDir)}`);
+  console.log(`Runtime dir: ${runtimePathPolicy.rootDir}`);
 });
 
+let shutdownPromise: Promise<void> | undefined;
+const shutdown = (signal: NodeJS.Signals): Promise<void> => {
+  if (shutdownPromise) {
+    server.closeAllConnections();
+    return shutdownPromise;
+  }
+  shutdownPromise = (async () => {
+    console.log(`Received ${signal}; stopping web server and active runs`);
+    const serverClosed = new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+    const runs = [...activeRuns.values()];
+    await Promise.allSettled(runs.map((run) => run.controller.requestStop(`Received ${signal}`)));
+    await Promise.allSettled(runs.map((run) => withTimeout(run.completion ?? Promise.resolve(), 5_000)));
+    await Promise.allSettled([
+      ...runs.map((run) => cleanupRun(run)),
+      closeConnectivityManagers(),
+      connectivityRegistry.closeAll()
+    ]);
+    await trafficProxyRegistry.closeAll();
+    authService.close();
+    server.closeAllConnections();
+    await withTimeout(serverClosed, 2_000).catch(() => undefined);
+  })().finally(() => {
+    process.off("SIGINT", onSigint);
+    process.off("SIGTERM", onSigterm);
+  });
+  return shutdownPromise;
+};
+const onSigint = () => { void shutdown("SIGINT"); };
+const onSigterm = () => { void shutdown("SIGTERM"); };
+process.on("SIGINT", onSigint);
+process.on("SIGTERM", onSigterm);
+
 async function handleAuthRequest(request: IncomingMessage, response: ServerResponse, pathname: string): Promise<void> {
+  if (pathname === "/api/auth/csrf" && request.method === "GET") {
+    const token = createCsrfToken();
+    await sendJson(response, { csrfToken: token }, 200, { "Set-Cookie": csrfCookie(token, request) });
+    return;
+  }
+
   if (pathname === "/api/auth/me" && request.method === "GET") {
     const user = authService.authenticate(readCookie(request, sessionCookieName));
     if (!user) {
@@ -249,11 +440,618 @@ async function handleAuthRequest(request: IncomingMessage, response: ServerRespo
 
   if (pathname === "/api/auth/logout" && request.method === "POST") {
     authService.logout(readCookie(request, sessionCookieName));
-    await sendJson(response, { ok: true }, 200, { "Set-Cookie": clearSessionCookie(request) });
+    await sendJson(response, { ok: true }, 200, {
+      "Set-Cookie": [clearSessionCookie(request), clearCsrfCookie(request)]
+    });
     return;
   }
 
   await sendJson(response, { error: { code: "not_found", message: "认证接口不存在" } }, 404);
+}
+
+type WebConnection = {
+  id: string;
+  externalId: string;
+  kind: ConnectivityDefinition["kind"];
+  direction: string;
+  transport: string;
+  managed: boolean;
+  desiredState: ConnectivityDefinition["desiredState"];
+  observedState: ConnectivityDefinition["status"];
+  lastHeartbeat?: string;
+  error?: string;
+  available: boolean;
+  credentialRef?: string;
+  graphUrl?: string;
+};
+
+async function readConnectivity(url: URL, includeCredentialRef: boolean): Promise<JsonRecord> {
+  const runtimeInput = url.searchParams.get("runtimeDir") ?? defaultRuntimeDir;
+  const runtimeDir = await runtimePathPolicy.resolveRuntime(runtimeInput, "existing");
+  const databasePath = join(runtimeDir, "state.sqlite");
+  if (!existsSync(databasePath)) {
+    return { runtimeDir: runtimeInput, loadedAt: new Date().toISOString(), connections: [] };
+  }
+  const store = new ConnectivityStore(databasePath);
+  try {
+    return {
+      runtimeDir: runtimeInput,
+      loadedAt: new Date().toISOString(),
+      connections: store.listDefinitions().map((definition) => webConnection(definition, runtimeInput, includeCredentialRef))
+    };
+  } finally {
+    store.close();
+  }
+}
+
+async function handleCreateConnectivity(
+  request: IncomingMessage,
+  response: ServerResponse,
+  kind: "tunnel" | "session"
+): Promise<void> {
+  const body = await readJsonBody(request);
+  rejectSensitiveConnectivityInput(body);
+  const runtimeInput = requiredBodyString(body, "runtimeDir");
+  const runtimeDir = await runtimePathPolicy.resolveRuntime(runtimeInput, "existing");
+  const managers = connectivityManagerFor(runtimeDir);
+  try {
+    const definition = kind === "tunnel"
+      ? managers.tunnels.define(validateWebTunnel(body))
+      : managers.sessions.defineSsh(validateWebSession(body));
+    await sendJson(response, webConnection(definition, runtimeInput), 201);
+  } catch (error) {
+    throw connectivityInputError(error);
+  }
+}
+
+async function handleConnectivityAction(
+  request: IncomingMessage,
+  response: ServerResponse,
+  id: string,
+  action: "start" | "stop" | "close"
+): Promise<void> {
+  const body = await readJsonBody(request);
+  rejectSensitiveConnectivityInput(body);
+  assertExactKeys(body, ["runtimeDir"]);
+  const runtimeInput = requiredBodyString(body, "runtimeDir");
+  const runtimeDir = await runtimePathPolicy.resolveRuntime(runtimeInput, "existing");
+  const managers = connectivityManagerFor(runtimeDir);
+  const current = managers.store.getDefinition(id);
+  if (!current) throw new HttpError(404, "connectivity_not_found", "连接不存在");
+  if (!isManagedConnection(current)) throw new HttpError(409, "connectivity_unmanaged", "该连接不受 Web 生命周期管理");
+  try {
+    let updated: ConnectivityDefinition;
+    if (current.kind === "tunnel") {
+      if (action === "start") {
+        managers.store.updateDesiredState(id, "running");
+        updated = await managers.tunnels.start(id);
+      } else {
+        updated = await managers.tunnels.stop(id, action === "close");
+      }
+    } else {
+      updated = managers.store.updateDesiredState(id, action === "close" ? "closed" : action === "stop" ? "stopped" : "running");
+    }
+    await sendJson(response, webConnection(updated, runtimeInput));
+  } catch (error) {
+    throw connectivityInputError(error, 409);
+  }
+}
+
+function connectivityManagerFor(runtimeDir: string): {
+  store: ConnectivityStore;
+  graphStore: SQLiteGraphStore;
+  tunnels: TunnelManager;
+  sessions: SessionBroker;
+} {
+  const existing = connectivityManagers.get(runtimeDir);
+  if (existing) return existing;
+  const databasePath = join(runtimeDir, "state.sqlite");
+  const store = new ConnectivityStore(databasePath);
+  const graphStore = new SQLiteGraphStore(databasePath, join(runtimeDir, "graph-deltas.jsonl"));
+  const topology = new OperationalTopology(graphStore);
+  const managers = {
+    store,
+    graphStore,
+    tunnels: new TunnelManager(store, topology, runtimeDir),
+    sessions: new SessionBroker(store, topology, runtimeDir)
+  };
+  connectivityManagers.set(runtimeDir, managers);
+  return managers;
+}
+
+function webConnection(definition: ConnectivityDefinition, runtimeInput: string, includeCredentialRef = true): WebConnection {
+  const transport = typeof definition.definition.transport === "string"
+    ? definition.definition.transport
+    : typeof definition.definition.adapter === "string" ? definition.definition.adapter : "raw";
+  const failure = definition.definition.lastFailureReason;
+  const direction = definition.kind === "tunnel"
+    ? `${definition.fromHostRef ?? "?"} → ${definition.toHostRef ?? "?"}`
+    : definition.kind === "session" ? `host: ${definition.hostRef ?? "?"}` : "route";
+  const graphKind = "operation";
+  return {
+    id: definition.id,
+    externalId: definition.externalId,
+    kind: definition.kind,
+    direction,
+    transport,
+    managed: isManagedConnection(definition),
+    desiredState: definition.desiredState,
+    observedState: definition.status,
+    lastHeartbeat: definition.lastHeartbeat,
+    error: typeof failure === "string" ? failure : undefined,
+    available: definition.desiredState === "running" && definition.status === "live",
+    ...(includeCredentialRef && definition.credentialRef ? { credentialRef: definition.credentialRef } : {}),
+    graphUrl: `?runtimeDir=${encodeURIComponent(runtimeInput)}&view=${graphKind}&nodeId=${encodeURIComponent(definition.id)}`
+  };
+}
+
+function isManagedConnection(definition: ConnectivityDefinition): boolean {
+  const transport = definition.definition.transport ?? definition.definition.adapter;
+  return (definition.kind === "tunnel" || definition.kind === "session")
+    && transport === "ssh"
+    && definition.definition.unmanaged !== true;
+}
+
+function validateWebTunnel(body: JsonRecord): SshTunnelDefinition {
+  assertExactKeys(body, ["runtimeDir", "externalId", "fromHostRef", "toHostRef", "host", "port", "user", "credentialRef", "desiredState", "controlMaster", "forwards"]);
+  if (!Array.isArray(body.forwards) || body.forwards.length === 0 || body.forwards.length > 32) {
+    throw new HttpError(400, "invalid_connectivity", "forwards 必须包含 1 到 32 项");
+  }
+  const forwards = body.forwards.map((value, index) => validateWebForward(value, index));
+  const desiredState = body.desiredState === undefined ? undefined : body.desiredState;
+  if (desiredState !== undefined && desiredState !== "running" && desiredState !== "stopped") {
+    throw new HttpError(400, "invalid_connectivity", "desiredState 无效");
+  }
+  return {
+    externalId: requiredBodyString(body, "externalId"),
+    fromHostRef: requiredBodyString(body, "fromHostRef"),
+    toHostRef: requiredBodyString(body, "toHostRef"),
+    host: requiredBodyString(body, "host"),
+    port: optionalPort(body.port, "port"),
+    user: optionalBodyString(body, "user"),
+    credentialRef: optionalBodyString(body, "credentialRef"),
+    controlMaster: optionalBoolean(body.controlMaster, "controlMaster"),
+    desiredState,
+    forwards
+  };
+}
+
+function validateWebForward(value: unknown, index: number): SshForward {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new HttpError(400, "invalid_connectivity", `forwards[${index}] 无效`);
+  }
+  const forward = value as JsonRecord;
+  assertExactKeys(forward, ["mode", "bindHost", "bindPort", "targetHost", "targetPort"]);
+  const mode = forward.mode;
+  if (mode !== "local" && mode !== "remote" && mode !== "dynamic") {
+    throw new HttpError(400, "invalid_connectivity", `forwards[${index}].mode 无效`);
+  }
+  const common = {
+    bindHost: optionalBodyString(forward, "bindHost"),
+    bindPort: requiredPort(forward.bindPort, `forwards[${index}].bindPort`)
+  };
+  if (mode === "dynamic") return { mode, ...common };
+  return {
+    mode,
+    ...common,
+    targetHost: requiredBodyString(forward, "targetHost"),
+    targetPort: requiredPort(forward.targetPort, `forwards[${index}].targetPort`)
+  };
+}
+
+function validateWebSession(body: JsonRecord): SshSessionDefinition {
+  assertExactKeys(body, ["runtimeDir", "externalId", "sessionType", "hostRef", "host", "port", "user", "credentialRef", "concurrencySafe"]);
+  if (body.sessionType !== undefined && body.sessionType !== "agent" && body.sessionType !== "shell") {
+    throw new HttpError(400, "invalid_connectivity", "sessionType 无效");
+  }
+  return {
+    externalId: requiredBodyString(body, "externalId"),
+    sessionType: body.sessionType as "agent" | "shell" | undefined,
+    hostRef: requiredBodyString(body, "hostRef"),
+    host: requiredBodyString(body, "host"),
+    port: optionalPort(body.port, "port"),
+    user: optionalBodyString(body, "user"),
+    credentialRef: optionalBodyString(body, "credentialRef"),
+    concurrencySafe: optionalBoolean(body.concurrencySafe, "concurrencySafe")
+  };
+}
+
+function rejectSensitiveConnectivityInput(value: unknown): void {
+  if (!value || typeof value !== "object") return;
+  for (const [key, child] of Object.entries(value)) {
+    if (/(?:secret|token|password|passphrase|private.?key|api.?key|access.?key|authorization|cookie)/i.test(key)) {
+      throw new HttpError(400, "inline_credential_forbidden", "仅允许 credentialRef，不得提交凭据正文");
+    }
+    rejectSensitiveConnectivityInput(child);
+  }
+}
+
+function assertExactKeys(body: JsonRecord, allowed: readonly string[]): void {
+  const unexpected = Object.keys(body).find((key) => !allowed.includes(key));
+  if (unexpected) throw new HttpError(400, "invalid_connectivity", `不支持字段 ${unexpected}`);
+}
+
+function requiredBodyString(body: JsonRecord, key: string): string {
+  const value = body[key];
+  if (typeof value !== "string" || !value.trim() || value.length > 512 || /[\0\r\n]/.test(value)) {
+    throw new HttpError(400, "invalid_connectivity", `${key} 无效`);
+  }
+  return value.trim();
+}
+
+function optionalBodyString(body: JsonRecord, key: string): string | undefined {
+  return body[key] === undefined ? undefined : requiredBodyString(body, key);
+}
+
+function requiredPort(value: unknown, key: string): number {
+  if (!Number.isInteger(value) || Number(value) < 1 || Number(value) > 65_535) {
+    throw new HttpError(400, "invalid_connectivity", `${key} 无效`);
+  }
+  return Number(value);
+}
+
+function optionalPort(value: unknown, key: string): number | undefined {
+  return value === undefined ? undefined : requiredPort(value, key);
+}
+
+function optionalBoolean(value: unknown, key: string): boolean | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "boolean") throw new HttpError(400, "invalid_connectivity", `${key} 无效`);
+  return value;
+}
+
+function connectivityInputError(error: unknown, statusCode = 400): HttpError {
+  if (error instanceof HttpError) return error;
+  const message = error instanceof Error && /not found/i.test(error.message) ? "连接不存在" : "连接配置或状态无效";
+  return new HttpError(message === "连接不存在" ? 404 : statusCode, message === "连接不存在" ? "connectivity_not_found" : "invalid_connectivity", message);
+}
+
+async function trafficManagerForUrl(url: URL): Promise<TrafficProxyManager> {
+  const runtimeInput = url.searchParams.get("runtimeDir") ?? defaultRuntimeDir;
+  const runtimeDir = await runtimePathPolicy.resolveRuntime(runtimeInput, "existing");
+  try {
+    return await trafficProxyRegistry.getExisting(runtimeDir)
+      ?? await trafficProxyRegistry.get(runtimeDir);
+  } catch {
+    throw new HttpError(503, "traffic_proxy_unavailable", "流量代理暂不可用");
+  }
+}
+
+type WebReplayOverrides = {
+  runtimeDir: string;
+  method?: string;
+  url?: string;
+  headers?: TrafficHeaderEntry[];
+  body?: { encoding: "base64"; data: string };
+  routeRef?: string;
+  sessionRef?: string;
+  taskRef?: string;
+  runRef?: string;
+};
+
+type ReplayHttpError = {
+  statusCode: number;
+  code: string;
+  message: string;
+  errorCode: string;
+  result?: TrafficReplayResult;
+};
+
+async function handleTrafficReplay(
+  request: IncomingMessage,
+  response: ServerResponse,
+  user: WebUser,
+  exchangeId: number
+): Promise<void> {
+  if (!Number.isSafeInteger(exchangeId) || exchangeId <= 0) {
+    throw new HttpError(400, "invalid_request", "exchange id 无效");
+  }
+  const input = validateReplayBody(await readJsonBody(request));
+  const runtimeDir = await runtimePathPolicy.resolveRuntime(input.runtimeDir, "existing");
+  const runtime = toRuntimeInput(runtimeDir);
+  const actor = { actorId: user.id, actorUsername: user.username };
+  const auditBase = {
+    ...actor,
+    sourceExchangeId: exchangeId,
+    runtime,
+    ...(input.taskRef === undefined ? {} : { taskRef: input.taskRef }),
+    ...(input.runRef === undefined ? {} : { runRef: input.runRef })
+  };
+  const executionLog = new ExecutionLog(join(runtimeDir, "execution.jsonl"), join(runtimeDir, "state.sqlite"));
+  let acquired = false;
+  try {
+    await executionLog.append({
+      role: "runtime",
+      eventType: "traffic_replay_requested",
+      summary: "Traffic replay requested",
+      payload: auditBase
+    });
+    if (activeTrafficReplays >= MAX_CONCURRENT_TRAFFIC_REPLAYS) {
+      throw new HttpError(429, "traffic_replay_limit_exceeded", "并发 replay 请求过多，请稍后重试");
+    }
+    activeTrafficReplays += 1;
+    acquired = true;
+
+    let manager: TrafficProxyManager;
+    try {
+      manager = await trafficProxyRegistry.getExisting(runtimeDir)
+        ?? await trafficProxyRegistry.get(runtimeDir);
+    } catch {
+      throw new HttpError(503, "traffic_proxy_unavailable", "流量代理暂不可用");
+    }
+    let runtimeRef = manager.runtimeRef;
+    if (!runtimeRef) {
+      const hello = await manager.client.hello();
+      runtimeRef = hello.runtime_ref;
+      manager.runtimeRef = runtimeRef;
+    }
+    const routeRef = input.routeRef ?? "web-replay";
+    const sessionRef = input.sessionRef ?? "";
+    const context: TrafficProxyContext = {
+      runtime_ref: runtimeRef,
+      task_ref: input.taskRef ?? "",
+      run_ref: input.runRef ?? "",
+      attribution: `web-user:${user.id}:${user.username}`,
+      route_ref: routeRef,
+      session_ref: sessionRef
+    };
+    const replayInput: TrafficReplayInput = {
+      exchange_id: exchangeId,
+      ...(input.method === undefined ? {} : { method: input.method }),
+      ...(input.url === undefined ? {} : { url: input.url }),
+      ...(input.headers === undefined ? {} : { headers: input.headers }),
+      ...(input.body === undefined ? {} : { body: input.body }),
+      route_ref: routeRef,
+      session_ref: sessionRef,
+      context
+    };
+    const result = await manager.client.replay(replayInput);
+    const responseBody = replayResultBody(result);
+    await executionLog.append({
+      role: "runtime",
+      eventType: "traffic_replay_succeeded",
+      summary: "Traffic replay succeeded",
+      payload: { ...auditBase, runtimeRef, exchangeId: result.exchange_id, replayOf: result.replay_of }
+    });
+    await sendJson(response, responseBody);
+  } catch (error) {
+    const mapped = mapReplayError(error);
+    await executionLog.append({
+      role: "runtime",
+      eventType: "traffic_replay_failed",
+      summary: "Traffic replay failed",
+      payload: {
+        ...auditBase,
+        errorCode: mapped.errorCode,
+        ...(mapped.result ? { exchangeId: mapped.result.exchange_id, replayOf: mapped.result.replay_of } : {})
+      }
+    });
+    await sendJson(response, {
+      error: { code: mapped.code, message: mapped.message },
+      errorCode: mapped.errorCode,
+      ...(mapped.result ? { exchangeId: mapped.result.exchange_id, replayOf: mapped.result.replay_of } : {})
+    }, mapped.statusCode);
+  } finally {
+    if (acquired) activeTrafficReplays -= 1;
+    await executionLog.drain();
+    executionLog.close();
+  }
+}
+
+function validateReplayBody(body: JsonRecord): WebReplayOverrides {
+  assertOnlyKeys(body, ["runtimeDir", "method", "url", "headers", "body", "route_ref", "session_ref", "task_ref", "run_ref"]);
+  const runtimeDir = requiredReplayText(body.runtimeDir, "runtimeDir", 1024);
+  const method = optionalReplayText(body.method, "method", 32);
+  if (method !== undefined && !/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(method)) {
+    throw new HttpError(400, "invalid_request", "method 格式无效");
+  }
+  const url = optionalReplayText(body.url, "url", 4096);
+  const routeRef = optionalReplayText(body.route_ref, "route_ref", 512, true);
+  const sessionRef = optionalReplayText(body.session_ref, "session_ref", 512, true);
+  const taskRef = optionalReplayText(body.task_ref, "task_ref", 512, true);
+  const runRef = optionalReplayText(body.run_ref, "run_ref", 512, true);
+
+  let headers: TrafficHeaderEntry[] | undefined;
+  if (body.headers !== undefined) {
+    if (!Array.isArray(body.headers) || body.headers.length > 100) {
+      throw new HttpError(400, "invalid_request", "headers 必须是最多 100 项的数组");
+    }
+    headers = body.headers.map((entry, index) => {
+      if (!isRecord(entry)) throw new HttpError(400, "invalid_request", "header 项必须是对象");
+      assertOnlyKeys(entry, ["name", "value", "ordinal"]);
+      const name = requiredReplayText(entry.name, "header.name", 256);
+      const value = requiredReplayText(entry.value, "header.value", 4096, true);
+      if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name)) {
+        throw new HttpError(400, "invalid_request", "header.name 格式无效");
+      }
+      const ordinal = entry.ordinal === undefined ? index : entry.ordinal;
+      if (!Number.isSafeInteger(ordinal) || (ordinal as number) < 0 || (ordinal as number) > 100_000) {
+        throw new HttpError(400, "invalid_request", "header.ordinal 无效");
+      }
+      return { name, value, ordinal: ordinal as number };
+    });
+  }
+
+  let replayBody: { encoding: "base64"; data: string } | undefined;
+  if (body.body !== undefined) {
+    if (!isRecord(body.body)) throw new HttpError(400, "invalid_request", "body override 必须是对象");
+    assertOnlyKeys(body.body, ["encoding", "data"]);
+    if (body.body.encoding !== "base64" || typeof body.body.data !== "string") {
+      throw new HttpError(400, "invalid_request", "body 必须使用 base64 encoding 和字符串 data");
+    }
+    if (body.body.data.length > 16 * 1024 || !validBase64(body.body.data)) {
+      throw new HttpError(400, "invalid_request", "body.data 不是有效或允许大小内的 base64");
+    }
+    replayBody = { encoding: "base64", data: body.body.data };
+  }
+  return {
+    runtimeDir,
+    ...(method === undefined ? {} : { method }),
+    ...(url === undefined ? {} : { url }),
+    ...(headers === undefined ? {} : { headers }),
+    ...(replayBody === undefined ? {} : { body: replayBody }),
+    ...(routeRef === undefined ? {} : { routeRef }),
+    ...(sessionRef === undefined ? {} : { sessionRef }),
+    ...(taskRef === undefined ? {} : { taskRef }),
+    ...(runRef === undefined ? {} : { runRef })
+  };
+}
+
+function assertOnlyKeys(record: JsonRecord, allowed: readonly string[]): void {
+  const allowedKeys = new Set(allowed);
+  const unknown = Object.keys(record).find((key) => !allowedKeys.has(key));
+  if (unknown) throw new HttpError(400, "invalid_request", `未知字段: ${unknown}`);
+}
+
+function requiredReplayText(value: unknown, name: string, maxLength: number, allowEmpty = false): string {
+  if (typeof value !== "string" || (!allowEmpty && value.length === 0) || value.length > maxLength || /[\u0000-\u001f\u007f]/.test(value)) {
+    throw new HttpError(400, "invalid_request", `${name} 无效`);
+  }
+  return value;
+}
+
+function optionalReplayText(value: unknown, name: string, maxLength: number, allowEmpty = false): string | undefined {
+  return value === undefined ? undefined : requiredReplayText(value, name, maxLength, allowEmpty);
+}
+
+function validBase64(value: string): boolean {
+  return /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value);
+}
+
+function replayResultBody(result: TrafficReplayResult): JsonRecord {
+  return {
+    exchangeId: result.exchange_id,
+    replayOf: result.replay_of,
+    status: result.status,
+    ...(result.error_code ? { errorCode: result.error_code } : {})
+  };
+}
+
+function mapReplayError(error: unknown): ReplayHttpError {
+  if (error instanceof HttpError) {
+    return { statusCode: error.statusCode, code: error.code, message: error.message, errorCode: error.code };
+  }
+  if (error instanceof TrafficProxyControlError) {
+    const result = replayErrorResult(error.result);
+    const errorCode = error.errorCode;
+    if (errorCode === "source_not_found") {
+      return { statusCode: 404, code: "traffic_replay_source_not_found", message: "原始流量记录不存在", errorCode, result };
+    }
+    if (errorCode === "source_not_replayable") {
+      return { statusCode: 409, code: "traffic_replay_source_not_replayable", message: "原始流量记录不可 replay", errorCode, result };
+    }
+    if (errorCode === "replay_busy") {
+      return { statusCode: 429, code: "traffic_replay_sidecar_busy", message: "流量代理 replay 繁忙，请稍后重试", errorCode, result };
+    }
+    if (["body_too_large", "headers_too_large", "traffic_proxy_request_too_large"].includes(errorCode)) {
+      return { statusCode: 413, code: "traffic_replay_payload_too_large", message: "Replay 请求内容过大", errorCode, result };
+    }
+    if (["invalid_context", "invalid_request", "invalid_method", "invalid_url", "invalid_header", "forbidden_header", "host_conflict", "self_loop", "invalid_body"].includes(errorCode)) {
+      return { statusCode: 400, code: "traffic_replay_invalid", message: "Replay 请求被流量代理拒绝", errorCode, result };
+    }
+    if (errorCode === "traffic_proxy_timeout" || errorCode === "timeout") {
+      return { statusCode: 504, code: "traffic_replay_timeout", message: "Replay 请求超时", errorCode, result };
+    }
+    return { statusCode: 502, code: "traffic_replay_failed", message: "Replay 执行失败", errorCode, result };
+  }
+  return { statusCode: 502, code: "traffic_replay_failed", message: "Replay 执行失败", errorCode: "traffic_replay_failed" };
+}
+
+function replayErrorResult(value: unknown): TrafficReplayResult | undefined {
+  if (!isRecord(value)) return undefined;
+  if (!Number.isSafeInteger(value.exchange_id) || (value.exchange_id as number) <= 0 || !Number.isSafeInteger(value.replay_of) || (value.replay_of as number) <= 0 || typeof value.status !== "number") return undefined;
+  return {
+    exchange_id: value.exchange_id as number,
+    replay_of: value.replay_of as number,
+    status: value.status,
+    ...(typeof value.error_code === "string" ? { error_code: value.error_code } : {})
+  };
+}
+
+async function readTrafficHistory(url: URL): Promise<unknown> {
+  const manager = await trafficManagerForUrl(url);
+  const cursor = boundedQuery(url, "cursor", 512);
+  const limit = integerQuery(url, "limit", 50, 1, 100);
+  const statusValue = url.searchParams.get("status");
+  const filter = {
+    ...optionalFilter(url, "runtime_ref"),
+    ...optionalFilter(url, "task_ref"),
+    ...optionalFilter(url, "run_ref"),
+    ...optionalFilter(url, "route_ref"),
+    ...optionalFilter(url, "session_ref"),
+    ...optionalFilter(url, "started_after"),
+    ...optionalFilter(url, "started_before"),
+    ...optionalFilter(url, "mode"),
+    ...optionalFilter(url, "method"),
+    ...optionalFilter(url, "host"),
+    ...optionalFilter(url, "connect_ref"),
+    ...optionalFilter(url, "error"),
+    ...(statusValue === null ? {} : { status: integerValue(statusValue, "status", 0, 999) })
+  };
+  try {
+    return await manager.client.historyList({ ...(cursor ? { cursor } : {}), limit, filter });
+  } catch {
+    throw new HttpError(502, "traffic_history_error", "无法读取流量历史");
+  }
+}
+
+async function readTrafficExchange(url: URL, exchangeId: number, body: boolean): Promise<unknown> {
+  if (!Number.isSafeInteger(exchangeId) || exchangeId <= 0) throw new HttpError(400, "invalid_request", "exchange id 无效");
+  const manager = await trafficManagerForUrl(url);
+  try {
+    if (!body) return await manager.client.historyGet(exchangeId);
+    const side = url.searchParams.get("side");
+    if (side !== "request" && side !== "response") throw new HttpError(400, "invalid_request", "side 必须为 request 或 response");
+    const byteLimit = integerQuery(url, "byteLimit", 256 * 1024, 1, 256 * 1024);
+    return await manager.client.historyBody(exchangeId, side, byteLimit);
+  } catch (error) {
+    if (error instanceof HttpError) throw error;
+    throw new HttpError(502, "traffic_history_error", "无法读取流量记录");
+  }
+}
+
+async function sendPublicCa(response: ServerResponse, url: URL): Promise<void> {
+  const manager = await trafficManagerForUrl(url);
+  let certificate: string;
+  try {
+    certificate = await readFile(manager.caCertPath, "utf8");
+  } catch {
+    throw new HttpError(404, "ca_certificate_not_found", "公共 CA 证书不可用");
+  }
+  if (!certificate.includes("-----BEGIN CERTIFICATE-----") || certificate.includes("PRIVATE KEY")) {
+    throw new HttpError(500, "ca_certificate_invalid", "公共 CA 证书无效");
+  }
+  response.writeHead(200, {
+    "Content-Type": "application/x-pem-file",
+    "Content-Disposition": "attachment; filename=traffic-proxy-ca.crt",
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff"
+  });
+  response.end(certificate);
+}
+
+function optionalFilter(url: URL, name: string): Record<string, string> {
+  const value = boundedQuery(url, name, 512);
+  return value ? { [name]: value } : {};
+}
+
+function boundedQuery(url: URL, name: string, maxLength: number): string | undefined {
+  const value = url.searchParams.get(name)?.trim();
+  if (!value) return undefined;
+  if (value.length > maxLength || /[\u0000-\u001f\u007f]/.test(value)) throw new HttpError(400, "invalid_request", `${name} 参数无效`);
+  return value;
+}
+
+function integerQuery(url: URL, name: string, fallback: number, min: number, max: number): number {
+  const value = url.searchParams.get(name);
+  return value === null ? fallback : integerValue(value, name, min, max);
+}
+
+function integerValue(value: string, name: string, min: number, max: number): number {
+  if (!/^\d+$/.test(value)) throw new HttpError(400, "invalid_request", `${name} 参数无效`);
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max) throw new HttpError(400, "invalid_request", `${name} 参数无效`);
+  return parsed;
 }
 
 async function handleStartRun(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -270,48 +1068,71 @@ async function handleStartRun(request: IncomingMessage, response: ServerResponse
   }
 
   const timestamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z").replace("T", "-");
-  const runtimeDir = join(cwd, ".agent-runtime", "sessions", `${timestamp}-web-${randomUUID().slice(0, 8)}`);
-  const controller = new SecurityAgentController({ cwd, runtimeDir });
-  await controller.initialize();
-
-  const run: ActiveRun = {
-    runtimeDir,
-    runtimeInput: toRuntimeInput(runtimeDir),
-    goal,
-    scope,
-    startedAt: new Date().toISOString(),
-    controller
-  };
-  activeRuns.set(runtimeDir, run);
-
-  const options: Parameters<SecurityAgentController["runUntilDone"]>[0] = { userGoal: goal, scopeSummary: scope };
-  const maxRunTimeMs = optionalPositiveNumber(body.maxRunTimeMs);
-  const maxParallelTasks = optionalPositiveNumber(body.maxParallelTasks);
-  const maxPlannerCycles = optionalPositiveNumber(body.maxPlannerCycles);
-  if (maxRunTimeMs !== undefined) options.maxRunTimeMs = maxRunTimeMs;
-  if (maxParallelTasks !== undefined) options.maxParallelTasks = maxParallelTasks;
-  if (maxPlannerCycles !== undefined) options.maxPlannerCycles = maxPlannerCycles;
-
-  void controller.runUntilDone(options)
-    .then((result) => {
-      console.log(`[web run finished] ${run.runtimeInput}: completed=${result.completed} reason=${result.stoppedReason ?? "-"}`);
-    })
-    .catch((error: unknown) => {
-      console.error(`[web run failed] ${run.runtimeInput}:`, error instanceof Error ? error.message : error);
-    })
-    .finally(async () => {
-      activeRuns.delete(runtimeDir);
-      await controller.close().catch(() => undefined);
+  const runtimeDir = await runtimePathPolicy.resolveRuntime(
+    join(runtimePathPolicy.rootDir, "sessions", `${timestamp}-web-${randomUUID().slice(0, 8)}`),
+    "create"
+  );
+  let agentRuntime: AgentRuntimeLifecycle | undefined;
+  let run: ActiveRun | undefined;
+  try {
+    agentRuntime = await bootstrapAgentRuntime({
+      cwd,
+      runtimeDir,
+      routeRef: "web-run",
+      trafficProxyRegistry
     });
+    const { controller } = agentRuntime;
+    const connectivitySupervisor = await connectivityRegistry.get(runtimeDir);
 
-  await sendJson(response, {
-    runtimeDir: run.runtimeInput,
-    name: basename(runtimeDir),
-    goal,
-    scope,
-    startedAt: run.startedAt,
-    running: true
-  }, 201);
+    run = {
+      runtimeDir,
+      runtimeInput: toRuntimeInput(runtimeDir),
+      goal,
+      scope,
+      startedAt: new Date().toISOString(),
+      controller,
+      agentRuntime,
+      connectivitySupervisor
+    };
+    activeRuns.set(runtimeDir, run);
+
+    const options: Parameters<SecurityAgentController["runUntilDone"]>[0] = { userGoal: goal, scopeSummary: scope };
+    const maxRunTimeMs = optionalPositiveNumber(body.maxRunTimeMs);
+    const maxParallelTasks = optionalPositiveNumber(body.maxParallelTasks);
+    const maxPlannerCycles = optionalPositiveNumber(body.maxPlannerCycles);
+    if (maxRunTimeMs !== undefined) options.maxRunTimeMs = maxRunTimeMs;
+    if (maxParallelTasks !== undefined) options.maxParallelTasks = maxParallelTasks;
+    if (maxPlannerCycles !== undefined) options.maxPlannerCycles = maxPlannerCycles;
+
+    const activeRun = run;
+    activeRun.completion = controller.runUntilDone(options)
+      .then((result) => {
+        console.log(`[web run finished] ${activeRun.runtimeInput}: completed=${result.completed} reason=${result.stoppedReason ?? "-"}`);
+      })
+      .catch((error: unknown) => {
+        console.error(`[web run failed] ${activeRun.runtimeInput}:`, error instanceof Error ? error.message : error);
+      })
+      .finally(() => cleanupRun(activeRun));
+
+    await sendJson(response, {
+      runtimeDir: activeRun.runtimeInput,
+      name: basename(runtimeDir),
+      goal,
+      scope,
+      startedAt: activeRun.startedAt,
+      running: true
+    }, 201);
+  } catch (error) {
+    activeRuns.delete(runtimeDir);
+    if (run) await cleanupRun(run);
+    else {
+      await Promise.allSettled([
+        agentRuntime?.close() ?? Promise.resolve(),
+        connectivityRegistry.close(runtimeDir)
+      ]);
+    }
+    throw error;
+  }
 }
 
 function listActiveRuns(): JsonRecord {
@@ -335,7 +1156,8 @@ async function handleStopRun(request: IncomingMessage, response: ServerResponse)
     await sendJson(response, { error: { code: "invalid_request", message: "runtimeDir 不能为空" } }, 400);
     return;
   }
-  const run = activeRuns.get(resolve(cwd, input));
+  const runtimeDir = await runtimePathPolicy.resolveRuntime(input, "create");
+  const run = activeRuns.get(runtimeDir);
   if (!run) {
     await sendJson(response, { error: { code: "run_not_found", message: "任务未在运行中，或不属于本 Web 进程" } }, 404);
     return;
@@ -344,12 +1166,65 @@ async function handleStopRun(request: IncomingMessage, response: ServerResponse)
   await sendJson(response, { ok: true, runtimeDir: run.runtimeInput, stopping: true });
 }
 
+const runCleanupPromises = new WeakMap<ActiveRun, Promise<void>>();
+
+function cleanupRun(run: ActiveRun): Promise<void> {
+  const existing = runCleanupPromises.get(run);
+  if (existing) return existing;
+  const cleanup = (async () => {
+    activeRuns.delete(run.runtimeDir);
+    try {
+      run.connectivitySupervisor.finishRun(run.controller.runId);
+    } catch {
+      // Continue closing independent resources.
+    }
+    await Promise.allSettled([
+      withTimeout(run.agentRuntime.close(), 12_000),
+      withTimeout(connectivityRegistry.close(run.runtimeDir), 5_000)
+    ]);
+  })();
+  runCleanupPromises.set(run, cleanup);
+  return cleanup;
+}
+
+async function closeConnectivityManagers(): Promise<void> {
+  const entries = [...connectivityManagers.entries()];
+  connectivityManagers.clear();
+  await Promise.allSettled(entries.map(async ([, managers]) => {
+    const tunnels = managers.store.listDefinitions().filter((definition) =>
+      definition.kind === "tunnel" && isManagedConnection(definition) && definition.status !== "closed"
+    );
+    await Promise.allSettled(tunnels.map((definition) => withTimeout(managers.tunnels.stop(definition.id), 2_000)));
+    managers.graphStore.close();
+    managers.store.close();
+  }));
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolvePromise, rejectPromise) => {
+    const timer = setTimeout(() => rejectPromise(new Error(`Operation timed out after ${timeoutMs}ms`)), timeoutMs);
+    timer.unref();
+    promise.then(
+      (value) => { clearTimeout(timer); resolvePromise(value); },
+      (error: unknown) => { clearTimeout(timer); rejectPromise(error); }
+    );
+  });
+}
+
+function redactCredentialRefs(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactCredentialRefs);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value).flatMap(([key, child]) =>
+    /^credential_?ref$/i.test(key) ? [] : [[key, redactCredentialRefs(child)]]
+  ));
+}
+
 function optionalPositiveNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
 async function readRuntimeState(runtimeDirInput: string): Promise<JsonRecord> {
-  const runtimeDir = resolve(cwd, runtimeDirInput);
+  const runtimeDir = await runtimePathPolicy.resolveRuntime(runtimeDirInput, "existing");
   const [events, graphDeltas, artifacts] = await Promise.all([
     readJsonl<WebEvent>(join(runtimeDir, "execution.jsonl"), 700),
     readJsonl<JsonRecord>(join(runtimeDir, "graph-deltas.jsonl"), 260),
@@ -381,16 +1256,21 @@ async function readArtifactContent(runtimeDirInput: string, artifactRef: string)
   if (!/^artifact:[\w-]+$/i.test(artifactRef)) {
     throw new HttpError(400, "invalid_request", "artifactRef 格式不正确");
   }
-  const runtimeDir = resolve(cwd, runtimeDirInput);
-  const artifactsRoot = resolve(runtimeDir, "artifacts");
+  const runtimeDir = await runtimePathPolicy.resolveRuntime(runtimeDirInput, "existing");
+  const artifactsRoot = await runtimePathPolicy.resolveRuntimeChild(runtimeDir, "artifacts", "create");
   const records = await readJsonl<ArtifactRecord>(join(artifactsRoot, "index.jsonl"), 100_000);
   const record = records.find((item) => item.artifactRef === artifactRef);
   if (!record?.path) {
     throw new HttpError(404, "artifact_not_found", "Artifact 不存在或不在当前索引中");
   }
-  const filePath = resolve(record.path);
-  if (filePath !== artifactsRoot && !filePath.startsWith(`${artifactsRoot}${sep}`)) {
-    throw new HttpError(403, "forbidden", "Artifact 路径超出 runtime 目录");
+  let filePath: string;
+  try {
+    filePath = await runtimePathPolicy.resolveRuntimeChild(artifactsRoot, resolve(cwd, record.path), "existing");
+  } catch (error) {
+    if (error instanceof RuntimePathPolicyError && error.code === "runtime_path_outside_root") {
+      throw new HttpError(403, "artifact_path_forbidden", "Artifact 路径超出 runtime 目录");
+    }
+    throw error;
   }
   const info = await statMaybe(filePath);
   if (!info) {
@@ -418,7 +1298,8 @@ async function readArtifactContent(runtimeDirInput: string, artifactRef: string)
   };
 }
 
-async function readRuntimeSessions(rootDirInput: string): Promise<JsonRecord> {  const rootDir = resolve(cwd, rootDirInput);
+async function readRuntimeSessions(rootDirInput: string): Promise<JsonRecord> {
+  const rootDir = await runtimePathPolicy.resolveRuntime(rootDirInput, "existing");
   const candidates = await discoverRuntimeSessionDirs(rootDir);
 
   const sessions = (await mapWithConcurrency(candidates, 8, (dir) => readRuntimeSession(rootDir, dir)))
@@ -613,7 +1494,7 @@ function graphFromDeltas(graphDeltas: JsonRecord[], sqliteError?: string): {
           evidenceRefs: stringArray(item.evidenceRefs)
         };
         if (edge.from && edge.to) {
-          edgesById.set(`${edge.from}::${edge.type}::${edge.to}`, edge);
+          edgesById.set(edge.id || `${edge.from}::${edge.type}::${edge.to}`, edge);
         }
       }
     }
@@ -1497,7 +2378,7 @@ async function sendJson(
   response: ServerResponse,
   data: unknown,
   statusCode = 200,
-  headers: Record<string, string> = {}
+  headers: Record<string, string | string[]> = {}
 ): Promise<void> {
   response.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",

@@ -138,14 +138,14 @@ export const OBSERVER_PROJECTOR_SYSTEM_PROMPT = `# Identity
 1. Evidence 只描述 observation 直接支持的事实，包括访问方式、认证状态、输入变换、目标和实际结果。
 2. 对后端实现、漏洞原因或下一跳的解释必须写成 Hypothesis，除非现有证据已经直接确认。
 3. 只有受控输入突破安全边界时创建 Vulnerability；只有漏洞被实际用于读取敏感数据、执行代码、创建会话或完成目标时创建 Exploit。
-4. Host、Port、Service、Endpoint、Parameter、Credential、Session 等环境实体进入作战图，并用真实逻辑边连接观察、假设、漏洞与利用。
+4. Host、Port、Service、Endpoint、Parameter、Credential、AgentSession、ShellSession 等环境实体进入作战图；Session 仅用于兼容已有节点。Tunnel 和 ProxyRoute 必须分别表示为 Host→Host 的 tunnels_to、proxy_route 有向边，而不是节点，并在 properties 中携带 tunnelId/routeId、status 等已观察属性。
 5. 投影语义变化集，而不是 observation 清单。多个 observation 支持同一事实时合并；已有节点已表达该事实时更新 existing 别名；没有语义变化时提交空 delta。
 6. 负面证据只能覆盖实际验证范围。直接 GET 返回 404 不能证明文件在所有访问方式下不存在；某种路径拼接未命中不能证明绝对路径不可读。
 7. 探索实验尚无正向基线时，只投影它实际排除或保留的竞争解释；确认实验没有可复现基线、正对照失败、判定信号含糊，或同时改变多个独立条件时，只记录实际请求与响应，并将机制判断保持为 Hypothesis。两种情况都不得据此创建“该机制无效”之类的负面结论。
 8. executor_interpretation 是 Executor 在看到工具结果后的后续理解，只用于定位相关结果和 Artifact 片段，不能单独作为 Evidence。若 interpretation 与动态结果冲突，以动态结果为准，并保持 Hypothesis 或 inconclusive；禁止据此创建 Vulnerability/Exploit。
 
 # Identity And Evidence Rules
-局部闭包和作战身份索引中的 existing:1、existing:2 都是已有节点，可以在 nodes 中增量更新或在 edges 中引用，不能改变其 id、graphKind 或 type。创建 Host、Port、Service、WebEndpoint、Parameter 前必须先检查身份索引并复用等价 existing 别名；索引标为全量时，表示当前作战图实体已全部列出。新节点使用 new:1、new:2，Runtime 会对这些作战实体再次做确定性身份合并。evidenceRefs 只能使用本次 observation 别名 o1、o2；Artifact 是原始材料，不是 Evidence。
+局部闭包和作战身份索引中的 existing:1、existing:2 都是已有节点，可以在 nodes 中增量更新或在 edges 中引用，不能改变其 id、graphKind 或 type。创建 Host、Port、Service、WebEndpoint、Parameter、AgentSession、ShellSession 前必须先检查身份索引并复用等价 existing 别名；索引标为全量时，表示当前作战图实体已全部列出。新节点使用 new:1、new:2，Runtime 会对这些作战实体再次做确定性身份合并，并由 sessionId/agentSessionId/shellSessionId、tunnelId 或 routeId 派生最终身份；模型不得提交 id。evidenceRefs 只能使用本次 observation 别名 o1、o2；Artifact 是原始材料，不是 Evidence。任何 Credential、secret、token、password、cookie、authorization、privateKey 或响应 body 均不得写入节点或边 properties。
 禁止写入或连接 Task、Milestone、Blocker、Goal、Scope。运行时 timeout、abort 和 provider error 不是业务 Blocker。最多提交 12 个节点、20 条边，最终调用 graph_delta_submit。
 
 # Examples

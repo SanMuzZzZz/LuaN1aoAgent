@@ -201,11 +201,19 @@ function EdgeSection({ title, edges, direction }: { title: string; edges: GraphE
   return (
     <div className="inspector-block">
       <strong>{title}</strong>
-      {edges.length ? edges.slice(0, 20).map((edge, index) => (
-        <div className="edge-inspector-row" key={edge.id || `${edge.from}:${edge.type}:${edge.to}:${index}`}>
-          <Tag>{edge.type}</Tag><span>{shortRef(direction === "in" ? edge.from : edge.to, 30)}</span>
-        </div>
-      )) : <span className="muted-line">无关系</span>}
+      {edges.length ? edges.slice(0, 20).map((edge, index) => {
+        const status = typeof edge.properties.status === "string" ? edge.properties.status : undefined;
+        const details = ["tunnelId", "routeId", "transport", "localHost", "localPort", "remoteHost", "remotePort", "via", "lastSeenAt", "expiresAt"]
+          .filter((key) => edge.properties[key] !== undefined)
+          .map((key) => `${key}=${valueText(edge.properties[key])}`)
+          .join(" · ");
+        return (
+          <div className="edge-inspector-row" key={edge.id || `${edge.from}:${edge.type}:${edge.to}:${index}`}>
+            <Tag>{edge.type}</Tag>{status ? <Tag>{status}</Tag> : null}<span>{shortRef(direction === "in" ? edge.from : edge.to, 30)}</span>
+            {details ? <small>{details}</small> : null}
+          </div>
+        );
+      }) : <span className="muted-line">无关系</span>}
     </div>
   );
 }

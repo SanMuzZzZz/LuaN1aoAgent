@@ -20,6 +20,9 @@ describe("useAuth", () => {
       if (url.endsWith("/me")) {
         return Promise.resolve(new Response(JSON.stringify({ error: { code: "unauthorized", message: "请先登录" } }), { status: 401 }));
       }
+      if (url.endsWith("/csrf")) {
+        return Promise.resolve(new Response(JSON.stringify({ csrfToken: "csrf-token" }), { status: 200 }));
+      }
       if (url.endsWith("/login")) {
         return Promise.resolve(new Response(JSON.stringify({ user }), { status: 200 }));
       }

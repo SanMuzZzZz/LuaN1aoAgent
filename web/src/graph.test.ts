@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { elkLayout, filterGraph, graphSignature, nodeDisplayLabel, nodePalette, projectTaskTree } from "./graph";
+import { edgePresentation, elkLayout, filterGraph, graphSignature, nodeDisplayLabel, nodePalette, projectTaskTree } from "./graph";
 import type { GraphEdge, GraphNode } from "./types";
 
 const nodes: GraphNode[] = [
@@ -51,6 +51,18 @@ describe("graph presentation", () => {
     expect(graphSignature("run", "task", { nodes: nodes.slice(0, 2), edges: edges.slice(0, 1) }))
       .toBe(graphSignature("run", "task", { nodes: nodes.slice(0, 2).reverse(), edges: edges.slice(0, 1) }));
     expect(nodePalette("Vulnerability").color).toBe("#be123c");
+  });
+
+  it("presents operational edge states and includes properties in signatures", () => {
+    const edge = { from: "host:1", to: "host:2", type: "tunnels_to", properties: {}, evidenceRefs: [] };
+    expect(edgePresentation({ ...edge, properties: { status: "live" } })).toMatchObject({ color: "#16a34a", lineStyle: "solid" });
+    expect(edgePresentation({ ...edge, properties: { status: "degraded" } })).toMatchObject({ color: "#f59e0b", lineStyle: "solid" });
+    expect(edgePresentation({ ...edge, properties: { status: "stale" } })).toMatchObject({ lineStyle: "dashed" });
+    expect(edgePresentation({ ...edge, properties: { status: "closed" } })).toMatchObject({ lineStyle: "dotted", opacity: 0.28 });
+    expect(edgePresentation(edge).color).toBe("#a8b4c8");
+    const first = graphSignature("run", "operation", { nodes: [], edges: [edge] });
+    const second = graphSignature("run", "operation", { nodes: [], edges: [{ ...edge, properties: { status: "closed" } }] });
+    expect(first).not.toBe(second);
   });
 
   it("wraps long task labels into bounded lines", () => {

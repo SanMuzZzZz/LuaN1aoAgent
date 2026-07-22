@@ -1,6 +1,6 @@
+import { bootstrapAgentRuntime } from "./agent-runtime-bootstrap.js";
 import { cliHelp, parseCliOptions, shouldUseTui } from "./cli-options.js";
 import { resolveCliRunContext } from "./cli-runtime.js";
-import { SecurityAgentController } from "./controller.js";
 import { AgentCliApp } from "./tui/app.js";
 
 try {
@@ -16,21 +16,32 @@ try {
 }
 
 async function run(options: ReturnType<typeof parseCliOptions>): Promise<void> {
-  const runContext = resolveCliRunContext(options, process.cwd());
-  const controller = new SecurityAgentController({ cwd: process.cwd(), runtimeDir: runContext.runtimeDir });
+  const cwd = process.cwd();
+  const runContext = resolveCliRunContext(options, cwd);
+  const agentRuntime = await bootstrapAgentRuntime({
+    cwd,
+    runtimeDir: runContext.runtimeDir,
+    routeRef: "cli-run"
+  });
+  const { controller } = agentRuntime;
   const useTui = shouldUseTui(options, {
     stdinIsTTY: process.stdin.isTTY,
     stdoutIsTTY: process.stdout.isTTY
   });
   let receivedSignal: NodeJS.Signals | undefined;
   let signalCount = 0;
+  let forceExitStarted = false;
   let stopRequest: Promise<void> | undefined;
   let unsubscribeJsonl: (() => void) | undefined;
   let jsonlResult: unknown;
   const requestStop = (signal: NodeJS.Signals): Promise<void> => {
     signalCount += 1;
     if (signalCount > 1) {
-      process.exit(128 + signalNumber(signal));
+      if (!forceExitStarted) {
+        forceExitStarted = true;
+        void withTimeout(agentRuntime.close(), 2_000).finally(() => process.exit(128 + signalNumber(signal)));
+      }
+      return stopRequest ?? Promise.resolve();
     }
     receivedSignal = signal;
     process.exitCode = 128 + signalNumber(signal);
@@ -71,7 +82,6 @@ async function run(options: ReturnType<typeof parseCliOptions>): Promise<void> {
       });
     }
     await app?.start();
-    await controller.initialize();
     const result = await controller.runUntilDone({
       userGoal: runContext.userGoal,
       scopeSummary: runContext.scopeSummary,
@@ -96,13 +106,20 @@ async function run(options: ReturnType<typeof parseCliOptions>): Promise<void> {
     process.off("SIGINT", handleSignal);
     process.off("SIGTERM", handleSignal);
     await stopRequest;
-    await controller.close();
+    await agentRuntime.close();
     if (options.jsonl && jsonlResult !== undefined) {
       process.stdout.write(`${JSON.stringify({ type: "result", result: jsonlResult })}\n`);
     }
     unsubscribeJsonl?.();
     await app?.stop();
   }
+}
+
+async function withTimeout(operation: Promise<unknown>, timeoutMs: number): Promise<void> {
+  await Promise.race([
+    operation.then(() => undefined, () => undefined),
+    new Promise<void>((resolveTimeout) => setTimeout(resolveTimeout, timeoutMs))
+  ]);
 }
 
 function signalNumber(signal: NodeJS.Signals): number {

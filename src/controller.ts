@@ -265,6 +265,7 @@ export class SecurityAgentController {
   readonly runtimeStore: RuntimeStore;
   readonly llmRuntime: LlmRuntime;
   readonly runId = randomUUID();
+  private readonly environment?: NodeJS.ProcessEnv;
   private executorSandbox?: ExecutorSandbox;
   private agents?: SecurityAgentRuntime;
   private supervisorInFlight = new Map<string, Promise<ControlSignal>>();
@@ -294,9 +295,10 @@ export class SecurityAgentController {
   private activeRun?: ActiveRunRecord;
   private currentUserGoal?: string;
 
-  constructor(input: { cwd: string; runtimeDir?: string }) {
+  constructor(input: { cwd: string; runtimeDir?: string; environment?: NodeJS.ProcessEnv }) {
     this.cwd = input.cwd;
     this.runtimeDir = input.runtimeDir ?? join(input.cwd, ".agent-runtime");
+    this.environment = input.environment;
     this.graphStore = new SQLiteGraphStore(
       join(this.runtimeDir, "state.sqlite"),
       join(this.runtimeDir, "graph-deltas.jsonl")
@@ -312,7 +314,8 @@ export class SecurityAgentController {
     await mkdir(this.runtimeDir, { recursive: true });
     this.executorSandbox = await createExecutorSandbox({
       runtimeDir: this.runtimeDir,
-      runId: this.runId
+      runId: this.runId,
+      environment: this.environment
     });
     await this.executionLog.append({
       role: "runtime",

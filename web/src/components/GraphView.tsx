@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Empty, Input, Select, Tag, Tooltip } from "antd";
-import cytoscape, { type Core, type ElementDefinition, type LayoutOptions, type Position, type StylesheetJson } from "cytoscape";
+import cytoscape, { type Core, type EdgeSingular, type ElementDefinition, type LayoutOptions, type Position, type StylesheetJson } from "cytoscape";
 import elk from "cytoscape-elk";
 import { Focus, ListFilter, Minus, Plus, RefreshCw, Search, X } from "lucide-react";
-import { elkLayout, filterGraph, graphSignature, nodeDisplayLabel, nodePalette, taskProgressSummary } from "../graph";
+import { edgePresentation, elkLayout, filterGraph, graphSignature, nodeDisplayLabel, nodePalette, taskProgressSummary } from "../graph";
 import type { GraphEdge, GraphKind, GraphNode } from "../types";
 import { shortRef } from "../utils";
 
@@ -85,16 +85,22 @@ export function GraphView(props: GraphViewProps) {
           classes: ""
         };
       }),
-      ...visibleGraph.edges.map((edge, index) => ({
-        group: "edges" as const,
-        data: {
-          id: edge.id || `edge:${edge.from}:${edge.type}:${edge.to}:${index}`,
-          source: edge.from,
-          target: edge.to,
-          label: edge.type,
-          type: edge.type
-        }
-      }))
+      ...visibleGraph.edges.map((edge, index) => {
+        const presentation = edgePresentation(edge);
+        return {
+          group: "edges" as const,
+          data: {
+            id: edge.id || `edge:${edge.from}:${edge.type}:${edge.to}:${index}`,
+            source: edge.from,
+            target: edge.to,
+            label: edge.type,
+            type: edge.type,
+            statusColor: presentation.color,
+            lineStyle: presentation.lineStyle,
+            statusOpacity: presentation.opacity
+          }
+        };
+      })
     ];
 
     const cy = cytoscape({
@@ -305,14 +311,15 @@ function graphStyles(nodeCount: number, kind: GraphKind): StylesheetJson {
       selector: "edge",
       style: {
         width: 1.4,
-        "line-color": "#a8b4c8",
-        "target-arrow-color": "#7d8aa0",
+        "line-color": "data(statusColor)",
+        "target-arrow-color": "data(statusColor)",
+        "line-style": (element) => element.data("lineStyle"),
         "target-arrow-shape": "triangle",
         "curve-style": "taxi",
         "taxi-direction": "auto",
         "taxi-turn": 22,
         "arrow-scale": 0.8,
-        opacity: 0.7,
+        opacity: (element: EdgeSingular) => element.data("statusOpacity"),
         "overlay-opacity": 0
       }
     },
@@ -320,8 +327,6 @@ function graphStyles(nodeCount: number, kind: GraphKind): StylesheetJson {
       selector: "edge.is-active-edge",
       style: {
         width: 2.8,
-        "line-color": "#2563eb",
-        "target-arrow-color": "#2563eb",
         label: "data(label)",
         color: "#1e3a8a",
         "font-size": 10,
@@ -330,7 +335,7 @@ function graphStyles(nodeCount: number, kind: GraphKind): StylesheetJson {
         "text-background-opacity": 0.9,
         "text-background-padding": "3px",
         "text-rotation": "autorotate",
-        opacity: 1
+        opacity: (element: EdgeSingular) => element.data("statusOpacity")
       }
     }
   ];

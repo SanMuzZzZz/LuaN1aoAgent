@@ -8,6 +8,7 @@
   "scripts": {
     "build": "npm run build:server && npm run build:web",
     "build:server": "tsc -p tsconfig.json",
+    "build:traffic-proxy": "mkdir -p traffic-proxy/bin && go build -C traffic-proxy -o bin/traffic-proxy .",
     "build:web": "tsc -p web/tsconfig.json && vite build --config web/vite.config.ts",
     "test": "npm run build && node --test --test-force-exit \"dist/**/*.test.js\" && vitest run --config web/vite.config.ts",
     "test:web": "vitest run --config web/vite.config.ts",

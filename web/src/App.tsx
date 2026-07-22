@@ -3,12 +3,15 @@ import { Alert, Avatar, Badge, Button, ConfigProvider, Drawer, Dropdown, Input, 
 import { Activity, ChevronDown, Database, FileBox, LogOut, Menu, PanelRight, Play, RefreshCw, Share2, Square } from "lucide-react";
 import { stopRun } from "./api";
 import { Inspector } from "./components/Inspector";
+import { ConnectionsView } from "./components/ConnectionsView";
 import { ResizableWorkspace } from "./components/ResizableWorkspace";
 import { Sidebar } from "./components/Sidebar";
 import { StartRunModal } from "./components/StartRunModal";
 import { TraceView } from "./components/TraceView";
+import { TrafficInspector } from "./components/TrafficInspector";
+import { TrafficView } from "./components/TrafficView";
 import { projectTaskTree } from "./graph";
-import type { AuthUser, GraphKind, ViewKey } from "./types";
+import type { AuthUser, GraphKind, TrafficExchange, ViewKey } from "./types";
 import { GRAPH_LABELS, graphSubtitle, formatTime } from "./utils";
 import { useRuntimeDashboard } from "./useRuntimeDashboard";
 
@@ -23,6 +26,9 @@ export default function App({ user, onLogout }: { user: AuthUser; onLogout: () =
   const [activeView, setActiveView] = useState<ViewKey>(initial.view);
   const [selectedTraceId, setSelectedTraceId] = useState<string>();
   const [selectedNodeId, setSelectedNodeId] = useState<string>();
+  const [selectedExchangeId, setSelectedExchangeId] = useState<number>();
+  const [selectedExchange, setSelectedExchange] = useState<TrafficExchange>();
+  const [trafficRefreshToken, setTrafficRefreshToken] = useState(0);
   const [roleFilter, setRoleFilter] = useState("all");
   const [newestFirst, setNewestFirst] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -45,7 +51,11 @@ export default function App({ user, onLogout }: { user: AuthUser; onLogout: () =
   }, [data?.traceItems, selectedTraceId]);
 
   useEffect(() => {
-    if (activeView === "trace") setSelectedNodeId(undefined);
+    if (activeView === "trace" || activeView === "traffic" || activeView === "connections") setSelectedNodeId(undefined);
+    if (activeView !== "traffic") {
+      setSelectedExchangeId(undefined);
+      setSelectedExchange(undefined);
+    }
   }, [activeView]);
 
   const selectedTrace = data?.traceItems.find((item) => item.id === selectedTraceId);
@@ -96,6 +106,8 @@ export default function App({ user, onLogout }: { user: AuthUser; onLogout: () =
     setRuntimeDir(next);
     setSelectedTraceId(undefined);
     setSelectedNodeId(undefined);
+    setSelectedExchangeId(undefined);
+    setSelectedExchange(undefined);
     setMobileSidebarOpen(false);
     localStorage.setItem("luanniao-runtime-dir", next);
     updateUrl(next, activeView);
@@ -112,7 +124,25 @@ export default function App({ user, onLogout }: { user: AuthUser; onLogout: () =
       onClose={mobileSidebarOpen ? () => setMobileSidebarOpen(false) : undefined}
     />
   );
-  const inspector = (
+  const inspector = activeView === "traffic" ? (
+    <TrafficInspector
+      key={`${runtimeDir}:${selectedExchange?.id ?? "none"}`}
+      runtimeDir={runtimeDir}
+      exchange={selectedExchange}
+      user={user}
+      onSelectExchange={setSelectedExchangeId}
+      onReplayed={(exchangeId) => {
+        setSelectedExchangeId(exchangeId);
+        setTrafficRefreshToken((value) => value + 1);
+        setMobileInspectorOpen(true);
+      }}
+    />
+  ) : activeView === "connections" ? (
+    <div className="connections-inspector">
+      <Typography.Title level={5}>连接管理</Typography.Title>
+      <p>Managed SSH/chisel 连接可由管理员控制。Raw 或 unmanaged 连接仅展示，不会自动关联到任务或会话。</p>
+    </div>
+  ) : (
     <Inspector
       view={activeView}
       runtimeDir={runtimeDir}
@@ -125,6 +155,8 @@ export default function App({ user, onLogout }: { user: AuthUser; onLogout: () =
     />
   );
 
+  const viewEyebrow = activeView === "trace" ? "LIVE TRACE" : activeView === "traffic" ? "WEB TRAFFIC" : activeView === "connections" ? "CONNECTIVITY" : "TRI-GRAPH";
+
   return (
     <ConfigProvider theme={appTheme}>
       <ResizableWorkspace
@@ -136,8 +168,8 @@ export default function App({ user, onLogout }: { user: AuthUser; onLogout: () =
             <div className="topbar-title">
               <Tooltip title="打开导航"><Button className="mobile-only" icon={<Menu size={18} />} onClick={() => setMobileSidebarOpen(true)} aria-label="打开导航" /></Tooltip>
               <div>
-                <span>{activeView === "trace" ? "LIVE TRACE" : "TRI-GRAPH"}</span>
-                <Typography.Title level={3}>{activeView === "trace" ? "Agent 运行轨迹" : GRAPH_LABELS[activeView as GraphKind]}</Typography.Title>
+                <span>{viewEyebrow}</span>
+                <Typography.Title level={3}>{viewTitle(activeView)}</Typography.Title>
               </div>
             </div>
             <div className="runtime-controls">
@@ -198,8 +230,8 @@ export default function App({ user, onLogout }: { user: AuthUser; onLogout: () =
 
             <section className="stage-heading">
               <div>
-                <Typography.Title level={4}>{activeView === "trace" ? "Agent 正在判断什么、执行什么、观察到什么" : GRAPH_LABELS[activeView as GraphKind]}</Typography.Title>
-                <p>{activeView === "trace" ? "选择任意事件，在右侧查看证据、Artifact、图引用与原始载荷。" : graphSubtitle(activeView as GraphKind)}</p>
+                <Typography.Title level={4}>{viewStageTitle(activeView)}</Typography.Title>
+                <p>{viewStageSubtitle(activeView)}</p>
               </div>
               <div className="stage-meta">
                 {runningNow ? <Badge status="processing" text="运行中" /> : null}
@@ -208,7 +240,17 @@ export default function App({ user, onLogout }: { user: AuthUser; onLogout: () =
             </section>
 
             <section className="stage-body">
-              {dashboard.loading && !data ? <Skeleton active paragraph={{ rows: 10 }} /> : initializing ? (
+              {activeView === "connections" ? (
+                <ConnectionsView runtimeDir={runtimeDir} user={user} />
+              ) : activeView === "traffic" ? (
+                <TrafficView
+                  runtimeDir={runtimeDir}
+                  selectedExchangeId={selectedExchangeId}
+                  refreshToken={trafficRefreshToken}
+                  onSelectExchange={setSelectedExchangeId}
+                  onExchangeLoaded={setSelectedExchange}
+                />
+              ) : dashboard.loading && !data ? <Skeleton active paragraph={{ rows: 10 }} /> : initializing ? (
                 <RunInitializing goal={dataMatchesDir ? data?.overview.goal?.label : undefined} />
               ) : activeView === "trace" ? (
                 <TraceView
@@ -273,11 +315,32 @@ function GitEdgeIcon() {
   return <Share2 size={16} />;
 }
 
+function viewTitle(view: ViewKey): string {
+  if (view === "trace") return "Agent 运行轨迹";
+  if (view === "traffic") return "Web Traffic";
+  if (view === "connections") return "Connections";
+  return GRAPH_LABELS[view];
+}
+
+function viewStageTitle(view: ViewKey): string {
+  if (view === "trace") return "Agent 正在判断什么、执行什么、观察到什么";
+  if (view === "traffic") return "捕获、检查并安全 Replay HTTP 流量";
+  if (view === "connections") return "连接、隧道与会话状态";
+  return GRAPH_LABELS[view];
+}
+
+function viewStageSubtitle(view: ViewKey): string {
+  if (view === "trace") return "选择任意事件，在右侧查看证据、Artifact、图引用与原始载荷。";
+  if (view === "traffic") return "按 method、host、status 与执行引用过滤；body 仅在请求时加载。";
+  if (view === "connections") return "管理员可控制 managed SSH/chisel 生命周期；analyst 和 unmanaged/raw 连接保持只读。";
+  return graphSubtitle(view);
+}
+
 function readInitialState(): { runtimeDir: string; view: ViewKey } {
   const params = new URLSearchParams(window.location.search);
   const runtimeDir = params.get("runtimeDir") || localStorage.getItem("luanniao-runtime-dir") || DEFAULT_RUNTIME;
   const candidate = params.get("view");
-  const view = candidate && ["trace", "reasoning", "operation", "task"].includes(candidate) ? candidate as ViewKey : "trace";
+  const view = candidate && ["trace", "reasoning", "operation", "task", "traffic", "connections"].includes(candidate) ? candidate as ViewKey : "trace";
   return { runtimeDir, view };
 }
 

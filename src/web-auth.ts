@@ -65,6 +65,10 @@ export class WebAuthService {
     `);
   }
 
+  close(): void {
+    this.database.close();
+  }
+
   async register(input: { username: string; displayName: string; password: string }): Promise<{ user: WebUser; token: string }> {
     const username = normalizeUsername(input.username);
     const displayName = validateDisplayName(input.displayName);

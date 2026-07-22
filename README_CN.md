@@ -365,6 +365,22 @@ npm run web -- --runtime-dir .agent-runtime/sessions/<session> --port 8787
 
 Web 工作台主要用于观察：读取持久图、事件、Artifact 和运行状态。它也支持在 Web 进程内启动新任务（填写目标与授权范围）并优雅停止由本进程启动的任务；CLI 启动的 run 仍可被观察，但不能从 Web 侧停止。
 
+所有 `/api/*` 流量与连接端点都要求有效 Session。分析员可以读取运行时元数据、敏感代理历史和连接状态，但连接生命周期变更要求管理员专属的 `connectivity:manage` capability；服务不暴露流量删除/导出端点。GET 请求豁免 CSRF，变更请求必须携带同源 double-submit token。所有 runtime 路径（包括符号链接）都会 canonicalize 并限制在配置的 `--runtime-dir` 根目录内，因此 API 不能充当任意文件系统浏览器。
+
+受管 traffic-proxy sidecar 将数据保存在 `<runtime>/traffic-proxy/data`，提供基于 cursor 的历史列表、交换详情、请求/响应捕获 body 与经过认证的公共 CA 下载 API。body 使用 base64 编码，单次读取最多 256 KiB。只能下载 `ca.crt`，私钥永不暴露。Web 启动的 Executor 会收到一份独立环境副本，其中设置 `HTTP_PROXY`、`HTTPS_PROXY`、`NO_PROXY`、`SSL_CERT_FILE` 和 `CURL_CA_BUNDLE`；`ALL_PROXY` 会被删除，同时不会修改进程全局环境，也不会强制使用 Bash。sidecar 启动/附着/停止、CA 创建和代理就绪会写入 `ExecutionLog`，且不记录路径、Secret 或证书内容。
+
+侧边栏的 **Web Traffic** 页面提供 method、host、status、task/run reference、mode 和 error 精确过滤，以最新记录优先的 opaque cursor 分页展示，并按需加载 exchange 详情。请求和响应 body 仅在点击后读取，单次最多 256 KiB，可显示为 UTF-8/JSON、base64 或 hex；非法 UTF-8 会回退到 base64。header 和 body 以转义后的文本而非 HTML 渲染，并明确标记 metadata-only、已淘汰、best-effort 与 truncated 状态。这是安全渲染而非脱敏：获得权限的分析员仍能看到已捕获的凭据及其他敏感值。
+
+Replay 仅限管理员；分析员可以查看 exchange，但不能 replay。端点为 `POST /api/traffic/history/:id/replay`，受 Session 授权与同源 double-submit CSRF 校验保护。`runtimeDir` 以及可选的 method、URL、header、body、route、session、task 和 run overrides 都必须位于 allowlist JSON request body，而不是 query string。Web body override 使用 base64，当前 `data` 限制为 16 KiB 字符。确认框只显示目标摘要与数量；`ExecutionLog` 通过服务端生成的用户/runtime 归因及稳定结果/错误标识记录 `traffic_replay_requested`、`traffic_replay_succeeded` 或 `traffic_replay_failed`，绝不记录 override URL、header、body 或其他请求 Secret。
+
+Replay 持久化为独立的 `mode=replay` exchange，`replay_of` 指向不可变的源 exchange。control protocol v1 提供 `replay` command，请求 frame 上限为 64 KiB、响应 frame 上限为 1 MiB；sidecar 对每个 `runtime_ref` 最多并发 4 个 replay，最多捕获 1 MiB replay 响应，并应用 30 秒 replay/control deadline；Web Server 另有全局 4 个 replay 请求的并发限制。Web control client 对 replay 使用专用的 35 秒等待时间，让 sidecar 能返回自身的 timeout 结果；其他 control command 仍使用默认 2 秒。错误使用稳定的机器可读 code 返回，不暴露底层敏感值。
+
+Replay 只接受绝对 HTTP(S) 目标，使用 TLS 1.2+ 严格校验证书与主机名；允许私网/RFC1918 目标，但拒绝已配置的代理 self-loop。它拒绝 `CONNECT`、URL userinfo/control character、hop-by-hop header（包括 `Connection` 指定的 header）、proxy authentication header，以及与 URL authority 冲突的 `Host`。metadata-only/passthrough、CONNECT、header/request 已截断、或捕获的 request body 缺失/不完整的源记录不可 replay。系统没有流量 export/delete endpoint。
+
+traffic manager/client 提供受管 HTTP scope，将 task/run 归因与非空 `routeRef`、`sessionRef` 组合应用。只有在该 scope 内执行的操作才携带这些 route/session reference；raw 或 unmanaged 流量仍可观测，但绝不会被自动归因。
+
+侧边栏的 **Connections** 页面展示 tunnel/session 的方向、transport、desired/observed state、heartbeat、可用性、错误与 operation graph 链接。管理员可在 UI 控制已有受管 SSH tunnel 和 SSH session 的 desired lifecycle；定义目前通过管理员专属 API 创建，分析员只能读取。请求只能提供 `credentialRef`，递归出现的明文密码、私钥、token 或其他凭据内容都会被拒绝；所有变更还受 CSRF、capability 校验和 runtime 根目录 containment 保护。Chisel adapter 已有配置与 allowlist 集成，但目前尚未接入 Web 生命周期控制；raw、unmanaged 和 Chisel 记录在该页面仅展示状态。
+
 ---
 
 ## <a id="system-architecture"></a>🏗️ 系统架构

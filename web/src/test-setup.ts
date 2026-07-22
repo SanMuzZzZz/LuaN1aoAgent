@@ -1,5 +1,6 @@
 import "@testing-library/jest-dom/vitest";
-import { vi } from "vitest";
+import { cleanup } from "@testing-library/react";
+import { afterEach, vi } from "vitest";
 
 class ResizeObserverMock {
   observe() {}
@@ -43,3 +44,23 @@ Object.defineProperty(window, "localStorage", {
 
 vi.stubGlobal("localStorage", localStorageMock);
 vi.stubGlobal("ResizeObserver", ResizeObserverMock);
+Object.defineProperty(window, "matchMedia", {
+  configurable: true,
+  value: vi.fn((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn()
+  }))
+});
+const getComputedStyle = window.getComputedStyle.bind(window);
+Object.defineProperty(window, "getComputedStyle", {
+  configurable: true,
+  value: (element: Element) => getComputedStyle(element)
+});
+
+afterEach(() => cleanup());

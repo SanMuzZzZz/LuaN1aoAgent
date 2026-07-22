@@ -1,5 +1,6 @@
 node_modules/
 dist/
+traffic-proxy/bin/
 .DS_Store
 .agent-runtime/
 .env

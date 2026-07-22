@@ -20,6 +20,8 @@ const OperationNodeTypeSchema = Type.Union([
   Type.Literal("WebEndpoint"),
   Type.Literal("Parameter"),
   Type.Literal("Credential"),
+  Type.Literal("AgentSession"),
+  Type.Literal("ShellSession"),
   Type.Literal("Session"),
   Type.Literal("File"),
   Type.Literal("Process")
@@ -49,6 +51,8 @@ const GraphEdgeTypeSchema = Type.Union([
   Type.Literal("authenticates_to"),
   Type.Literal("creates_session"),
   Type.Literal("session_on"),
+  Type.Literal("tunnels_to"),
+  Type.Literal("proxy_route"),
   Type.Literal("contains_file"),
   Type.Literal("spawns_process"),
   Type.Literal("decomposes_to"),
@@ -76,6 +80,8 @@ const ProjectorGraphEdgeTypeSchema = Type.Union([
   Type.Literal("authenticates_to"),
   Type.Literal("creates_session"),
   Type.Literal("session_on"),
+  Type.Literal("tunnels_to"),
+  Type.Literal("proxy_route"),
   Type.Literal("contains_file"),
   Type.Literal("spawns_process")
 ]);
@@ -150,6 +156,7 @@ const GraphEdgeSchema = Type.Object({
   from: Type.String({ minLength: 1, maxLength: 256 }),
   to: Type.String({ minLength: 1, maxLength: 256 }),
   type: GraphEdgeTypeSchema,
+  properties: Type.Optional(Type.Object({}, { additionalProperties: GraphPropertyValueSchema })),
   evidenceRefs: Type.Optional(Type.Array(Type.String({ maxLength: 32 }), { maxItems: 8 }))
 }, { additionalProperties: false });
 
@@ -157,6 +164,7 @@ const ProjectorGraphEdgeSchema = Type.Object({
   from: Type.String({ pattern: "^(existing|new):[1-9][0-9]*$", maxLength: 32 }),
   to: Type.String({ pattern: "^(existing|new):[1-9][0-9]*$", maxLength: 32 }),
   type: ProjectorGraphEdgeTypeSchema,
+  properties: Type.Optional(Type.Object({}, { additionalProperties: GraphPropertyValueSchema })),
   evidenceRefs: Type.Optional(Type.Array(Type.String({ maxLength: 32 }), { maxItems: 8 }))
 }, { additionalProperties: false });
 

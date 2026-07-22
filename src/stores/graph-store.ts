@@ -253,20 +253,38 @@ export class SQLiteGraphStore {
       );
     }
     for (const edge of delta.edges) {
-      if (edge.type === "depends_on") {
-        const fromNode = this.database.prepare("SELECT graph_kind, type FROM nodes WHERE id = ?")
-          .get(edge.from) as { graph_kind: GraphKind; type: string } | undefined;
-        const toNode = this.database.prepare("SELECT graph_kind, type FROM nodes WHERE id = ?")
-          .get(edge.to) as { graph_kind: GraphKind; type: string } | undefined;
-        if (fromNode?.graph_kind !== "task" || fromNode.type !== "Task"
-          || toNode?.graph_kind !== "task" || toNode.type !== "Task") {
-          throw new GraphValidationError(`depends_on requires Task -> Task, received ${edge.from} -> ${edge.to}`);
-        }
+      const fromNode = this.database.prepare("SELECT graph_kind, type FROM nodes WHERE id = ?")
+        .get(edge.from) as { graph_kind: GraphKind; type: string } | undefined;
+      const toNode = this.database.prepare("SELECT graph_kind, type FROM nodes WHERE id = ?")
+        .get(edge.to) as { graph_kind: GraphKind; type: string } | undefined;
+      if (edge.type === "depends_on" && (fromNode?.graph_kind !== "task" || fromNode.type !== "Task"
+        || toNode?.graph_kind !== "task" || toNode.type !== "Task")) {
+        throw new GraphValidationError(`depends_on requires Task -> Task, received ${edge.from} -> ${edge.to}`);
+      }
+      if (["tunnels_to", "proxy_route"].includes(edge.type)
+        && (fromNode?.type !== "Host" || toNode?.type !== "Host")) {
+        throw new GraphValidationError(`${edge.type} requires Host -> Host, received ${edge.from} -> ${edge.to}`);
+      }
+      if (edge.type === "session_on"
+        && (!fromNode || !["AgentSession", "ShellSession", "Session"].includes(fromNode.type) || toNode?.type !== "Host")) {
+        throw new GraphValidationError(`session_on requires AgentSession/ShellSession/Session -> Host, received ${edge.from} -> ${edge.to}`);
       }
       const edgeId = edgeIdFor(edge);
       const existing = this.database.prepare(`
-        SELECT properties_json, evidence_refs_json FROM edges WHERE id = ?
-      `).get(edgeId) as { properties_json: string; evidence_refs_json: string } | undefined;
+        SELECT from_id, to_id, type, properties_json, evidence_refs_json FROM edges WHERE id = ?
+      `).get(edgeId) as {
+        from_id: string;
+        to_id: string;
+        type: string;
+        properties_json: string;
+        evidence_refs_json: string;
+      } | undefined;
+      if (edge.id && existing
+        && (existing.from_id !== edge.from || existing.to_id !== edge.to || existing.type !== edge.type)) {
+        throw new GraphValidationError(
+          `Edge identity conflict for ${edge.id}: existing ${existing.from_id}/${existing.type}/${existing.to_id}, submitted ${edge.from}/${edge.type}/${edge.to}`
+        );
+      }
       const properties = existing
         ? { ...(JSON.parse(existing.properties_json) as Record<string, unknown>), ...(edge.properties ?? {}) }
         : edge.properties ?? {};
@@ -304,7 +322,7 @@ export class SQLiteGraphStore {
 
   query(view: GraphView, focusNodeIds: string[] = [], limit = 200): GraphSnapshot {
     if (view === "sessions") {
-      return this.queryByNodeTypes(view, ["Session", "Credential"], limit);
+      return this.queryByNodeTypes(view, ["AgentSession", "ShellSession", "Session", "Credential"], limit);
     }
     if (view === "planner") {
       return this.queryPlannerView(limit);
@@ -1445,6 +1463,8 @@ function projectionNodePriority(node: GraphNode): number {
     Exploit: 100,
     Vulnerability: 90,
     Hypothesis: 80,
+    AgentSession: 77,
+    ShellSession: 76,
     Session: 75,
     Credential: 70,
     Evidence: 65,
@@ -1464,7 +1484,10 @@ function compareProjectionEdges(left: GraphEdge, right: GraphEdge): number {
     observed_on: 80,
     affects: 75,
     creates_session: 70,
+    session_on: 68,
     authenticates_to: 65,
+    tunnels_to: 63,
+    proxy_route: 62,
     exposes_endpoint: 60,
     runs_service: 55,
     has_port: 50,
@@ -1473,7 +1496,8 @@ function compareProjectionEdges(left: GraphEdge, right: GraphEdge): number {
   };
   return (priority[right.type] ?? 20) - (priority[left.type] ?? 20)
     || left.from.localeCompare(right.from)
-    || left.to.localeCompare(right.to);
+    || left.to.localeCompare(right.to)
+    || edgeIdFor(left).localeCompare(edgeIdFor(right));
 }
 
 type StoredNodeRow = {
@@ -1486,6 +1510,7 @@ type StoredNodeRow = {
 };
 
 type StoredEdgeRow = {
+  id: string;
   from_id: string;
   to_id: string;
   type: string;
@@ -1520,7 +1545,7 @@ function expectedGraphKindForNodeType(type: string): GraphKind | undefined {
   if (["Evidence", "Hypothesis", "Vulnerability", "Exploit"].includes(type)) {
     return "reasoning";
   }
-  if (["Host", "Port", "Service", "WebEndpoint", "Parameter", "Credential", "Session", "File", "Process"].includes(type)) {
+  if (["Host", "Port", "Service", "WebEndpoint", "Parameter", "Credential", "AgentSession", "ShellSession", "Session", "File", "Process"].includes(type)) {
     return "operation";
   }
   if (["Goal", "Task", "Milestone", "Blocker", "Scope"].includes(type)) {
@@ -1558,6 +1583,7 @@ function rowToNode(row: StoredNodeRow): GraphNode {
 
 function rowToEdge(row: StoredEdgeRow): GraphEdge {
   return {
+    id: row.id,
     from: row.from_id,
     to: row.to_id,
     type: row.type,
@@ -1567,7 +1593,7 @@ function rowToEdge(row: StoredEdgeRow): GraphEdge {
 }
 
 function edgeIdFor(edge: GraphEdge): string {
-  return `${edge.from}::${edge.type}::${edge.to}`;
+  return edge.id ?? `${edge.from}::${edge.type}::${edge.to}`;
 }
 
 function summarize(nodes: GraphNode[], edges: GraphEdge[]): Record<string, unknown> {

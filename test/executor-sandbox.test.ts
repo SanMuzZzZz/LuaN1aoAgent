@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { promisify } from "node:util";
@@ -36,6 +36,98 @@ test("executor sandbox resolves relative runtime directories before changing cwd
 
   assert.ok(isAbsolute(sandbox.root));
   assert.equal(dirname(dirname(sandbox.root)), realpathSync(runtimeDir));
+});
+
+test("executor sandbox copies only the managed public CA into its readable root", async () => {
+  const runtimeDir = mkdtempSync(join(tmpdir(), "luanniao-sandbox-ca-"));
+  const caDir = join(runtimeDir, "traffic-proxy", "data", "ca", "runtime-ref");
+  mkdirSync(caDir, { recursive: true });
+  const sourceCa = join(caDir, "ca.crt");
+  const privateKey = join(caDir, "ca.key");
+  writeFileSync(sourceCa, "public-ca");
+  writeFileSync(privateKey, "private-key");
+
+  const sandbox = await createExecutorSandbox({
+    runtimeDir,
+    runId: "run",
+    mode: "workspace",
+    environment: {
+      HTTP_PROXY: "http://127.0.0.1:1234",
+      http_proxy: "http://127.0.0.1:1234",
+      SSL_CERT_FILE: sourceCa,
+      CURL_CA_BUNDLE: sourceCa
+    }
+  });
+  const copiedCa = join(sandbox.root, "traffic-proxy-ca.crt");
+  const policy = new SandboxPathPolicy(sandbox.root, [sandbox.root]);
+
+  assert.equal(readFileSync(await policy.requireReadable(copiedCa), "utf8"), "public-ca");
+  assert.equal(statSync(copiedCa).mode & 0o777, 0o444);
+  await assert.rejects(() => policy.requireReadable(privateKey), /denied path outside allowed roots/);
+
+  const bashTool = sandbox.createTools().find((tool) => tool.name === "bash");
+  assert.ok(bashTool);
+  const result = await bashTool.execute(
+    "call:env",
+    { command: "env; cat \"$SSL_CERT_FILE\"" },
+    new AbortController().signal,
+    () => undefined,
+    {} as never
+  );
+  const output = result.content.find((item) => item.type === "text")?.text ?? "";
+  assert.ok(output.includes("HTTP_PROXY=http://127.0.0.1:1234"));
+  assert.ok(output.includes("http_proxy=http://127.0.0.1:1234"));
+  assert.ok(output.includes(`SSL_CERT_FILE=${copiedCa}`));
+  assert.match(output, /public-ca/);
+  assert.doesNotMatch(output, /private-key/);
+});
+
+test("managed proxy removes bypass variables inherited by the bash tool", async () => {
+  const runtimeDir = mkdtempSync(join(tmpdir(), "luanniao-sandbox-proxy-env-"));
+  const sourceCa = join(runtimeDir, "ca.crt");
+  writeFileSync(sourceCa, "public-ca");
+  const previous = {
+    ALL_PROXY: process.env.ALL_PROXY,
+    all_proxy: process.env.all_proxy,
+    NO_PROXY: process.env.NO_PROXY,
+    no_proxy: process.env.no_proxy
+  };
+  process.env.ALL_PROXY = "socks5://127.0.0.1:9999";
+  process.env.all_proxy = "socks5://127.0.0.1:9999";
+  process.env.NO_PROXY = "localhost,127.0.0.1";
+  process.env.no_proxy = "localhost,127.0.0.1";
+
+  try {
+    const sandbox = await createExecutorSandbox({
+      runtimeDir,
+      runId: "run",
+      mode: "workspace",
+      environment: {
+        PATH: process.env.PATH,
+        HTTP_PROXY: "http://127.0.0.1:1234",
+        HTTPS_PROXY: "http://127.0.0.1:1234",
+        http_proxy: "http://127.0.0.1:1234",
+        https_proxy: "http://127.0.0.1:1234",
+        SSL_CERT_FILE: sourceCa
+      }
+    });
+    const bashTool = sandbox.createTools().find((tool) => tool.name === "bash");
+    assert.ok(bashTool);
+    const result = await bashTool.execute(
+      "call:env",
+      { command: "env" },
+      new AbortController().signal,
+      () => undefined,
+      {} as never
+    );
+    const output = result.content.find((item) => item.type === "text")?.text ?? "";
+    assert.doesNotMatch(output, /^(?:ALL_PROXY|all_proxy|NO_PROXY|no_proxy)=/m);
+  } finally {
+    for (const [name, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
 });
 
 test("macOS seatbelt sandbox can read its workspace but not sibling runtime files", {

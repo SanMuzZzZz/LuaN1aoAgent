@@ -591,6 +591,95 @@ test("capability digest preserves reusable action input and outcome", () => {
   assert.match(digest, /artifact:poc/);
 });
 
+test("projection context preserves parallel edge identities and properties", () => {
+  const nodes: GraphNode[] = [
+    { id: "host:a", graphKind: "operation", type: "Host", label: "A", properties: { host: "a.test" } },
+    { id: "host:b", graphKind: "operation", type: "Host", label: "B", properties: { host: "b.test" } }
+  ];
+  const context = aliasProjectionGraphContext({
+    nodes,
+    edges: [
+      { id: "tunnel:first", from: "host:a", to: "host:b", type: "tunnels_to", properties: { tunnelId: "first", status: "live" } },
+      { id: "tunnel:second", from: "host:a", to: "host:b", type: "tunnels_to", properties: { tunnelId: "second", status: "degraded" } }
+    ]
+  });
+
+  assert.equal(context.edges.length, 2);
+  assert.deepEqual(context.edges.map((edge) => edge.id), ["tunnel:first", "tunnel:second"]);
+  assert.deepEqual(context.edges.map((edge) => edge.properties.tunnelId), ["first", "second"]);
+  assert.match(renderProjectionGraphContext(context), /"tunnelId":"first"/);
+  assert.match(renderProjectionGraphContext(context), /"status":"degraded"/);
+});
+
+test("projector derives stable tunnel and proxy route edge identities", () => {
+  const graphContext = aliasProjectionGraphContext({
+    nodes: [
+      { id: "host:a", graphKind: "operation", type: "Host", label: "A", properties: { host: "a.test" } },
+      { id: "host:b", graphKind: "operation", type: "Host", label: "B", properties: { host: "b.test" } }
+    ],
+    edges: []
+  });
+  const delta = expandProjectionDraft({
+    batch: { observations: [], toSeq: 0, sourceEventIds: [] },
+    graphContext,
+    value: {
+      nodes: [],
+      edges: [
+        { from: "existing:1", to: "existing:2", type: "tunnels_to", properties: { tunnelId: "ssh / primary", transport: "ssh" } },
+        { from: "existing:1", to: "existing:2", type: "proxy_route", properties: { routeId: "route #1", via: "127.0.0.1:8080" } }
+      ]
+    }
+  });
+
+  assert.deepEqual(delta.edges.map((edge) => edge.id), ["tunnel:ssh%20%2F%20primary", "proxy-route:route%20%231"]);
+  assert.equal(delta.edges[0]?.properties?.transport, "ssh");
+  assert.equal(delta.edges[1]?.properties?.via, "127.0.0.1:8080");
+});
+
+test("canonical operation identities cover agent and shell sessions", () => {
+  const identityNodes: GraphNode[] = [
+    { id: "agent-session:agent-1", graphKind: "operation", type: "AgentSession", label: "Agent one", properties: { sessionId: "agent-1" } },
+    { id: "shell-session:shell-1", graphKind: "operation", type: "ShellSession", label: "Shell one", properties: { shellSessionId: "shell-1" } }
+  ];
+  const graphContext = aliasProjectionGraphContext({ nodes: [], edges: [], identityNodes, identityEdges: [] });
+  const delta = expandProjectionDraft({
+    batch: { observations: [], toSeq: 0, sourceEventIds: [] },
+    graphContext,
+    value: {
+      nodes: [
+        { id: "new:1", graphKind: "operation", type: "AgentSession", label: "Renamed agent", properties: { agentSessionId: "agent-1" } },
+        { id: "new:2", graphKind: "operation", type: "ShellSession", label: "Renamed shell", properties: { sessionId: "shell-1" } }
+      ],
+      edges: []
+    }
+  });
+
+  assert.deepEqual(delta.nodes.map((node) => node.id), ["agent-session:agent-1", "shell-session:shell-1"]);
+});
+
+test("session labels without business ids do not determine identity", () => {
+  const graphContext = aliasProjectionGraphContext({
+    nodes: [{ id: "agent-session:existing", graphKind: "operation", type: "AgentSession", label: "Shared label", properties: {} }],
+    edges: []
+  });
+  const delta = expandProjectionDraft({
+    batch: { observations: [], toSeq: 0, sourceEventIds: [] },
+    graphContext,
+    value: {
+      nodes: [
+        { id: "new:1", graphKind: "operation", type: "AgentSession", label: "Shared label", properties: {} },
+        { id: "new:2", graphKind: "operation", type: "AgentSession", label: "Shared label", properties: {} }
+      ],
+      edges: []
+    }
+  });
+
+  assert.equal(delta.nodes.length, 2);
+  assert.ok(delta.nodes.every((node) => node.id.startsWith("projected:")));
+  assert.notEqual(delta.nodes[0]?.id, delta.nodes[1]?.id);
+  assert.ok(delta.nodes.every((node) => node.id !== "agent-session:existing"));
+});
+
 function event(seq: number, id: string, eventType: string, payload: Record<string, unknown>): ExecutionEvent {
   return {
     id,

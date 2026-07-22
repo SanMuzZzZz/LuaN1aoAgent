@@ -47,9 +47,11 @@ export type ProjectionGraphContext = {
     evidenceRefs: string[];
   }>;
   edges: Array<{
+    id?: string;
     from: string;
     to: string;
     type: string;
+    properties: Record<string, unknown>;
   }>;
   nodeAliases: Map<string, string>;
   identityOnlyRefs: Set<string>;
@@ -258,14 +260,16 @@ export function aliasProjectionGraphContext(input: {
   const aliasesByNodeId = new Map([...nodeAliases.entries()].map(([alias, nodeId]) => [nodeId, alias]));
   const edges = [...new Map(
     [...input.edges, ...(input.identityEdges ?? [])]
-      .map((edge) => [`${edge.from}\u0000${edge.type}\u0000${edge.to}`, edge])
+      .map((edge) => [edge.id ?? `${edge.from}\u0000${edge.type}\u0000${edge.to}`, edge])
   ).values()]
     .map((edge) => ({
-      from: aliasesByNodeId.get(edge.from),
-      to: aliasesByNodeId.get(edge.to),
-      type: edge.type
+      id: edge.id,
+      from: aliasesByNodeId.get(edge.from) ?? "",
+      to: aliasesByNodeId.get(edge.to) ?? "",
+      type: edge.type,
+      properties: compactNodeProperties(edge.properties ?? {})
     }))
-    .filter((edge): edge is { from: string; to: string; type: string } => Boolean(edge.from && edge.to));
+    .filter((edge) => Boolean(edge.from && edge.to));
   return {
     nodes,
     edges,
@@ -310,7 +314,9 @@ export function expandProjectionDraft(input: {
         ? matchExistingOperationNode(node, operationIdentityIndex)
         : undefined;
       const resolvedId = existingId ?? matchedOperationId
-        ?? (submittedRef.startsWith("new:") ? `projected:${randomUUID()}` : "");
+        ?? (submittedRef.startsWith("new:")
+          ? stableOperationNodeId(node) ?? `projected:${randomUUID()}`
+          : "");
       if (!resolvedId) {
         continue;
       }
@@ -351,12 +357,18 @@ export function expandProjectionDraft(input: {
     ...nodes.map((node) => [node.id, node] as const)
   ]);
   const edges = Array.isArray(draft.edges)
-    ? draft.edges.filter(isRecord).slice(0, 20).map((edge) => ({
-      from: resolveNodeRef(edge.from),
-      to: resolveNodeRef(edge.to),
-      type: String(edge.type ?? "supports"),
-      evidenceRefs: resolveEvidenceRefs(edge.evidenceRefs)
-    })).filter((edge) => {
+    ? draft.edges.filter(isRecord).slice(0, 20).map((edge) => {
+      const type = String(edge.type ?? "supports");
+      const properties = compactSubmittedProperties(edge.properties);
+      return {
+        id: stableOperationalEdgeId(type, properties),
+        from: resolveNodeRef(edge.from),
+        to: resolveNodeRef(edge.to),
+        type,
+        properties,
+        evidenceRefs: resolveEvidenceRefs(edge.evidenceRefs)
+      };
+    }).filter((edge) => {
       const fromNode = nodeById.get(edge.from);
       const toNode = nodeById.get(edge.to);
       return Boolean(fromNode && toNode)
@@ -400,7 +412,9 @@ export function renderProjectionGraphContext(context: ProjectionGraphContext): s
   const identityLines = context.nodes
     .filter((node) => context.identityOnlyRefs.has(node.ref))
     .map((node) => `${node.ref} ${node.type} ${operationIdentitySummary(node)}`);
-  const edgeLines = context.edges.map((edge) => `${edge.from} -${edge.type}-> ${edge.to}`);
+  const edgeLines = context.edges.map((edge) => (
+    `${edge.from} -${edge.type}-> ${edge.to}${Object.keys(edge.properties).length > 0 ? ` ${JSON.stringify(edge.properties)}` : ""}`
+  ));
   return [
     "局部完整节点：",
     ...(localNodeLines.length > 0 ? localNodeLines : ["无"]),
@@ -489,7 +503,42 @@ function operationIdentityKey(
       ? `parameter:${protocol}://${host}:${port}:${path}:${location}:${name}`
       : undefined;
   }
+  if (type === "AgentSession") {
+    return stableIdentity("agent-session", properties.sessionId ?? properties.agentSessionId);
+  }
+  if (type === "ShellSession") {
+    return stableIdentity("shell-session", properties.sessionId ?? properties.shellSessionId);
+  }
+  if (type === "Session") {
+    return stableIdentity("session", properties.sessionId ?? properties.agentSessionId ?? properties.shellSessionId);
+  }
   return undefined;
+}
+
+function stableOperationNodeId(node: Record<string, unknown>): string | undefined {
+  if (normalizeGraphKind(node.graphKind) !== "operation") {
+    return undefined;
+  }
+  const type = String(node.type ?? "");
+  if (!["AgentSession", "ShellSession", "Session"].includes(type)) {
+    return undefined;
+  }
+  return operationIdentityKey(type, "", isRecord(node.properties) ? node.properties : {});
+}
+
+function stableOperationalEdgeId(type: string, properties: Record<string, unknown>): string | undefined {
+  if (type === "tunnels_to") {
+    return stableIdentity("tunnel", properties.tunnelId);
+  }
+  if (type === "proxy_route") {
+    return stableIdentity("proxy-route", properties.routeId);
+  }
+  return undefined;
+}
+
+function stableIdentity(prefix: string, value: unknown): string | undefined {
+  const identity = typeof value === "string" ? value.trim() : "";
+  return identity ? `${prefix}:${encodeURIComponent(identity)}` : undefined;
 }
 
 function normalizedNetworkEndpoint(
@@ -824,7 +873,9 @@ function compactNodeProperties(properties: Record<string, unknown>): Record<stri
   const allowedKeys = [
     "status", "host", "hostname", "ip", "port", "protocol", "scheme", "service", "url", "endpoint", "path", "method",
     "name", "location", "in", "username", "role", "valid", "confidence", "resultSummary", "checkpointReason",
-    "blockerReason", "pendingCondition"
+    "blockerReason", "pendingCondition", "sessionId", "agentSessionId", "shellSessionId", "tunnelId", "routeId",
+    "createdAt", "updatedAt", "lastSeenAt", "expiresAt", "closedAt", "transport", "localHost", "localPort",
+    "remoteHost", "remotePort", "via"
   ];
   return Object.fromEntries(allowedKeys
     .filter((key) => properties[key] !== undefined)

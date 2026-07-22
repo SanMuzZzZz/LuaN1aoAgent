@@ -2,8 +2,8 @@ export type JsonValue = string | number | boolean | null | JsonValue[] | { [key:
 export type JsonRecord = Record<string, JsonValue | undefined>;
 
 export type Role = "planner" | "executor" | "observer" | "runtime" | string;
-export type ViewKey = "trace" | "reasoning" | "operation" | "task";
-export type GraphKind = Exclude<ViewKey, "trace">;
+export type GraphKind = "reasoning" | "operation" | "task";
+export type ViewKey = "trace" | GraphKind | "traffic" | "connections";
 
 export interface AuthUser {
   id: string;
@@ -206,4 +206,140 @@ export interface SessionsResponse {
   loadedAt: string;
   sessions: RuntimeSession[];
   summary: { count: number; totalTasks: number; totalEvents: number };
+}
+
+export interface TrafficHeaderEntry {
+  name: string;
+  value: string;
+  ordinal: number;
+}
+
+export interface TrafficExchange {
+  id: number;
+  started_at: string;
+  completed_at: string;
+  duration_ms: number;
+  method: string;
+  url: string;
+  host: string;
+  scheme: string;
+  protocol: string;
+  mode: string;
+  status: number;
+  request_observed_bytes: number;
+  response_observed_bytes: number;
+  request_captured_bytes: number;
+  response_captured_bytes: number;
+  request_body_ref?: string;
+  response_body_ref?: string;
+  request_capture_state: string;
+  response_capture_state: string;
+  request_truncated: boolean;
+  response_truncated: boolean;
+  headers_truncated: boolean;
+  quota_pressure: boolean;
+  request_truncation_reason?: string;
+  response_truncation_reason?: string;
+  header_truncation_reason?: string;
+  error?: string;
+  runtime_ref?: string;
+  task_ref?: string;
+  run_ref?: string;
+  attribution?: string;
+  route_ref?: string;
+  session_ref?: string;
+  connect_ref?: string;
+  connect_authority?: string;
+  connect_host?: string;
+  connect_port?: string;
+  replay_of?: number;
+  error_code?: string;
+  evicted_exchanges: number;
+  request_headers?: TrafficHeaderEntry[];
+  response_headers?: TrafficHeaderEntry[];
+}
+
+export interface TrafficHistoryPage {
+  items: TrafficExchange[];
+  has_more: boolean;
+  next_cursor?: string;
+}
+
+export interface TrafficHistoryFilters {
+  method?: string;
+  host?: string;
+  status?: number;
+  task_ref?: string;
+  run_ref?: string;
+  mode?: string;
+  error?: string;
+}
+
+export interface TrafficHistoryBody {
+  exchange_id: number;
+  side: "request" | "response";
+  body_ref: string;
+  encoding: "base64";
+  data: string;
+  bytes: number;
+  truncated: boolean;
+}
+
+export interface TrafficReplayInput {
+  runtimeDir: string;
+  method?: string;
+  url?: string;
+  headers?: TrafficHeaderEntry[];
+  body?: { encoding: "base64"; data: string };
+  route_ref?: string;
+  session_ref?: string;
+  task_ref?: string;
+  run_ref?: string;
+}
+
+export interface TrafficReplayResponse {
+  exchangeId: number;
+  replayOf: number;
+  status: number;
+  errorCode?: string;
+}
+
+export interface ConnectionItem {
+  id: string;
+  externalId: string;
+  kind: "tunnel" | "session" | "route";
+  direction: string;
+  transport: string;
+  managed: boolean;
+  desiredState: "running" | "stopped" | "closed";
+  observedState: "live" | "degraded" | "stale" | "closed";
+  lastHeartbeat?: string;
+  error?: string;
+  available: boolean;
+  graphUrl?: string;
+}
+
+export interface ConnectionsResponse {
+  runtimeDir: string;
+  loadedAt: string;
+  connections: ConnectionItem[];
+}
+
+export interface CreateSshTunnelInput {
+  runtimeDir: string;
+  externalId: string;
+  fromHostRef: string;
+  toHostRef: string;
+  host: string;
+  port?: number;
+  user?: string;
+  credentialRef?: string;
+  desiredState?: "running" | "stopped";
+  forwards: Array<{
+    mode: "local" | "remote" | "dynamic";
+    bindHost?: string;
+    bindPort: number;
+    targetHost?: string;
+    targetPort?: number;
+  }>;
 }

@@ -10,6 +10,8 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { constants, existsSync } from "node:fs";
 import {
   access,
+  chmod,
+  copyFile,
   mkdir,
   readFile,
   readdir,
@@ -46,6 +48,7 @@ export async function createExecutorSandbox(input: {
   runtimeDir: string;
   runId: string;
   mode?: ExecutorSandboxRequestedMode;
+  environment?: NodeJS.ProcessEnv;
 }): Promise<ExecutorSandbox> {
   const runtimeDir = resolve(input.runtimeDir);
   const root = join(runtimeDir, "sandboxes", input.runId);
@@ -53,6 +56,7 @@ export async function createExecutorSandbox(input: {
   const temp = join(root, "tmp");
   await Promise.all([mkdir(root, { recursive: true }), mkdir(home, { recursive: true }), mkdir(temp, { recursive: true })]);
   const canonicalRoot = await realpath(root);
+  const environment = await prepareSandboxEnvironment(input.environment, canonicalRoot);
   const allowedReadRoots = await existingCanonicalRoots([
     canonicalRoot,
     join(homedir(), ".agents", "skills"),
@@ -122,7 +126,7 @@ export async function createExecutorSandbox(input: {
                 : command;
             return localBash.exec(wrappedCommand, canonicalRoot, {
               ...options,
-              env: sandboxEnvironment(options.env, canonicalRoot)
+              env: sandboxEnvironment(mergeCommandEnvironment(options.env, environment), canonicalRoot)
             });
           }
         }
@@ -293,6 +297,36 @@ function executorSandboxModeFromEnv(): ExecutorSandboxRequestedMode {
   return "auto";
 }
 
+async function prepareSandboxEnvironment(input: NodeJS.ProcessEnv | undefined, root: string): Promise<NodeJS.ProcessEnv | undefined> {
+  if (!input?.HTTP_PROXY && !input?.http_proxy) return input;
+  const sourceCaPath = input.CURL_CA_BUNDLE ?? input.SSL_CERT_FILE ?? input.NODE_EXTRA_CA_CERTS;
+  if (!sourceCaPath) throw new Error("managed proxy environment has no public CA certificate");
+  const sandboxCaPath = join(root, "traffic-proxy-ca.crt");
+  await copyFile(sourceCaPath, sandboxCaPath);
+  await chmod(sandboxCaPath, 0o444);
+  return {
+    ...input,
+    SSL_CERT_FILE: sandboxCaPath,
+    CURL_CA_BUNDLE: sandboxCaPath,
+    NODE_EXTRA_CA_CERTS: sandboxCaPath
+  };
+}
+
+function mergeCommandEnvironment(
+  toolEnvironment: NodeJS.ProcessEnv | undefined,
+  managedEnvironment: NodeJS.ProcessEnv | undefined
+): NodeJS.ProcessEnv | undefined {
+  if (!managedEnvironment) return toolEnvironment;
+  const environment = { ...toolEnvironment, ...managedEnvironment };
+  if (managedEnvironment.HTTP_PROXY || managedEnvironment.http_proxy) {
+    delete environment.ALL_PROXY;
+    delete environment.all_proxy;
+    delete environment.NO_PROXY;
+    delete environment.no_proxy;
+  }
+  return environment;
+}
+
 function sandboxEnvironment(input: NodeJS.ProcessEnv | undefined, root: string): NodeJS.ProcessEnv {
   const source = input ?? process.env;
   const output: NodeJS.ProcessEnv = {
@@ -307,10 +341,14 @@ function sandboxEnvironment(input: NodeJS.ProcessEnv | undefined, root: string):
     TZ: source.TZ,
     HTTP_PROXY: source.HTTP_PROXY,
     HTTPS_PROXY: source.HTTPS_PROXY,
-    ALL_PROXY: source.ALL_PROXY,
+    http_proxy: source.http_proxy,
+    https_proxy: source.https_proxy,
     NO_PROXY: source.NO_PROXY,
+    no_proxy: source.no_proxy,
     SSL_CERT_FILE: source.SSL_CERT_FILE,
     SSL_CERT_DIR: source.SSL_CERT_DIR,
+    CURL_CA_BUNDLE: source.CURL_CA_BUNDLE,
+    NODE_EXTRA_CA_CERTS: source.NODE_EXTRA_CA_CERTS,
     PYTHONDONTWRITEBYTECODE: "1"
   };
   return Object.fromEntries(Object.entries(output).filter((entry): entry is [string, string] => typeof entry[1] === "string"));

@@ -40,11 +40,29 @@ const PALETTES: Record<string, NodePalette> = {
   WebEntry: { color: "#c2410c", background: "#fff7ed" },
   Parameter: { color: "#7e22ce", background: "#faf5ff" },
   Credential: { color: "#be185d", background: "#fdf2f8" },
+  AgentSession: { color: "#047857", background: "#ecfdf5" },
+  ShellSession: { color: "#15803d", background: "#f0fdf4" },
   Session: { color: "#047857", background: "#ecfdf5" }
 };
 
 export function nodePalette(type: string): NodePalette {
   return PALETTES[type] || { color: "#64748b", background: "#f8fafc" };
+}
+
+export interface EdgePresentation {
+  status: "live" | "degraded" | "stale" | "closed";
+  color: string;
+  lineStyle: "solid" | "dashed" | "dotted";
+  opacity: number;
+}
+
+export function edgePresentation(edge: GraphEdge): EdgePresentation {
+  const status = edge.properties.status;
+  if (status === "degraded") return { status, color: "#f59e0b", lineStyle: "solid", opacity: 0.82 };
+  if (status === "stale") return { status, color: "#94a3b8", lineStyle: "dashed", opacity: 0.58 };
+  if (status === "closed") return { status, color: "#cbd5e1", lineStyle: "dotted", opacity: 0.28 };
+  if (status === "live") return { status, color: "#16a34a", lineStyle: "solid", opacity: 0.82 };
+  return { status: "live", color: "#a8b4c8", lineStyle: "solid", opacity: 0.72 };
 }
 
 export function filterGraph(
@@ -149,7 +167,7 @@ export function projectTaskTree(nodes: GraphNode[], edges: GraphEdge[]): Filtere
 
 export function graphSignature(runtimeDir: string, kind: GraphKind, graph: FilteredGraph): string {
   const nodes = graph.nodes.map((node) => `${node.id}:${node.updatedAt || ""}:${node.label}:${JSON.stringify(node.properties)}`).sort();
-  const edges = graph.edges.map((edge) => `${edge.id || ""}:${edge.from}:${edge.type}:${edge.to}:${edge.updatedAt || ""}`).sort();
+  const edges = graph.edges.map((edge) => `${edge.id || ""}:${edge.from}:${edge.type}:${edge.to}:${edge.updatedAt || ""}:${JSON.stringify(edge.properties)}`).sort();
   return `${runtimeDir}|${kind}|${nodes.join("|")}|${edges.join("|")}`;
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Badge, Button, Empty, Menu, Tooltip } from "antd";
-import { Activity, BrainCircuit, ChevronRight, Folder, FolderOpen, GitBranch, ListTree, PanelLeftClose } from "lucide-react";
+import { Activity, BrainCircuit, Cable, ChevronRight, Folder, FolderOpen, GitBranch, ListTree, Network, PanelLeftClose } from "lucide-react";
 import { buildSessionTree, sessionRelativePath, type SessionFolderNode } from "../sessions";
 import type { AgentEvent, RuntimeSession, ViewKey } from "../types";
 import { formatRelative, isRecent, roleLabel, shortRef } from "../utils";
@@ -17,6 +17,8 @@ interface SidebarProps {
 
 const viewItems = [
   { key: "trace", icon: <Activity size={17} />, label: "实时轨迹" },
+  { key: "traffic", icon: <Network size={17} />, label: "Web Traffic" },
+  { key: "connections", icon: <Cable size={17} />, label: "Connections" },
   { key: "reasoning", icon: <BrainCircuit size={17} />, label: "推理图" },
   { key: "operation", icon: <GitBranch size={17} />, label: "作战图" },
   { key: "task", icon: <ListTree size={17} />, label: "任务图" }

@@ -943,3 +943,43 @@ test("planner task ledger truncates long runtime outcomes", () => {
   assert.match(summary, /\[truncated\]$/);
   graphStore.close();
 });
+
+test("stores parallel operational edges by explicit identity and validates topology endpoints", () => {
+  const runtimeDir = mkdtempSync(join(tmpdir(), "luanniao-graph-"));
+  const graphStore = new SQLiteGraphStore(join(runtimeDir, "state.sqlite"), join(runtimeDir, "deltas.jsonl"));
+  graphStore.upsertDelta({
+    sourceEventIds: [],
+    nodes: [
+      { id: "host:a", graphKind: "operation", type: "Host", label: "A", properties: {} },
+      { id: "host:b", graphKind: "operation", type: "Host", label: "B", properties: {} },
+      { id: "agent-session:1", graphKind: "operation", type: "AgentSession", label: "Agent", properties: { status: "live", sessionId: "1" } },
+      { id: "shell-session:1", graphKind: "operation", type: "ShellSession", label: "Shell", properties: { status: "degraded", sessionId: "1" } }
+    ],
+    edges: [
+      { id: "tunnel:1", from: "host:a", to: "host:b", type: "tunnels_to", properties: { tunnelId: "1", status: "live" } },
+      { id: "tunnel:2", from: "host:a", to: "host:b", type: "tunnels_to", properties: { tunnelId: "2", status: "degraded" } },
+      { from: "host:a", to: "host:b", type: "proxy_route", properties: { via: "first" } },
+      { from: "agent-session:1", to: "host:a", type: "session_on" }
+    ]
+  });
+  graphStore.upsertDelta({
+    sourceEventIds: [],
+    nodes: [],
+    edges: [{ from: "host:a", to: "host:b", type: "proxy_route", properties: { transport: "socks" } }]
+  });
+
+  const operation = graphStore.query("operation", [], 100);
+  assert.deepEqual(operation.edges.filter((edge) => edge.type === "tunnels_to").map((edge) => edge.id).sort(), ["tunnel:1", "tunnel:2"]);
+  assert.deepEqual(operation.edges.find((edge) => edge.type === "proxy_route")?.properties, { via: "first", transport: "socks" });
+  assert.deepEqual(graphStore.query("sessions").nodes.map((node) => node.type).sort(), ["AgentSession", "ShellSession"]);
+  assert.throws(() => graphStore.upsertDelta({
+    sourceEventIds: [], nodes: [], edges: [{ id: "tunnel:1", from: "host:b", to: "host:a", type: "tunnels_to" }]
+  }), /Edge identity conflict/);
+  assert.throws(() => graphStore.upsertDelta({
+    sourceEventIds: [], nodes: [], edges: [{ from: "agent-session:1", to: "host:a", type: "tunnels_to" }]
+  }), /Host -> Host/);
+  assert.throws(() => graphStore.upsertDelta({
+    sourceEventIds: [], nodes: [], edges: [{ from: "host:a", to: "host:b", type: "session_on" }]
+  }), /session_on/);
+  graphStore.close();
+});
