@@ -72,6 +72,34 @@ test("actual GET routes reject unauthenticated requests and exempt authenticated
   assert.equal((await json(response)).runtimeDir, await realpath(fixture.runtimeA));
 });
 
+test("web server binds to WEB_HOST/WEB_PORT from the environment when args are absent", async () => {
+  const root = await mkdtemp("/tmp/lnw-env-");
+  const auth = new WebAuthService(join(root, "auth.sqlite"));
+  await auth.register({ username: "admin", displayName: "Admin", password: "admin-password-123" });
+  const port = await reservePort();
+  const child = spawn(process.execPath, [
+    resolve("dist/src/web-server.js"),
+    "--runtime-dir", root,
+    "--auth-db", join(root, "auth.sqlite")
+  ], {
+    cwd: process.cwd(),
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, WEB_HOST: "127.0.0.1", WEB_PORT: String(port) }
+  });
+  try {
+    await waitForServer(child, `http://127.0.0.1:${port}`);
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGTERM");
+      await new Promise<void>((resolveExit) => {
+        child.once("exit", () => resolveExit());
+        setTimeout(resolveExit, 3_000).unref();
+      });
+    }
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("analyst reaches metadata and sensitive-read GET routes but lacks export and credential capabilities", async () => {
   const auth = new WebAuthService(join(fixture.root, "auth.sqlite"));
   const analyst = (await auth.login({ username: "analyst", password: "analyst-password-456" })).user;

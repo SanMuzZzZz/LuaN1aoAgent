@@ -1201,6 +1201,87 @@ test("active projector does not chase events below the next tool window", async 
   harness.controller.close();
 });
 
+test("projection catchup debounces then projects the accumulated tail", async (t) => {
+  process.env.PROJECTOR_CATCHUP_DELAY_MS = "20";
+  process.env.PROJECTOR_CATCHUP_MIN_OBSERVATIONS = "1";
+  t.after(() => {
+    delete process.env.PROJECTOR_CATCHUP_DELAY_MS;
+    delete process.env.PROJECTOR_CATCHUP_MIN_OBSERVATIONS;
+  });
+  const harness = createObserverControllerHarness(observerProjectionJson());
+  const taskEnvelope = makeTaskEnvelope({ budget: { ...DEFAULT_TASK_BUDGET, maxTurns: 20 } });
+  activateTask(harness.controllerHarness, taskEnvelope);
+  const releaseProjection = createDeferred<void>();
+  const projectorSession = createDelayedAbortableMockTextSession(async () => {
+    await releaseProjection.promise;
+    return observerProjectionJson();
+  });
+  harness.controllerHarness.createObserverSessionForMode = async () => ({
+    session: projectorSession,
+    dynamicObserver: true
+  });
+
+  for (let index = 0; index < 16; index += 1) {
+    const event = await persistExecutorEvent(harness.controller, taskEnvelope.taskId, "tool_finished", `tool ${index}`);
+    await harness.controllerHarness.handleExecutorEventPersisted(event);
+  }
+  await waitFor(async () => projectorSession.promptCount() === 1);
+
+  let tailSeq = 0;
+  for (let index = 16; index < 20; index += 1) {
+    const event = await persistExecutorEvent(harness.controller, taskEnvelope.taskId, "tool_finished", `tail ${index}`);
+    tailSeq = event.seq ?? tailSeq;
+  }
+  harness.controller.runtimeStore.raiseProjectionDesired(taskEnvelope.taskId, tailSeq, 0);
+
+  releaseProjection.resolve();
+  await waitFor(async () => (await harness.controller.executionLog.readAll())
+    .some((event) => event.eventType === "projection_catchup_started"));
+  await waitFor(async () => projectorSession.promptCount() === 2);
+  const events = await harness.controller.executionLog.readAll();
+  const catchup = events.find((event) => event.eventType === "projection_catchup_started");
+  assert.ok(Number(catchup?.payload.observationCount) >= 1);
+  assert.equal(events.some((event) => event.eventType === "projection_catchup_deferred"), false);
+  harness.controller.close();
+});
+
+test("projection catchup defers a tiny tail instead of spending a projector call", async (t) => {
+  process.env.PROJECTOR_CATCHUP_DELAY_MS = "20";
+  t.after(() => {
+    delete process.env.PROJECTOR_CATCHUP_DELAY_MS;
+  });
+  const harness = createObserverControllerHarness(observerProjectionJson());
+  const taskEnvelope = makeTaskEnvelope({ budget: { ...DEFAULT_TASK_BUDGET, maxTurns: 20 } });
+  activateTask(harness.controllerHarness, taskEnvelope);
+  const releaseProjection = createDeferred<void>();
+  const projectorSession = createDelayedAbortableMockTextSession(async () => {
+    await releaseProjection.promise;
+    return observerProjectionJson();
+  });
+  harness.controllerHarness.createObserverSessionForMode = async () => ({
+    session: projectorSession,
+    dynamicObserver: true
+  });
+
+  for (let index = 0; index < 16; index += 1) {
+    const event = await persistExecutorEvent(harness.controller, taskEnvelope.taskId, "tool_finished", `tool ${index}`);
+    await harness.controllerHarness.handleExecutorEventPersisted(event);
+  }
+  await waitFor(async () => projectorSession.promptCount() === 1);
+
+  const tailEvent = await persistExecutorEvent(harness.controller, taskEnvelope.taskId, "tool_finished", "single tail event");
+  harness.controller.runtimeStore.raiseProjectionDesired(taskEnvelope.taskId, tailEvent.seq ?? 0, 0);
+
+  releaseProjection.resolve();
+  await waitFor(async () => (await harness.controller.executionLog.readAll())
+    .some((event) => event.eventType === "projection_catchup_deferred"));
+  await waitForSettled();
+  const events = await harness.controller.executionLog.readAll();
+  assert.equal(events.some((event) => event.eventType === "projection_catchup_started"), false);
+  assert.equal(projectorSession.promptCount(), 1);
+  harness.controller.close();
+});
+
 test("projector advances committed watermark without losing prior windows", async () => {
   const harness = createObserverControllerHarness(observerProjectionJson());
   const taskEnvelope = makeTaskEnvelope({ budget: { ...DEFAULT_TASK_BUDGET, maxTurns: 20 } });

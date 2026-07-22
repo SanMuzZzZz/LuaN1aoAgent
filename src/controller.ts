@@ -49,6 +49,7 @@ import {
 } from "./stores/graph-store.js";
 import { RuntimeStore } from "./stores/runtime-store.js";
 import type {
+  AgentRole,
   ControlSignal,
   ExecutionEpochTerminationReason,
   ExecutionEvent,
@@ -94,7 +95,7 @@ const CONTINUE_CONTROL_SIGNAL: ControlSignal = {
   confidence: "medium"
 };
 
-const RUNTIME_HEARTBEAT_MS = 10_000;
+const RUNTIME_HEARTBEAT_MS = positiveIntegerEnv("RUNTIME_HEARTBEAT_MS", 60_000);
 const SUPERVISOR_IDLE_TIMEOUT_MS = positiveIntegerEnv("SUPERVISOR_IDLE_TIMEOUT_MS", 60_000);
 const SUPERVISOR_HARD_TIMEOUT_MS = positiveIntegerEnv(
   "SUPERVISOR_HARD_TIMEOUT_MS",
@@ -105,10 +106,10 @@ const PROJECTOR_HARD_TIMEOUT_MS = positiveIntegerEnv(
   "PROJECTOR_HARD_TIMEOUT_MS",
   positiveIntegerEnv("PROJECTOR_TIMEOUT_MS", 300_000)
 );
-const PLANNER_IDLE_TIMEOUT_MS = positiveIntegerEnv("PLANNER_IDLE_TIMEOUT_MS", 90_000);
+const PLANNER_IDLE_TIMEOUT_MS = positiveIntegerEnv("PLANNER_IDLE_TIMEOUT_MS", 180_000);
 const PLANNER_HARD_TIMEOUT_MS = positiveIntegerEnv(
   "PLANNER_HARD_TIMEOUT_MS",
-  positiveIntegerEnv("PLANNER_TIMEOUT_MS", 240_000)
+  positiveIntegerEnv("PLANNER_TIMEOUT_MS", 360_000)
 );
 const PLANNER_FRESH_SESSION_ATTEMPTS = positiveIntegerEnv(
   "PLANNER_FRESH_SESSION_ATTEMPTS",
@@ -137,7 +138,20 @@ const PROJECTOR_MAX_OBSERVATIONS_PER_JOB = positiveIntegerEnv("PROJECTOR_MAX_OBS
 const PROJECTOR_INPUT_HARD_LIMIT = 10_000;
 const PROJECTOR_OPERATION_IDENTITY_LIMIT = positiveIntegerEnv("PROJECTOR_OPERATION_IDENTITY_LIMIT", 48);
 const PROJECTOR_MAX_RETRIES = 1;
-const EXECUTOR_CHECKPOINT_GRACE_MS = 15_000;
+const DEFAULT_PROJECTOR_CATCHUP_DELAY_MS = 45_000;
+const DEFAULT_PROJECTOR_CATCHUP_MIN_OBSERVATIONS = 4;
+const PROJECTOR_OBSERVATION_ROLES: Array<AgentRole | "runtime"> = ["executor", "runtime"];
+const PROJECTOR_OBSERVATION_EVENT_TYPES = [
+  "assistant_intent",
+  "tool_started",
+  "tool_finished",
+  "provider_error",
+  "task_completed",
+  "task_partial",
+  "task_blocked",
+  "task_failed"
+];
+const EXECUTOR_CHECKPOINT_GRACE_MS = positiveIntegerEnv("EXECUTOR_CHECKPOINT_GRACE_MS", 120_000);
 const EXECUTOR_PROVIDER_RETRY_ATTEMPTS = 2;
 const EXECUTOR_PROVIDER_RETRY_BACKOFF_MS = 250;
 const EXECUTOR_SESSION_DIR = "executor-sessions";
@@ -288,6 +302,7 @@ export class SecurityAgentController {
   private pendingProjectionRequests = new Map<string, PendingProjectionRequest>();
   private projectionSequence = 0;
   private projectionRetryCountByTask = new Map<string, number>();
+  private projectionCatchupTimers = new Map<string, NodeJS.Timeout>();
   private activeEpochs = new Map<string, ActiveTaskState>();
   private activeEpochIdByTask = new Map<string, string>();
   private taskSupervisionStates = new Map<string, TaskSupervisionState>();
@@ -641,6 +656,7 @@ export class SecurityAgentController {
     }
     this.stopRequestedReason = reason;
     this.projectionQueueClosed = true;
+    this.clearProjectionCatchupTimers();
     await this.executionLog.append({
       role: "runtime",
       eventType: "run_interrupted",
@@ -765,6 +781,7 @@ export class SecurityAgentController {
       return;
     }
     this.projectionQueueClosed = true;
+    this.clearProjectionCatchupTimers();
     for (const state of [...this.activeEpochs.values()]) {
       if (state.lifecycleState === "closed") {
         continue;
@@ -883,6 +900,13 @@ export class SecurityAgentController {
       void this.resolveSupersededProjectionRequest(pendingRequest, reason);
     }
     this.pendingProjectionRequests.clear();
+  }
+
+  private clearProjectionCatchupTimers(): void {
+    for (const timer of this.projectionCatchupTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.projectionCatchupTimers.clear();
   }
 
   private requireAgents(): SecurityAgentRuntime {
@@ -2499,17 +2523,8 @@ export class SecurityAgentController {
         taskId: input.taskEnvelope.taskId,
         afterSeq: claim.fromSeq,
         toSeq: claim.toSeq,
-        roles: ["executor", "runtime"],
-        eventTypes: [
-          "assistant_intent",
-          "tool_started",
-          "tool_finished",
-          "provider_error",
-          "task_completed",
-          "task_partial",
-          "task_blocked",
-          "task_failed"
-        ]
+        roles: [...PROJECTOR_OBSERVATION_ROLES],
+        eventTypes: [...PROJECTOR_OBSERVATION_EVENT_TYPES]
       });
       const availableObservationCount = selectProjectionBatch(availableLogEvents, {
         fromSeq: claim.fromSeq,
@@ -2763,24 +2778,91 @@ export class SecurityAgentController {
         && projectionState.desiredSeq > projectionState.committedSeq
         && !this.pendingProjectionRequests.has(input.taskEnvelope.taskId)
       ) {
-        void this.executionLog.append({
-          taskId: input.taskEnvelope.taskId,
-          role: "runtime",
-          eventType: "projection_catchup_started",
-          summary: `committed=${projectionState.committedSeq} desired=${projectionState.desiredSeq}`,
-          payload: {
-            committedSeq: projectionState.committedSeq,
-            desiredSeq: projectionState.desiredSeq,
-            previousReason: input.reason
-          }
-        });
-        void this.requestProjection({
-          reason: "projection_catchup",
-          taskEnvelope: input.taskEnvelope,
-          taskResult: input.taskResult
-        });
+        this.scheduleProjectionCatchup(input);
       }
     }
+  }
+
+  /**
+   * Debounced catch-up for the uncommitted tail left behind by a finished job.
+   * The next tool window or the task_end flush claims the same (committed, desired]
+   * range, so an immediate catch-up mostly produces tiny, full-cost projector calls.
+   * The timer re-validates the watermark and only fires when no other projection
+   * took over and the tail holds enough observations to be worth a call.
+   */
+  private scheduleProjectionCatchup(input: ObserverProjectionRequest): void {
+    const taskId = input.taskEnvelope.taskId;
+    if (this.projectionCatchupTimers.has(taskId)) {
+      return;
+    }
+    const delayMs = positiveIntegerEnv("PROJECTOR_CATCHUP_DELAY_MS", DEFAULT_PROJECTOR_CATCHUP_DELAY_MS);
+    const timer = setTimeout(() => {
+      this.projectionCatchupTimers.delete(taskId);
+      void this.fireProjectionCatchup(input);
+    }, delayMs);
+    timer.unref?.();
+    this.projectionCatchupTimers.set(taskId, timer);
+  }
+
+  private async fireProjectionCatchup(input: ObserverProjectionRequest): Promise<void> {
+    const taskId = input.taskEnvelope.taskId;
+    if (this.projectionQueueClosed || this.projectionCancellationRequested) {
+      return;
+    }
+    const projectionState = this.runtimeStore.getProjectionState(taskId);
+    if (
+      projectionState.desiredSeq <= projectionState.committedSeq
+      || projectionState.activeGeneration !== undefined
+      || this.pendingProjectionRequests.has(taskId)
+    ) {
+      return;
+    }
+    const tailEvents = await this.executionLog.range({
+      taskId,
+      afterSeq: projectionState.committedSeq,
+      toSeq: projectionState.desiredSeq,
+      roles: [...PROJECTOR_OBSERVATION_ROLES],
+      eventTypes: [...PROJECTOR_OBSERVATION_EVENT_TYPES]
+    });
+    const observationCount = selectProjectionBatch(tailEvents, {
+      fromSeq: projectionState.committedSeq,
+      maxObservations: Number.MAX_SAFE_INTEGER
+    }).observations.length;
+    const minObservations = positiveIntegerEnv("PROJECTOR_CATCHUP_MIN_OBSERVATIONS", DEFAULT_PROJECTOR_CATCHUP_MIN_OBSERVATIONS);
+    if (observationCount < minObservations) {
+      await this.executionLog.append({
+        taskId,
+        role: "runtime",
+        eventType: "projection_catchup_deferred",
+        summary: `catchup deferred: observations=${observationCount} below min=${minObservations}; tail merges into the next projection`,
+        payload: {
+          committedSeq: projectionState.committedSeq,
+          desiredSeq: projectionState.desiredSeq,
+          observationCount,
+          minObservations,
+          previousReason: input.reason
+        }
+      });
+      return;
+    }
+    await this.executionLog.append({
+      taskId,
+      role: "runtime",
+      eventType: "projection_catchup_started",
+      summary: `committed=${projectionState.committedSeq} desired=${projectionState.desiredSeq}`,
+      payload: {
+        committedSeq: projectionState.committedSeq,
+        desiredSeq: projectionState.desiredSeq,
+        observationCount,
+        delayedMs: positiveIntegerEnv("PROJECTOR_CATCHUP_DELAY_MS", DEFAULT_PROJECTOR_CATCHUP_DELAY_MS),
+        previousReason: input.reason
+      }
+    });
+    void this.requestProjection({
+      reason: "projection_catchup",
+      taskEnvelope: input.taskEnvelope,
+      taskResult: input.taskResult
+    });
   }
 
   private scheduleProjectionRetry(input: ObserverProjectionRequest, error: unknown): void {
@@ -3188,7 +3270,7 @@ export class SecurityAgentController {
     const checkpointMessage = [
       "RUNTIME_CHECKPOINT_REQUEST:",
       controlSignal.reason,
-      "停止扩展探索。请立即调用 task_result_submit，提交当前阶段已经确认的事实、失败结论、关键响应内容和 artifact 引用。",
+      "停止扩展探索。先完成进行中的取证动作（读取已确认的关键内容、保存 artifact），再调用 task_result_submit 提交当前阶段已经确认的事实、失败结论、关键响应内容和 artifact 引用。",
       "本次 checkpoint 不代表 completed 或 blocked；状态由你的 TaskResult 和后续 Planner 决定。"
     ].join("\n");
     const steeringQueued = this.queueExecutorSteer(

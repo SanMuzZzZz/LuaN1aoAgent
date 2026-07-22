@@ -6,6 +6,7 @@ import { basename, extname, join, relative, resolve, sep } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { WebAuthError, WebAuthService, type WebUser } from "./web-auth.js";
 import { SecurityAgentController } from "./controller.js";
+import { loadLocalEnvFile } from "./llm-config.js";
 import {
   bootstrapAgentRuntime,
   createAgentTrafficProxyRegistry,
@@ -169,8 +170,9 @@ type ActiveRun = {
 };
 
 const args = parseArgs(process.argv.slice(2));
-const host = args.host ?? "127.0.0.1";
-const port = Number(args.port ?? 8787);
+loadLocalEnvFile(process.env);
+const host = args.host ?? (process.env.WEB_HOST?.trim() || "127.0.0.1");
+const port = parseWebPort(args.port ?? process.env.WEB_PORT ?? "8787");
 const cwd = process.cwd();
 const staticRoot = resolve(cwd, "web", "dist");
 const defaultRuntimeDir = args["runtime-dir"] ?? ".agent-runtime";
@@ -366,6 +368,9 @@ class HttpError extends Error {
 server.listen(port, host, () => {
   console.log(`Luanniao Agent Trace listening on http://${host}:${port}`);
   console.log(`Runtime dir: ${runtimePathPolicy.rootDir}`);
+  if (!isLoopbackHost(host)) {
+    console.error("Warning: web workbench is bound beyond loopback; traffic-proxy data and runtime artifacts are reachable to anyone who can authenticate. Only do this on a trusted network.");
+  }
 });
 
 let shutdownPromise: Promise<void> | undefined;
@@ -2402,6 +2407,19 @@ function parseArgs(rawArgs: string[]): Record<string, string> {
     }
   }
   return parsed;
+}
+
+function parseWebPort(value: string): number {
+  const port = Number(value);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`Invalid web server port: ${value} (expected an integer between 1 and 65535)`);
+  }
+  return port;
+}
+
+function isLoopbackHost(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return normalized === "127.0.0.1" || normalized === "localhost" || normalized === "::1" || normalized === "[::1]";
 }
 
 function contentType(filePath: string): string {
