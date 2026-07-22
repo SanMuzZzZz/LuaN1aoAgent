@@ -10,3 +10,4 @@ traffic-proxy/bin/
 *.sqlite-wal
 __pycache__/
 *.pyc
+AGENTS.md
