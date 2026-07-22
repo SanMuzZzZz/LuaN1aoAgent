@@ -60,15 +60,20 @@ export default function App({ user, onLogout }: { user: AuthUser; onLogout: () =
 
   const selectedTrace = data?.traceItems.find((item) => item.id === selectedTraceId);
   const runningNow = dashboard.activeRuns.some((run) => normalizeDir(run.runtimeDir) === normalizeDir(runtimeDir));
-  const dataMatchesDir = data ? normalizeDir(String(data.runtimeDir)) === normalizeDir(runtimeDir) : false;
-  const hasEvents = dataMatchesDir && (data?.overview.events.count ?? 0) > 0;
-  const initializing = !hasEvents && !dashboard.error && (runningNow || pendingStartDir === runtimeDir);
+  // The server returns a canonical absolute path in data.runtimeDir, so compare
+  // against the input form captured when the data was fetched instead.
+  const dataMatchesDir = dashboard.loadedRuntimeDir !== undefined
+    && normalizeDir(dashboard.loadedRuntimeDir) === normalizeDir(runtimeDir);
+  // Runtime sidecar events (traffic proxy, lifecycle) arrive before the Planner
+  // does anything; keep the initializing view until the first planner card exists.
+  const hasPlannerTrace = dataMatchesDir && (data?.traceItems.some((item) => item.role === "planner") ?? false);
+  const initializing = !hasPlannerTrace && !dashboard.error && (runningNow || pendingStartDir === runtimeDir);
 
   useEffect(() => {
-    if (pendingStartDir && (pendingStartDir !== runtimeDir || hasEvents)) {
+    if (pendingStartDir && (pendingStartDir !== runtimeDir || hasPlannerTrace)) {
       setPendingStartDir(undefined);
     }
-  }, [pendingStartDir, runtimeDir, hasEvents]);
+  }, [pendingStartDir, runtimeDir, hasPlannerTrace]);
 
   const sidebarSessions = useMemo(() => {
     const active = new Set(dashboard.activeRuns.map((run) => normalizeDir(run.runtimeDir)));
@@ -306,7 +311,7 @@ function RunInitializing({ goal }: { goal?: string }) {
       <Spin size="large" />
       <Typography.Title level={4}>任务已启动，正在初始化</Typography.Title>
       <p>{goal || "Planner 正在进行首次规划，通常需要 30~90 秒。"}</p>
-      <span className="run-initializing-hint">产生执行事件后会自动出现在这里；页面每 5 秒自动刷新，无需手动操作。若长时间无事件，请检查 LLM 服务是否可用。</span>
+      <span className="run-initializing-hint">第一张 Planner 卡片出现后页面会自动切换；页面每 5 秒自动刷新，无需手动操作。若长时间无事件，请检查 LLM 服务是否可用。</span>
     </div>
   );
 }

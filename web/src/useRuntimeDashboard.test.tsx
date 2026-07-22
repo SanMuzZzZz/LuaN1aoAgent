@@ -25,6 +25,21 @@ describe("useRuntimeDashboard", () => {
     await waitFor(() => expect(result.current.data?.runtimeDir).toBe("session-b"));
   });
 
+  it("tracks the requested runtimeDir even when the server returns a canonical absolute path", async () => {
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      // The real server resolves runtimeDir to a canonical absolute path.
+      const payload = url.startsWith("/api/state")
+        ? stateFixture("/absolute/canonical/.agent-runtime/sessions/session-a")
+        : sessionsFixture("session-a");
+      return Promise.resolve(new Response(JSON.stringify(payload), { status: 200 }));
+    }));
+
+    const { result } = renderHook(() => useRuntimeDashboard(".agent-runtime/sessions/session-a"));
+    await waitFor(() => expect(result.current.data?.runtimeDir).toBe("/absolute/canonical/.agent-runtime/sessions/session-a"));
+    expect(result.current.loadedRuntimeDir).toBe(".agent-runtime/sessions/session-a");
+  });
+
   it("aborts in-flight requests when the hook unmounts", () => {
     const aborted = vi.fn();
     vi.stubGlobal("fetch", vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {

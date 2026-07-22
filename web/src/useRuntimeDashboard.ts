@@ -4,6 +4,10 @@ import type { ActiveRun, RuntimeSession, RuntimeState } from "./types";
 
 export interface RuntimeDashboardState {
   data?: RuntimeState;
+  /** The runtimeDir input the current data was fetched for. The server returns a
+   * canonical absolute path in data.runtimeDir, so it cannot be compared with the
+   * (usually relative) input directly. */
+  loadedRuntimeDir?: string;
   sessions: RuntimeSession[];
   activeRuns: ActiveRun[];
   loading: boolean;
@@ -16,6 +20,7 @@ export interface RuntimeDashboardState {
 
 export function useRuntimeDashboard(runtimeDir: string): RuntimeDashboardState {
   const [data, setData] = useState<RuntimeState>();
+  const [loadedRuntimeDir, setLoadedRuntimeDir] = useState<string>();
   const [sessions, setSessions] = useState<RuntimeSession[]>([]);
   const [activeRuns, setActiveRuns] = useState<ActiveRun[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,6 +53,7 @@ export function useRuntimeDashboard(runtimeDir: string): RuntimeDashboardState {
       const stateResult = await fetchRuntimeState(runtimeDir, controller.signal);
       if (requestId !== requestSequence.current) return;
       setData(stateResult);
+      setLoadedRuntimeDir(runtimeDir);
       setError(undefined);
       void fetchRuns()
         .then((runsResult) => setActiveRuns(runsResult.runs || []))
@@ -102,7 +108,7 @@ export function useRuntimeDashboard(runtimeDir: string): RuntimeDashboardState {
     };
   }, [autoRefresh, refresh]);
 
-  return { data, sessions, activeRuns, loading, refreshing, error, autoRefresh, setAutoRefresh, refresh };
+  return { data, loadedRuntimeDir, sessions, activeRuns, loading, refreshing, error, autoRefresh, setAutoRefresh, refresh };
 }
 
 function errorText(error: unknown): string {
