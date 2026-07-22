@@ -119,6 +119,8 @@ const PLANNER_FRESH_SESSION_BACKOFF_MS = positiveIntegerEnv(
   positiveIntegerEnv("PLANNER_PROVIDER_RETRY_BACKOFF_MS", 250)
 );
 const PLANNER_DEFER_BACKOFF_MAX_MS = 5_000;
+const PLANNER_MAX_DEFERRED_FAILURES = positiveIntegerEnv("PLANNER_MAX_DEFERRED_FAILURES", 12);
+const MISSING_SUBMIT_RETRY_FEEDBACK = "上一次 Planner 调用未产生 planner_submit（输出在达到 max_completion_tokens 上限时被截断）。请直接调用 planner_submit 提交当前最佳决策：先发起工具调用，参数保持简洁（commands 内只保留必要字段），不要在正文输出推理过程。";
 const SUPERVISOR_TURN_WINDOW_SIZE = positiveIntegerEnv("SUPERVISOR_TURN_WINDOW_SIZE", 8);
 const PROJECTOR_TOOL_WINDOW_SIZE = positiveIntegerEnv("PROJECTOR_TOOL_WINDOW_SIZE", 16);
 const TURN_WINDOW_REASON_PREFIX = "turn_window:";
@@ -217,7 +219,7 @@ type ExecutorSessionLease = {
   resumeCount: number;
 };
 
-type RetryableProviderFailure = {
+export type RetryableProviderFailure = {
   errorKind: LlmErrorKind;
   message: string;
   retryable: boolean;
@@ -568,6 +570,13 @@ export class SecurityAgentController {
             throw error;
           }
           deferredPlannerFailures += 1;
+          if (deferredPlannerFailures >= PLANNER_MAX_DEFERRED_FAILURES) {
+            return await decideRun({
+              cycles,
+              completed: false,
+              stoppedReason: `Planner unavailable after ${deferredPlannerFailures} consecutive deferred failures: ${errorMessageFromUnknown(error) ?? "unknown error"}`
+            });
+          }
           const backoffMs = Math.min(
             PLANNER_DEFER_BACKOFF_MAX_MS,
             PLANNER_FRESH_SESSION_BACKOFF_MS * 2 ** Math.min(deferredPlannerFailures - 1, 5)
@@ -1574,6 +1583,7 @@ export class SecurityAgentController {
     repairFeedback?: string;
   }): Promise<{ plannerDecision: PlannerDecision; plannerPromptId: string; versionSnapshot: Record<string, number> }> {
     let lastError: unknown;
+    let attemptFeedback = input.repairFeedback;
     for (let attempt = 1; attempt <= PLANNER_FRESH_SESSION_ATTEMPTS; attempt += 1) {
       if (this.stopRequestedReason) {
         throw new Error(this.stopRequestedReason);
@@ -1584,7 +1594,7 @@ export class SecurityAgentController {
       }
       const plannerDecisionView = await this.buildPlannerDecisionView();
       const versionSnapshot = this.graphStore.plannerVersionSnapshot();
-      const plannerInput = renderPlannerInput({ ...input, plannerDecisionView });
+      const plannerInput = renderPlannerInput({ ...input, repairFeedback: attemptFeedback, plannerDecisionView });
       const plannerInputBytes = Buffer.byteLength(plannerInput);
       const plannerPromptId = `planner:${randomUUID()}`;
       await this.executionLog.append({
@@ -1649,6 +1659,11 @@ export class SecurityAgentController {
           throw error;
         }
         const providerFailure = classifyPlannerProviderFailure(error);
+        if (error instanceof StructuredInvocationError && error.code === "missing_submit") {
+          attemptFeedback = [attemptFeedback, MISSING_SUBMIT_RETRY_FEEDBACK]
+            .filter((value) => value && value.trim().length > 0)
+            .join("\n");
+        }
         plannerInvocationStatus = providerFailure.retryable ? "provider_error" : "failed";
         await this.executionLog.append({
           role: "runtime",
@@ -3603,7 +3618,7 @@ function isGracefulCheckpointSignal(controlSignal: ControlSignal): boolean {
 
 function isRetryableProjectionError(error: unknown): boolean {
   if (error instanceof StructuredInvocationError) {
-    return error.code === "timeout" || error.code === "provider_error";
+    return error.code === "timeout" || error.code === "provider_error" || error.code === "missing_submit";
   }
   if (error instanceof PromptRuntimeError) {
     return isRetryableLlmErrorKind(error.errorKind);
@@ -3612,7 +3627,7 @@ function isRetryableProjectionError(error: unknown): boolean {
   return Boolean(message && isRetryableLlmErrorKind(classifyLlmErrorKind(message)));
 }
 
-function classifyPlannerProviderFailure(error: unknown): RetryableProviderFailure {
+export function classifyPlannerProviderFailure(error: unknown): RetryableProviderFailure {
   const message = errorMessageFromUnknown(error) ?? "Planner invocation failed";
   if (error instanceof StructuredInvocationError) {
     if (error.code === "timeout") {
@@ -3623,6 +3638,13 @@ function classifyPlannerProviderFailure(error: unknown): RetryableProviderFailur
     }
     if (error.code === "invalid_submit") {
       return { errorKind: "llm_error", message, retryable: true };
+    }
+    if (error.code === "missing_submit") {
+      // The model exhausted its completion budget (typically on reasoning)
+      // before emitting the terminating tool call. Retrying with a fresh
+      // session and an explicit submit-first nudge usually recovers; a single
+      // silent Planner turn must never be run-fatal.
+      return { errorKind: "missing_submit", message, retryable: true };
     }
     return { errorKind: "llm_error", message, retryable: false };
   }

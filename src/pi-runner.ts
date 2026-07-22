@@ -31,12 +31,15 @@ export async function invokeStructured<T>(
     timeoutMs?: number;
     idleTimeoutMs?: number;
     hardTimeoutMs?: number;
+    maxTruncationSteers?: number;
     validate?: (value: unknown) => T;
   }
 ): Promise<T> {
   let settled = false;
   let providerError = "";
   let terminalToolError = "";
+  let lastAssistantStopReason = "";
+  let truncationSteersUsed = 0;
   let idleTimeout: NodeJS.Timeout | undefined;
   let hardTimeout: NodeJS.Timeout | undefined;
   let resolveInvocation: (value: T) => void = () => undefined;
@@ -47,6 +50,7 @@ export async function invokeStructured<T>(
   });
   const idleTimeoutMs = positiveTimeout(input.idleTimeoutMs);
   const hardTimeoutMs = positiveTimeout(input.hardTimeoutMs ?? input.timeoutMs);
+  const maxTruncationSteers = Math.max(0, Math.floor(input.maxTruncationSteers ?? 2));
   const rejectOnce = (error: unknown, abortSession = false): void => {
     if (settled) {
       return;
@@ -74,6 +78,10 @@ export async function invokeStructured<T>(
       return;
     }
     if (event.type === "message_end") {
+      const message = isRecord(event.message) ? event.message : undefined;
+      if (isAssistantMessageRole(message?.role)) {
+        lastAssistantStopReason = String(message?.stopReason ?? event.stopReason ?? "").toLowerCase();
+      }
       const errorMessage = extractPiErrorMessage(event);
       if (errorMessage) {
         providerError = errorMessage;
@@ -122,27 +130,45 @@ export async function invokeStructured<T>(
       "timeout"
     ), true), hardTimeoutMs)
     : undefined;
-  const promptCompletion = session.prompt(prompt);
-  void promptCompletion.then(() => {
-    if (settled) {
-      return;
-    }
-    if (terminalToolError) {
-      rejectOnce(new StructuredInvocationError(terminalToolError, "invalid_submit"));
-      return;
-    }
-    rejectOnce(new StructuredInvocationError(
-      providerError || `Invocation completed without ${input.toolName}`,
-      providerError ? "provider_error" : "missing_submit"
-    ));
-  }, (error) => {
-    if (settled) {
-      return;
-    }
-    rejectOnce(error instanceof Error
-      ? error
-      : new StructuredInvocationError(String(error), "provider_error"));
-  });
+  const truncationSteerPrompt = `上一次响应因 max_completion_tokens 上限被截断，没有产生有效的 ${input.toolName} 调用。`
+    + `立即直接调用 ${input.toolName}：先输出工具调用，用简洁参数提交当前最佳结论，不要在正文输出推理过程。`;
+  let promptCompletion = session.prompt(prompt);
+  const handlePromptCompletion = (completion: Promise<void>): void => {
+    void completion.then(() => {
+      if (settled) {
+        return;
+      }
+      if (terminalToolError) {
+        rejectOnce(new StructuredInvocationError(terminalToolError, "invalid_submit"));
+        return;
+      }
+      if (!providerError
+        && lastAssistantStopReason === "length"
+        && truncationSteersUsed < maxTruncationSteers) {
+        // The model burned the whole completion budget (typically on reasoning)
+        // before emitting the terminal tool call. Steer the same session into
+        // submitting immediately instead of declaring a missing submit.
+        truncationSteersUsed += 1;
+        lastAssistantStopReason = "";
+        resetIdleTimeout();
+        promptCompletion = session.prompt(truncationSteerPrompt);
+        handlePromptCompletion(promptCompletion);
+        return;
+      }
+      rejectOnce(new StructuredInvocationError(
+        providerError || `Invocation completed without ${input.toolName}`,
+        providerError ? "provider_error" : "missing_submit"
+      ));
+    }, (error) => {
+      if (settled) {
+        return;
+      }
+      rejectOnce(error instanceof Error
+        ? error
+        : new StructuredInvocationError(String(error), "provider_error"));
+    });
+  };
+  handlePromptCompletion(promptCompletion);
   try {
     const value = await invocation;
     try {
@@ -233,6 +259,7 @@ export type LlmErrorKind =
   | "provider_rate_limit"
   | "provider_unavailable"
   | "provider_timeout"
+  | "missing_submit"
   | "llm_error";
 
 export async function promptAndCollect(session: SubscribableSession, prompt: string): Promise<string> {

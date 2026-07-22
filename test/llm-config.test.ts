@@ -60,3 +60,97 @@ test("defaults to Chat Completions when LLM_API_TYPE is omitted", () => {
   });
   assert.equal(config.apiType, "openai-completions");
 });
+
+test("defaults all roles to the shared model with a 32k completion budget", () => {
+  const config = loadLlmRuntimeConfig({
+    LLM_API_BASE_URL: "https://example.test/api/openai",
+    LLM_API_KEY: "test-key",
+    LLM_DEFAULT_MODEL: "glm-5.2"
+  });
+  assert.equal(config.defaultMaxTokens, 32_768);
+  assert.equal(config.thinkingFormat, "zai");
+  for (const role of ["planner", "executor", "supervisor", "projector"] as const) {
+    assert.equal(config.roles[role].modelId, "glm-5.2");
+    assert.equal(config.roles[role].maxTokens, 32_768);
+    assert.equal(config.roles[role].thinkingLevel, "off");
+  }
+  const runtime = createLlmRuntime(config);
+  for (const role of ["planner", "executor", "supervisor", "projector"] as const) {
+    assert.equal(runtime.models[role].provider, "baizhi-openai");
+    assert.equal(runtime.models[role].id, "glm-5.2");
+    assert.equal(runtime.models[role].maxTokens, 32_768);
+  }
+  assert.equal(runtime.model, runtime.models.planner);
+});
+
+test("registers per-role models, budgets and thinking levels from LLM_<ROLE>_* overrides", () => {
+  const config = loadLlmRuntimeConfig({
+    LLM_API_BASE_URL: "https://example.test/api/openai",
+    LLM_API_KEY: "test-key",
+    LLM_DEFAULT_MODEL: "glm-5.2",
+    LLM_MAX_TOKENS: "16384",
+    LLM_EXECUTOR_MODEL: "deepseek-v4-pro-202606",
+    LLM_PLANNER_MAX_TOKENS: "65536",
+    LLM_PLANNER_THINKING: "low",
+    LLM_SUPERVISOR_MODEL: "glm-5.2"
+  });
+  assert.equal(config.roles.executor.modelId, "deepseek-v4-pro-202606");
+  assert.equal(config.roles.executor.maxTokens, 16_384);
+  assert.equal(config.roles.planner.maxTokens, 65_536);
+  assert.equal(config.roles.planner.thinkingLevel, "low");
+  assert.equal(config.roles.projector.modelId, "glm-5.2");
+  const runtime = createLlmRuntime(config);
+  assert.equal(runtime.models.executor.id, "deepseek-v4-pro-202606");
+  assert.equal(runtime.models.planner.maxTokens, 65_536);
+  assert.equal(runtime.models.supervisor.maxTokens, 16_384);
+  // planner/supervisor/projector share the default model id in one provider;
+  // the executor variant gets its own registration.
+  assert.equal(runtime.models.planner.provider, "baizhi-openai");
+  assert.equal(runtime.models.executor.provider, "baizhi-openai");
+  assert.equal(runtime.metadata.models.executor.modelId, "deepseek-v4-pro-202606");
+});
+
+test("registers a dedicated provider for roles with their own base URL or API key", () => {
+  const config = loadLlmRuntimeConfig({
+    LLM_API_BASE_URL: "https://example.test/api/openai",
+    LLM_API_KEY: "test-key",
+    LLM_DEFAULT_MODEL: "glm-5.2",
+    LLM_EXECUTOR_BASE_URL: "https://backup.test/v1/chat/completions",
+    LLM_EXECUTOR_API_KEY: "backup-key",
+    LLM_EXECUTOR_MODEL: "glm-5.2"
+  });
+  const runtime = createLlmRuntime(config);
+  assert.equal(runtime.models.executor.provider, "baizhi-openai-executor");
+  assert.equal(runtime.models.executor.baseUrl, "https://backup.test/v1");
+  assert.equal(runtime.models.planner.provider, "baizhi-openai");
+  assert.equal(runtime.models.planner.baseUrl, "https://example.test/api/openai");
+  assert.equal("backup-key" in runtime.metadata.models.executor, false);
+});
+
+test("keeps per-role budgets distinct when roles share a model id", () => {
+  const config = loadLlmRuntimeConfig({
+    LLM_API_BASE_URL: "https://example.test/api/openai",
+    LLM_API_KEY: "test-key",
+    LLM_DEFAULT_MODEL: "glm-5.2",
+    LLM_PLANNER_MAX_TOKENS: "65536"
+  });
+  const runtime = createLlmRuntime(config);
+  assert.equal(runtime.models.planner.maxTokens, 65_536);
+  assert.equal(runtime.models.executor.maxTokens, 32_768);
+  assert.notEqual(runtime.models.planner.id, runtime.models.executor.id);
+});
+
+test("rejects unsupported thinking level and format values", () => {
+  assert.throws(() => loadLlmRuntimeConfig({
+    LLM_API_BASE_URL: "https://example.test/api/openai",
+    LLM_API_KEY: "test-key",
+    LLM_DEFAULT_MODEL: "glm-5.2",
+    LLM_PLANNER_THINKING: "ultra"
+  }), /Unsupported thinking level/);
+  assert.throws(() => loadLlmRuntimeConfig({
+    LLM_API_BASE_URL: "https://example.test/api/openai",
+    LLM_API_KEY: "test-key",
+    LLM_DEFAULT_MODEL: "glm-5.2",
+    LLM_THINKING_FORMAT: "xml"
+  }), /Unsupported LLM_THINKING_FORMAT/);
+});

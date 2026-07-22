@@ -199,6 +199,108 @@ test("fails with a protocol error when terminal submit is missing", async () => 
   );
 });
 
+test("steers the session into submitting when the response is truncated at the token limit", async () => {
+  const listeners: Array<(event: unknown) => void> = [];
+  const prompts: string[] = [];
+  const session = {
+    async prompt(text: string): Promise<void> {
+      prompts.push(text);
+      if (prompts.length === 1) {
+        emitToListeners(listeners, {
+          type: "message_end",
+          message: { role: "assistant", stopReason: "length", content: [] }
+        });
+        return;
+      }
+      emitToListeners(listeners, {
+        type: "message_end",
+        message: { role: "assistant", stopReason: "toolUse", content: [] }
+      });
+      emitToListeners(listeners, {
+        type: "tool_execution_end",
+        toolName: "planner_submit",
+        isError: false,
+        result: { details: { decision: "apply_commands", reason: "submitted after steer" } }
+      });
+    },
+    subscribe(listener: (event: unknown) => void): () => void {
+      listeners.push(listener);
+      return () => undefined;
+    }
+  };
+
+  assert.deepEqual(await invokeStructured(session, "test", {
+    toolName: "planner_submit",
+    idleTimeoutMs: 1_000,
+    hardTimeoutMs: 2_000
+  }), { decision: "apply_commands", reason: "submitted after steer" });
+  assert.equal(prompts.length, 2);
+  assert.match(prompts[1] ?? "", /截断/);
+  assert.match(prompts[1] ?? "", /planner_submit/);
+});
+
+test("reports missing_submit after truncation steers are exhausted", async () => {
+  const listeners: Array<(event: unknown) => void> = [];
+  let promptCount = 0;
+  const session = {
+    async prompt(): Promise<void> {
+      promptCount += 1;
+      emitToListeners(listeners, {
+        type: "message_end",
+        message: { role: "assistant", stopReason: "length", content: [] }
+      });
+    },
+    subscribe(listener: (event: unknown) => void): () => void {
+      listeners.push(listener);
+      return () => undefined;
+    }
+  };
+
+  await assert.rejects(
+    () => invokeStructured(session, "test", {
+      toolName: "planner_submit",
+      idleTimeoutMs: 1_000,
+      hardTimeoutMs: 5_000,
+      maxTruncationSteers: 2
+    }),
+    (error) => error instanceof StructuredInvocationError && error.code === "missing_submit"
+  );
+  assert.equal(promptCount, 3);
+});
+
+test("does not steer when the truncated turn ends with a provider error", async () => {
+  const listeners: Array<(event: unknown) => void> = [];
+  let promptCount = 0;
+  const session = {
+    async prompt(): Promise<void> {
+      promptCount += 1;
+      emitToListeners(listeners, {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          stopReason: "length",
+          errorMessage: "HTTP 503 service unavailable",
+          content: []
+        }
+      });
+    },
+    subscribe(listener: (event: unknown) => void): () => void {
+      listeners.push(listener);
+      return () => undefined;
+    }
+  };
+
+  await assert.rejects(
+    () => invokeStructured(session, "test", {
+      toolName: "planner_submit",
+      idleTimeoutMs: 1_000,
+      hardTimeoutMs: 2_000
+    }),
+    (error) => error instanceof StructuredInvocationError && error.code === "provider_error"
+  );
+  assert.equal(promptCount, 1);
+});
+
 test("lets Pi finish its native provider retry lifecycle before rejecting", async () => {
   const listeners: Array<(event: unknown) => void> = [];
   let abortCount = 0;

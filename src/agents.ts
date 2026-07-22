@@ -78,8 +78,8 @@ export async function createSecurityAgentRuntime(input: {
     ],
     authStorage: input.llmRuntime.authStorage,
     modelRegistry: input.llmRuntime.modelRegistry,
-    model: input.llmRuntime.model,
-    thinkingLevel: "off",
+    model: input.llmRuntime.models.planner,
+    thinkingLevel: input.llmRuntime.roleConfig.planner.thinkingLevel,
     resourceLoader: plannerLoader,
     sessionManager: SessionManager.inMemory(input.cwd)
   });
@@ -134,8 +134,8 @@ export async function createExecutorAgentSession(input: {
     customTools: [...sandbox.createTools(), ...customTools] as ToolDefinition<any, any, any>[],
     authStorage: input.llmRuntime.authStorage,
     modelRegistry: input.llmRuntime.modelRegistry,
-    model: input.llmRuntime.model,
-    thinkingLevel: "off",
+    model: input.llmRuntime.models.executor,
+    thinkingLevel: input.llmRuntime.roleConfig.executor.thinkingLevel,
     resourceLoader: executorLoader,
     sessionManager: input.sessionManager ?? SessionManager.inMemory(sandbox.root)
   });
@@ -158,8 +158,8 @@ export async function createPlannerAgentSession(input: {
     ],
     authStorage: input.llmRuntime.authStorage,
     modelRegistry: input.llmRuntime.modelRegistry,
-    model: input.llmRuntime.model,
-    thinkingLevel: "off",
+    model: input.llmRuntime.models.planner,
+    thinkingLevel: input.llmRuntime.roleConfig.planner.thinkingLevel,
     resourceLoader: plannerLoader,
     sessionManager: SessionManager.inMemory(input.cwd)
   });
@@ -184,14 +184,15 @@ export async function createObserverAgentSession(input: {
     input.cwd,
     input.mode === "supervise" ? OBSERVER_SUPERVISOR_SYSTEM_PROMPT : OBSERVER_PROJECTOR_SYSTEM_PROMPT
   );
+  const observerRole = input.mode === "supervise" ? "supervisor" : "projector";
   return createAgentSession({
     cwd: input.cwd,
     noTools: "builtin",
     customTools: observerToolsForMode(input),
     authStorage: input.llmRuntime.authStorage,
     modelRegistry: input.llmRuntime.modelRegistry,
-    model: input.llmRuntime.model,
-    thinkingLevel: "off",
+    model: input.llmRuntime.models[observerRole],
+    thinkingLevel: input.llmRuntime.roleConfig[observerRole].thinkingLevel,
     resourceLoader: observerLoader,
     sessionManager: SessionManager.inMemory(input.cwd)
   });
