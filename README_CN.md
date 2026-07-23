@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="docs/assets/logo.png" alt="LuaN1aoAgent 标志" width="200" />
-</p>
-
 <h1 align="center">LuaN1aoAgent</h1>
 
 <h2 align="center">

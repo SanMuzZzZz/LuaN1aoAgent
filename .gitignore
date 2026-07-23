@@ -4,6 +4,7 @@ traffic-proxy/bin/
 .DS_Store
 .agent-runtime/
 .env
+.env.bak
 *.log
 *.sqlite
 *.sqlite-shm
