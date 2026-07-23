@@ -130,6 +130,31 @@ test("managed proxy removes bypass variables inherited by the bash tool", async 
   }
 });
 
+test("executor sandbox whitelists additional read roots such as project skills", async () => {
+  const runtimeDir = mkdtempSync(join(tmpdir(), "luanniao-sandbox-skills-"));
+  const projectDir = mkdtempSync(join(tmpdir(), "luanniao-project-"));
+  const skillsRoot = join(projectDir, ".agents", "skills");
+  const skillFile = join(skillsRoot, "recon-port-scan", "SKILL.md");
+  mkdirSync(dirname(skillFile), { recursive: true });
+  writeFileSync(skillFile, "skill-guide");
+  writeFileSync(join(projectDir, "secret.txt"), "project-secret");
+
+  const sandbox = await createExecutorSandbox({
+    runtimeDir,
+    runId: "run",
+    mode: "workspace",
+    additionalReadRoots: [skillsRoot]
+  });
+  assert.ok(sandbox.allowedReadRoots.includes(realpathSync(skillsRoot)));
+  const policy = new SandboxPathPolicy(sandbox.root, sandbox.allowedReadRoots);
+
+  assert.equal(readFileSync(await policy.requireReadable(skillFile), "utf8"), "skill-guide");
+  await assert.rejects(
+    () => policy.requireReadable(join(projectDir, "secret.txt")),
+    /denied path outside allowed roots/
+  );
+});
+
 test("macOS seatbelt sandbox can read its workspace but not sibling runtime files", {
   skip: process.platform !== "darwin"
 }, async () => {

@@ -34,6 +34,14 @@ import {
   createWebFetchTool,
   createWebSearchTool
 } from "./tools/research-tools.js";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
+/** Project-local skills directory (./.agents/skills) installed by install.sh. */
+export function projectSkillsDirs(cwd: string): string[] {
+  const dir = join(cwd, ".agents", "skills");
+  return existsSync(dir) ? [dir] : [];
+}
 
 export type SecurityAgentRuntime = {
   planner: CreateAgentSessionResult["session"];
@@ -61,11 +69,13 @@ export async function createSecurityAgentRuntime(input: {
   llmRuntime: LlmRuntime;
 }): Promise<SecurityAgentRuntime> {
   const plannerLoader = await createPromptLoader(input.cwd, PLANNER_SYSTEM_PROMPT);
+  const skillsDirs = projectSkillsDirs(input.cwd);
   const executorSandbox = input.executorSandbox ?? await createExecutorSandbox({
     runtimeDir: input.runtimeDir ?? `${input.cwd}/.agent-runtime`,
-    runId: `standalone-${process.pid}`
+    runId: `standalone-${process.pid}`,
+    additionalReadRoots: skillsDirs
   });
-  const executorLoader = await createPromptLoader(executorSandbox.root, EXECUTOR_SYSTEM_PROMPT);
+  const executorLoader = await createPromptLoader(executorSandbox.root, EXECUTOR_SYSTEM_PROMPT, skillsDirs);
   const observerLoader = await createPromptLoader(input.cwd, OBSERVER_SUPERVISOR_SYSTEM_PROMPT);
 
   const planner = await createAgentSession({
@@ -116,12 +126,14 @@ export async function createExecutorAgentSession(input: {
   llmRuntime: LlmRuntime;
   executorLoader?: DefaultResourceLoader;
   sessionManager?: SessionManager;
+  skillsDirs?: string[];
 }): Promise<CreateAgentSessionResult> {
   const sandbox = input.sandbox ?? await createExecutorSandbox({
     runtimeDir: `${input.cwd}/.agent-runtime`,
-    runId: `standalone-${process.pid}`
+    runId: `standalone-${process.pid}`,
+    additionalReadRoots: input.skillsDirs ?? []
   });
-  const executorLoader = input.executorLoader ?? await createPromptLoader(sandbox.root, EXECUTOR_SYSTEM_PROMPT);
+  const executorLoader = input.executorLoader ?? await createPromptLoader(sandbox.root, EXECUTOR_SYSTEM_PROMPT, input.skillsDirs ?? []);
   const customTools: ToolDefinition<any, any, any>[] = [
     ...createExecutorResearchTools(),
     createArtifactReadTool(input.artifactStore),
@@ -210,10 +222,11 @@ export function observerToolsForMode(input: {
   return [createGraphDeltaSubmitTool()];
 }
 
-async function createPromptLoader(cwd: string, systemPrompt: string): Promise<DefaultResourceLoader> {
+async function createPromptLoader(cwd: string, systemPrompt: string, additionalSkillPaths: string[] = []): Promise<DefaultResourceLoader> {
   const loader = new DefaultResourceLoader({
     cwd,
     agentDir: getAgentDir(),
+    additionalSkillPaths,
     systemPromptOverride: () => systemPrompt
   });
   await loader.reload();

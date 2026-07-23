@@ -49,6 +49,7 @@ export async function createExecutorSandbox(input: {
   runId: string;
   mode?: ExecutorSandboxRequestedMode;
   environment?: NodeJS.ProcessEnv;
+  additionalReadRoots?: string[];
 }): Promise<ExecutorSandbox> {
   const runtimeDir = resolve(input.runtimeDir);
   const root = join(runtimeDir, "sandboxes", input.runId);
@@ -61,7 +62,8 @@ export async function createExecutorSandbox(input: {
     canonicalRoot,
     join(homedir(), ".agents", "skills"),
     join(homedir(), ".codex", "skills"),
-    join(homedir(), ".pi", "agent", "skills")
+    join(homedir(), ".pi", "agent", "skills"),
+    ...(input.additionalReadRoots ?? [])
   ]);
   const requestedMode = input.mode ?? executorSandboxModeFromEnv();
   const seatbeltPath = process.platform === "darwin" && existsSync("/usr/bin/sandbox-exec")

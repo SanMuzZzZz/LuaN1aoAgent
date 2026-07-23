@@ -3,6 +3,7 @@ dist/
 traffic-proxy/bin/
 .DS_Store
 .agent-runtime/
+.agents/
 .env
 .env.bak
 *.log

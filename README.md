@@ -195,10 +195,17 @@ LuaN1ao uses the Agent Skills convention through the Pi runtime. These optional 
 
 | Collection | Recommended for |
 |---|---|
+| [crazyMarky/pentest-skills](https://github.com/crazyMarky/pentest-skills) | Natural-language pentest workflows: recon (port scan, subdomain enum, directory scan, fingerprint/WAF) and exploitation (SQLi, XSS, LFI, file download), plus reporting skills |
 | [Eyadkelleh/awesome-skills-security](https://github.com/Eyadkelleh/awesome-skills-security) | Curated fuzzing payloads, password and username lists, sensitive-data patterns, web-shell samples, and LLM security testing resources |
 | [ljagiello/ctf-skills](https://github.com/ljagiello/ctf-skills) | CTF and lab workflows covering Web, Pwn, Crypto, Reverse Engineering, Forensics, OSINT, AI/ML, malware analysis, and writeups |
 
-Install them globally for the Pi Agent runtime:
+One-click setup from the repository root — installs all three recommended skill collections into the project-local `.agents/skills/`, then runs `npm ci` and `npm run build`:
+
+```bash
+./install.sh
+```
+
+Or install individual collections with the skills installer:
 
 ```bash
 npx skills add Eyadkelleh/awesome-skills-security \
@@ -208,7 +215,7 @@ npx skills add ljagiello/ctf-skills \
   --skill '*' --agent pi --global --yes
 ```
 
-Installed skills are discovered from `~/.pi/agent/skills/` on the next Agent run. They remain separate third-party projects with their own licenses and update cycles.
+Skills installed by `./install.sh` live in the project-local `.agents/skills/` (gitignored). The Executor session loads them through the runtime's additional skill paths, and the Executor sandbox whitelists the directory for reads. They remain separate third-party projects with their own licenses and update cycles.
 
 ### Sandbox Isolation
 

@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { createExecutorAgentSession, createObserverAgentSession, createPlannerAgentSession, type SecurityAgentRuntime, type SecurityAgentSession } from "./agents.js";
+import { createExecutorAgentSession, createObserverAgentSession, createPlannerAgentSession, projectSkillsDirs, type SecurityAgentRuntime, type SecurityAgentSession } from "./agents.js";
 import { extractJsonObject } from "./json.js";
 import { createLlmRuntime, type LlmRuntime } from "./llm-config.js";
 import { createExecutorSandbox, type ExecutorSandbox } from "./executor-sandbox.js";
@@ -332,7 +332,8 @@ export class SecurityAgentController {
     this.executorSandbox = await createExecutorSandbox({
       runtimeDir: this.runtimeDir,
       runId: this.runId,
-      environment: this.environment
+      environment: this.environment,
+      additionalReadRoots: projectSkillsDirs(this.cwd)
     });
     await this.executionLog.append({
       role: "runtime",
@@ -1472,7 +1473,8 @@ export class SecurityAgentController {
         sandbox: this.executorSandbox,
         artifactStore: this.artifactStore,
         llmRuntime: this.llmRuntime,
-        sessionManager
+        sessionManager,
+        skillsDirs: projectSkillsDirs(this.cwd)
       });
       const lease: ExecutorSessionLease = {
         session: executor.session,
@@ -1514,7 +1516,8 @@ export class SecurityAgentController {
       sandbox: this.executorSandbox,
       artifactStore: this.artifactStore,
       llmRuntime: this.llmRuntime,
-      sessionManager
+      sessionManager,
+      skillsDirs: projectSkillsDirs(this.cwd)
     });
     const sessionFile = executor.session.sessionFile;
     if (!sessionFile) {
