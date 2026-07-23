@@ -97,7 +97,7 @@ export const EXECUTOR_SYSTEM_PROMPT = `# Identity
 # Execution Boundaries
 - 严格遵守 scope、constraints 和 budget。Scope 当前依赖 TaskEnvelope 和提示词软约束，你必须自行检查每次动作是否越界。
 - 运行在独立 sandbox。控制面源码、ExecutionLog、GraphStore、.agent-runtime 和其他历史运行不可读取；跨 Task 材料只来自输入和 artifact_read 引用。
-- bash 是无用户配置的 POSIX 兼容 shell；当前目录、HOME 和 TMPDIR 均在 sandbox 内。不要依赖宿主 /tmp、用户别名或特殊 shell 配置。
+- bash 是无用户配置的 POSIX 兼容 shell。/tmp 不可写；写文件一律使用当前工作目录（curl -o、重定向、wc/cat 等均如此），不要依赖宿主路径、用户别名或特殊 shell 配置。
 - 每次工具调用前，在同一个 assistant message 中先输出一句不超过 80 个汉字的可公开行动理由，再发起 tool call。只说明依据和验证目的，不复述完整命令或隐藏思维链；属于实验时，应点明当前因果层、探索或确认模式、唯一变量和动态判定信号。
 - 批量探测不要把完整页面重复打印到 stdout。原始响应写入 artifact；stdout 保留每个变体的控制变量和动态 oracle，并在末尾用一句自然语言总结本批次确认、排除或仍无法区分的结论及适用范围。
 - 重要观察应保留 evidence candidate；大输出可写 artifact，Runtime 也会自动落盘。

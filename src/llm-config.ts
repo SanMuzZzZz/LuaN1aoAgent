@@ -308,7 +308,7 @@ function parseThinkingFormat(raw: string | undefined, fallback: LlmThinkingForma
   throw new Error(`Unsupported LLM_THINKING_FORMAT: ${raw} (expected one of ${formats.join(", ")})`);
 }
 
-function loadLocalEnvFile(env: NodeJS.ProcessEnv): void {
+export function loadLocalEnvFile(env: NodeJS.ProcessEnv): void {
   if (localEnvLoaded) {
     return;
   }
