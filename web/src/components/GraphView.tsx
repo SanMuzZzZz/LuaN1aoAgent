@@ -4,6 +4,7 @@ import cytoscape, { type Core, type EdgeSingular, type ElementDefinition, type L
 import elk from "cytoscape-elk";
 import { Focus, ListFilter, Minus, Plus, RefreshCw, Search, X } from "lucide-react";
 import { edgePresentation, elkLayout, filterGraph, graphSignature, nodeDisplayLabel, nodePalette, taskProgressSummary } from "../graph";
+import { useLanguage } from "../language";
 import type { GraphEdge, GraphKind, GraphNode } from "../types";
 import { shortRef } from "../utils";
 
@@ -22,6 +23,7 @@ interface GraphViewProps {
 }
 
 export function GraphView(props: GraphViewProps) {
+  const { t } = useLanguage();
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | undefined>(undefined);
   const onSelectNodeRef = useRef(props.onSelectNode);
@@ -185,7 +187,7 @@ export function GraphView(props: GraphViewProps) {
         <Input
           allowClear
           prefix={<Search size={15} />}
-          placeholder="搜索节点名称、ID 或类型"
+          placeholder={t("graph.searchPlaceholder")}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
         />
@@ -193,7 +195,7 @@ export function GraphView(props: GraphViewProps) {
           mode="multiple"
           maxTagCount="responsive"
           allowClear
-          placeholder="节点类型"
+          placeholder={t("graph.nodeType")}
           suffixIcon={<ListFilter size={15} />}
           value={nodeTypes}
           options={nodeTypeOptions}
@@ -203,25 +205,25 @@ export function GraphView(props: GraphViewProps) {
           mode="multiple"
           maxTagCount="responsive"
           allowClear
-          placeholder="关系类型"
+          placeholder={t("graph.edgeType")}
           value={edgeTypes}
           options={edgeTypeOptions}
           onChange={setEdgeTypes}
         />
         <div className="graph-toolbar-actions">
-          <Tooltip title="缩小"><Button icon={<Minus size={16} />} onClick={() => zoomBy(1 / 1.18)} aria-label="缩小" /></Tooltip>
+          <Tooltip title={t("graph.zoomOut")}><Button icon={<Minus size={16} />} onClick={() => zoomBy(1 / 1.18)} aria-label={t("graph.zoomOut")} /></Tooltip>
           <span className="zoom-readout">{Math.round(zoom * 100)}%</span>
-          <Tooltip title="放大"><Button icon={<Plus size={16} />} onClick={() => zoomBy(1.18)} aria-label="放大" /></Tooltip>
-          <Tooltip title="适配画布"><Button icon={<Focus size={16} />} onClick={fit} aria-label="适配画布" /></Tooltip>
-          <Tooltip title="重新布局"><Button icon={<RefreshCw size={16} />} onClick={relayout} aria-label="重新布局" /></Tooltip>
-          <Tooltip title="清除选择"><Button icon={<X size={16} />} onClick={() => props.onSelectNode(undefined)} aria-label="清除选择" /></Tooltip>
+          <Tooltip title={t("graph.zoomIn")}><Button icon={<Plus size={16} />} onClick={() => zoomBy(1.18)} aria-label={t("graph.zoomIn")} /></Tooltip>
+          <Tooltip title={t("graph.fit")}><Button icon={<Focus size={16} />} onClick={fit} aria-label={t("graph.fit")} /></Tooltip>
+          <Tooltip title={t("graph.relayout")}><Button icon={<RefreshCw size={16} />} onClick={relayout} aria-label={t("graph.relayout")} /></Tooltip>
+          <Tooltip title={t("graph.clearSelection")}><Button icon={<X size={16} />} onClick={() => props.onSelectNode(undefined)} aria-label={t("graph.clearSelection")} /></Tooltip>
         </div>
       </div>
 
       <div className="graph-body">
-        <aside className="graph-node-index" aria-label="图节点列表">
+        <aside className="graph-node-index" aria-label={t("graph.nodeList")}>
           <div className="graph-index-head">
-            <strong>节点</strong>
+            <strong>{t("graph.nodes")}</strong>
             <span>{visibleGraph.nodes.length}</span>
           </div>
           <div className="graph-index-list">
@@ -243,12 +245,12 @@ export function GraphView(props: GraphViewProps) {
                   </span>
                 </button>
               );
-            }) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配节点" />}
+            }) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t("graph.noMatchingNodes")} />}
           </div>
         </aside>
         <div className="graph-canvas-wrap">
           {visibleGraph.nodes.length ? <div ref={containerRef} className="graph-canvas" /> : (
-            <Empty description="当前筛选条件下没有可展示的节点" />
+            <Empty description={t("graph.noVisibleNodes")} />
           )}
           <div className="graph-legend">
             {[...new Set(visibleGraph.nodes.map((node) => node.type))].slice(0, 8).map((type) => {
@@ -256,7 +258,7 @@ export function GraphView(props: GraphViewProps) {
               return <Tag key={type} color={palette.background} style={{ color: palette.color, borderColor: palette.color }}>{type}</Tag>;
             })}
           </div>
-          <div className="graph-counts">{visibleGraph.nodes.length} 节点 · {visibleGraph.edges.length} {props.kind === "task" ? "树关系" : "关系"}</div>
+          <div className="graph-counts">{t("graph.counts", { nodes: visibleGraph.nodes.length, edges: visibleGraph.edges.length, relations: t(props.kind === "task" ? "graph.treeRelations" : "graph.relations") })}</div>
         </div>
       </div>
     </div>

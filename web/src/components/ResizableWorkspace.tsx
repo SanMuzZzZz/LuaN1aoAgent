@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panels";
+import { useLanguage } from "../language";
 
 interface ResizableWorkspaceProps {
   sidebar: ReactNode;
@@ -8,6 +9,7 @@ interface ResizableWorkspaceProps {
 }
 
 export function ResizableWorkspace({ sidebar, main, inspector }: ResizableWorkspaceProps) {
+  const { t } = useLanguage();
   const mobile = useMediaQuery("(max-width: 820px)");
   const compact = useMediaQuery("(max-width: 1180px)");
   const wideLayout = useDefaultLayout({
@@ -38,7 +40,7 @@ export function ResizableWorkspace({ sidebar, main, inspector }: ResizableWorksp
         <Panel id="sidebar" defaultSize={224} minSize={184} maxSize={360} groupResizeBehavior="preserve-pixel-size">
           <aside className="desktop-sidebar">{sidebar}</aside>
         </Panel>
-        <ResizeHandle label="调整导航栏宽度" />
+        <ResizeHandle label={t("resize.navigation")} />
         <Panel id="main" minSize={520}>{main}</Panel>
       </Group>
     );
@@ -56,9 +58,9 @@ export function ResizableWorkspace({ sidebar, main, inspector }: ResizableWorksp
       <Panel id="sidebar" defaultSize={224} minSize={184} maxSize={360} groupResizeBehavior="preserve-pixel-size">
         <aside className="desktop-sidebar">{sidebar}</aside>
       </Panel>
-      <ResizeHandle label="调整导航栏宽度" />
+      <ResizeHandle label={t("resize.navigation")} />
       <Panel id="main" minSize={560}>{main}</Panel>
-      <ResizeHandle label="调整详情栏宽度" />
+      <ResizeHandle label={t("resize.inspector")} />
       <Panel id="inspector" defaultSize={340} minSize={280} maxSize={520} groupResizeBehavior="preserve-pixel-size">
         <aside className="desktop-inspector">{inspector}</aside>
       </Panel>
@@ -67,7 +69,8 @@ export function ResizableWorkspace({ sidebar, main, inspector }: ResizableWorksp
 }
 
 function ResizeHandle({ label }: { label: string }) {
-  return <Separator className="panel-resize-handle" aria-label={label} title={`${label}，双击恢复默认宽度`}><span /></Separator>;
+  const { t } = useLanguage();
+  return <Separator className="panel-resize-handle" aria-label={label} title={t("resize.title", { label })}><span /></Separator>;
 }
 
 function useMediaQuery(query: string): boolean {

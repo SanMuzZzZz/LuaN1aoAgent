@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Alert, Button, Empty, Input, InputNumber, Select, Skeleton, Tag } from "antd";
 import { ChevronLeft, ChevronRight, Filter, RefreshCw } from "lucide-react";
 import { fetchTrafficExchange, fetchTrafficHistory } from "../api";
+import { useLanguage } from "../language";
 import type { TrafficExchange, TrafficHistoryFilters } from "../types";
 import { formatTime } from "../utils";
 
@@ -16,6 +17,7 @@ interface TrafficViewProps {
 const PAGE_SIZE = 50;
 
 export function TrafficView(props: TrafficViewProps) {
+  const { t } = useLanguage();
   const [items, setItems] = useState<TrafficExchange[]>([]);
   const [filters, setFilters] = useState<TrafficHistoryFilters>({});
   const [draft, setDraft] = useState<TrafficHistoryFilters>({});
@@ -103,49 +105,50 @@ export function TrafficView(props: TrafficViewProps) {
 
   return (
     <div className="traffic-view">
-      <div className="traffic-toolbar" aria-label="Traffic 过滤器">
-        <Input aria-label="Method 过滤" placeholder="Method" value={draft.method} onChange={(event) => setDraft((value) => ({ ...value, method: event.target.value }))} />
-        <Input aria-label="Host 过滤" placeholder="Host" value={draft.host} onChange={(event) => setDraft((value) => ({ ...value, host: event.target.value }))} />
-        <InputNumber aria-label="Status 过滤" placeholder="Status" min={0} max={999} value={draft.status} onChange={(value) => setDraft((current) => ({ ...current, status: value ?? undefined }))} />
-        <Input aria-label="Task ref 过滤" placeholder="Task ref" value={draft.task_ref} onChange={(event) => setDraft((value) => ({ ...value, task_ref: event.target.value }))} />
-        <Input aria-label="Run ref 过滤" placeholder="Run ref" value={draft.run_ref} onChange={(event) => setDraft((value) => ({ ...value, run_ref: event.target.value }))} />
-        <Select aria-label="Mode 过滤" placeholder="Mode" allowClear value={draft.mode} options={[{ value: "mitm", label: "MITM" }, { value: "passthrough", label: "Passthrough" }, { value: "forward", label: "Forward" }, { value: "replay", label: "Replay" }]} onChange={(value) => setDraft((current) => ({ ...current, mode: value }))} />
-        <Select aria-label="Error 过滤" placeholder="Error" allowClear value={draft.error} options={[{ value: "true", label: "仅错误" }, { value: "false", label: "无错误" }]} onChange={(value) => setDraft((current) => ({ ...current, error: value }))} />
-        <Button icon={<Filter size={15} />} type="primary" onClick={applyFilters}>应用{activeFilterCount ? ` (${activeFilterCount})` : ""}</Button>
-        <Button onClick={clearFilters}>清除</Button>
-        <Button aria-label="刷新 Traffic" icon={<RefreshCw size={15} />} onClick={() => setReload((value) => value + 1)} />
+      <div className="traffic-toolbar" aria-label={t("traffic.filters")}>
+        <Input aria-label={t("traffic.methodFilter")} placeholder="Method" value={draft.method} onChange={(event) => setDraft((value) => ({ ...value, method: event.target.value }))} />
+        <Input aria-label={t("traffic.hostFilter")} placeholder="Host" value={draft.host} onChange={(event) => setDraft((value) => ({ ...value, host: event.target.value }))} />
+        <InputNumber aria-label={t("traffic.statusFilter")} placeholder="Status" min={0} max={999} value={draft.status} onChange={(value) => setDraft((current) => ({ ...current, status: value ?? undefined }))} />
+        <Input aria-label={t("traffic.taskRefFilter")} placeholder="Task ref" value={draft.task_ref} onChange={(event) => setDraft((value) => ({ ...value, task_ref: event.target.value }))} />
+        <Input aria-label={t("traffic.runRefFilter")} placeholder="Run ref" value={draft.run_ref} onChange={(event) => setDraft((value) => ({ ...value, run_ref: event.target.value }))} />
+        <Select aria-label={t("traffic.modeFilter")} placeholder="Mode" allowClear value={draft.mode} options={[{ value: "mitm", label: "MITM" }, { value: "passthrough", label: "Passthrough" }, { value: "forward", label: "Forward" }, { value: "replay", label: "Replay" }]} onChange={(value) => setDraft((current) => ({ ...current, mode: value }))} />
+        <Select aria-label={t("traffic.errorFilter")} placeholder="Error" allowClear value={draft.error} options={[{ value: "true", label: t("traffic.onlyErrors") }, { value: "false", label: t("traffic.noErrors") }]} onChange={(value) => setDraft((current) => ({ ...current, error: value }))} />
+        <Button icon={<Filter size={15} />} type="primary" onClick={applyFilters}>{t("common.apply")}{activeFilterCount ? ` (${activeFilterCount})` : ""}</Button>
+        <Button onClick={clearFilters}>{t("common.clear")}</Button>
+        <Button aria-label={t("traffic.refresh")} icon={<RefreshCw size={15} />} onClick={() => setReload((value) => value + 1)} />
       </div>
       {error ? <Alert type="error" showIcon closable title={error} onClose={() => setError(undefined)} /> : null}
       <div className="traffic-list">
         {loading ? <Skeleton active paragraph={{ rows: 9 }} /> : items.length ? items.map((exchange) => (
           <TrafficRow key={exchange.id} exchange={exchange} selected={props.selectedExchangeId === exchange.id} onSelect={() => props.onSelectExchange(exchange.id)} />
-        )) : <Empty description="没有匹配的流量记录" />}
+        )) : <Empty description={t("traffic.empty")} />}
       </div>
       <div className="traffic-pagination">
-        <span>每页最多 {PAGE_SIZE} 条</span>
-        <Button icon={<ChevronLeft size={15} />} disabled={!cursorStack.length} onClick={goPrevious}>上一页</Button>
-        <Button icon={<ChevronRight size={15} />} iconPlacement="end" disabled={!hasMore || !nextCursor} onClick={goNext}>下一页</Button>
+        <span>{t("traffic.pageSize", { value: PAGE_SIZE })}</span>
+        <Button icon={<ChevronLeft size={15} />} disabled={!cursorStack.length} onClick={goPrevious}>{t("common.previous")}</Button>
+        <Button icon={<ChevronRight size={15} />} iconPlacement="end" disabled={!hasMore || !nextCursor} onClick={goNext}>{t("common.next")}</Button>
       </div>
     </div>
   );
 }
 
 function TrafficRow({ exchange, selected, onSelect }: { exchange: TrafficExchange; selected: boolean; onSelect: () => void }) {
+  const { t, formatBytes: formatLocalizedBytes, formatDuration: formatLocalizedDuration } = useLanguage();
   const mode = exchange.mode.toLowerCase();
   const bestEffort = mode.includes("best") || exchange.quota_pressure || exchange.request_truncated || exchange.response_truncated || exchange.headers_truncated;
   return (
-    <button className={`traffic-row${selected ? " selected" : ""}`} type="button" onClick={onSelect} aria-label={`选择 exchange ${exchange.id}`}>
+    <button className={`traffic-row${selected ? " selected" : ""}`} type="button" onClick={onSelect} aria-label={t("traffic.selectExchange", { value: exchange.id })}>
       <div className="traffic-row-primary">
         <Tag color={methodColor(exchange.method)}>{exchange.method}</Tag>
-        <strong>{exchange.host || "unknown host"}</strong>
+        <strong>{exchange.host || t("traffic.unknownHost")}</strong>
         <Tag color={exchange.status >= 500 || exchange.error ? "error" : exchange.status >= 400 ? "warning" : "success"}>{exchange.status || "-"}</Tag>
         <code>#{exchange.id}</code>
       </div>
       <div className="traffic-row-url">{exchange.url}</div>
       <div className="traffic-row-meta">
-        <span>{formatTime(exchange.started_at)} → {formatTime(exchange.completed_at)} · {formatDuration(exchange.duration_ms)}</span>
-        <span>Request {formatBytes(exchange.request_captured_bytes)} / {formatBytes(exchange.request_observed_bytes)} observed</span>
-        <span>Response {formatBytes(exchange.response_captured_bytes)} / {formatBytes(exchange.response_observed_bytes)} observed</span>
+        <span>{formatTime(exchange.started_at)} → {formatTime(exchange.completed_at)} · {formatLocalizedDuration(exchange.duration_ms)}</span>
+        <span>{t("traffic.requestObserved", { captured: formatLocalizedBytes(exchange.request_captured_bytes), observed: formatLocalizedBytes(exchange.request_observed_bytes) })}</span>
+        <span>{t("traffic.responseObserved", { captured: formatLocalizedBytes(exchange.response_captured_bytes), observed: formatLocalizedBytes(exchange.response_observed_bytes) })}</span>
       </div>
       <div className="traffic-row-flags">
         <Tag>{formatTrafficMode(exchange.mode)}</Tag>

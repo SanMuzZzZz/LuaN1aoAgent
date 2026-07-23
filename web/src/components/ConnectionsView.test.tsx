@@ -48,10 +48,10 @@ describe("ConnectionsView", () => {
     await screen.findByText("primary");
     expect(screen.getByText("host-a → host-b")).toBeInTheDocument();
     expect(screen.getByText("ssh")).toBeInTheDocument();
-    expect(screen.getByText("managed")).toBeInTheDocument();
-    expect(screen.getByText("desired: running")).toBeInTheDocument();
-    expect(screen.getByText("degraded")).toBeInTheDocument();
-    expect(screen.getByText("unavailable")).toBeInTheDocument();
+    expect(screen.getByText("托管")).toBeInTheDocument();
+    expect(screen.getByText("期望状态: 运行中")).toBeInTheDocument();
+    expect(screen.getByText("异常")).toBeInTheDocument();
+    expect(screen.getByText("不可用")).toBeInTheDocument();
     expect(screen.queryByText(/credential:ssh-primary|Credential/)).not.toBeInTheDocument();
     expect(screen.getByText("SSH probe failed")).toBeInTheDocument();
     expect(screen.getByText(/不会自动归因/)).toBeInTheDocument();
@@ -78,6 +78,6 @@ describe("ConnectionsView", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /停止/ }));
     await waitFor(() => expect(mockedMutate).toHaveBeenCalledWith("runtime/a", connection.id, "stop"));
-    expect(await screen.findByText("desired: stopped")).toBeInTheDocument();
+    expect(await screen.findByText("期望状态: 已停止")).toBeInTheDocument();
   });
 });

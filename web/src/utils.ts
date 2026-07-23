@@ -1,3 +1,4 @@
+import { formatDateTime, formatRelativeTime, getLocale, translate, type Locale } from "./language";
 import type { GraphKind, Role } from "./types";
 
 export const ROLE_LABELS: Record<string, string> = {
@@ -7,39 +8,42 @@ export const ROLE_LABELS: Record<string, string> = {
   runtime: "Runtime"
 };
 
-export const GRAPH_LABELS: Record<GraphKind, string> = {
-  reasoning: "推理图",
-  operation: "作战图",
-  task: "任务图"
-};
-
-export function roleLabel(role: Role): string {
-  return ROLE_LABELS[role] || role || "Unknown";
+export function graphLabel(kind: GraphKind, locale: Locale = getLocale()): string {
+  return translate(kind === "reasoning" ? "nav.reasoning" : kind === "operation" ? "nav.operation" : "nav.task", undefined, locale);
 }
 
-export function graphSubtitle(kind: GraphKind): string {
-  return {
-    reasoning: "追踪证据、假设、漏洞与利用之间的推导关系。",
-    operation: "梳理主机、服务、端点、参数与凭据组成的攻击面。",
-    task: "查看范围、目标与任务的树状关系；里程碑和阻塞项收纳在所属任务中。"
-  }[kind];
+export function roleLabel(role: Role): string {
+  return ROLE_LABELS[role] || role || translate("common.unknown");
+}
+
+export function graphSubtitle(kind: GraphKind, locale: Locale = getLocale()): string {
+  return translate(kind === "reasoning" ? "graph.reasoningSubtitle" : kind === "operation" ? "graph.operationSubtitle" : "graph.taskSubtitle", undefined, locale);
+}
+
+export function statusLabel(status?: string, locale: Locale = getLocale()): string {
+  if (!status) return status || "-";
+  const keys = {
+    live: "status.live",
+    degraded: "status.degraded",
+    stale: "status.stale",
+    closed: "status.closed",
+    running: "status.running",
+    stopped: "status.stopped",
+    completed: "status.completed",
+    blocked: "status.blocked",
+    pending: "status.pending",
+    failed: "status.failed"
+  } as const;
+  const key = keys[status as keyof typeof keys];
+  return key ? translate(key, undefined, locale) : status;
 }
 
 export function formatTime(value?: string): string {
-  if (!value) return "-";
-  const time = new Date(value);
-  return Number.isFinite(time.getTime()) ? time.toLocaleString("zh-CN", { hour12: false }) : "-";
+  return formatDateTime(value, getLocale());
 }
 
 export function formatRelative(value?: string): string {
-  if (!value) return "-";
-  const time = new Date(value).getTime();
-  if (!Number.isFinite(time)) return "-";
-  const diff = Date.now() - time;
-  if (diff < 60_000) return "刚刚";
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
-  return `${Math.floor(diff / 86_400_000)} 天前`;
+  return formatRelativeTime(value, getLocale());
 }
 
 export function shortRef(value?: string, max = 38): string {

@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Button, Descriptions, Empty, Input, Modal, Radio, Select, Space, Spin, Tag, Typography } from "antd";
 import { Plus, RotateCcw, Send, Trash2 } from "lucide-react";
 import { fetchTrafficBody, replayTrafficExchange } from "../api";
+import { useLanguage } from "../language";
 import type { AuthUser, TrafficExchange, TrafficHeaderEntry, TrafficHistoryBody } from "../types";
 import { formatTime, shortRef } from "../utils";
-import { formatBytes, formatTrafficMode } from "./TrafficView";
+import { formatTrafficMode } from "./TrafficView";
 
 interface TrafficInspectorProps {
   runtimeDir: string;
@@ -19,6 +20,7 @@ type BodyState = { loading?: boolean; value?: TrafficHistoryBody; error?: string
 type EditableHeader = TrafficHeaderEntry & { key: string };
 
 export function TrafficInspector(props: TrafficInspectorProps) {
+  const { t, formatBytes: formatLocalizedBytes, formatDuration } = useLanguage();
   const [bodies, setBodies] = useState<Record<BodySide, BodyState>>({ request: {}, response: {} });
   const bodyRequests = useRef<Record<BodySide, number>>({ request: 0, response: 0 });
 
@@ -29,7 +31,7 @@ export function TrafficInspector(props: TrafficInspectorProps) {
   }, [props.runtimeDir, props.exchange?.id]);
 
   if (!props.exchange) {
-    return <div className="inspector-content"><div className="inspector-heading"><span>TRAFFIC INSPECTOR</span><Typography.Title level={4}>Exchange 详情</Typography.Title></div><Empty description="选择一条流量记录查看详情" /></div>;
+    return <div className="inspector-content"><div className="inspector-heading"><span>{t("traffic.inspector")}</span><Typography.Title level={4}>{t("traffic.exchangeDetails")}</Typography.Title></div><Empty description={t("traffic.selectRecord")} /></div>;
   }
 
   const exchange = props.exchange;
@@ -53,24 +55,24 @@ export function TrafficInspector(props: TrafficInspectorProps) {
 
   return (
     <div className="inspector-content traffic-inspector">
-      <div className="inspector-heading"><span>TRAFFIC INSPECTOR</span><Typography.Title level={4}>Exchange #{exchange.id}</Typography.Title></div>
+      <div className="inspector-heading"><span>{t("traffic.inspector")}</span><Typography.Title level={4}>Exchange #{exchange.id}</Typography.Title></div>
       <section className="inspector-primary">
         <div className="traffic-inspector-title"><Tag color="blue">{exchange.method}</Tag><strong>{exchange.host}</strong><Tag color={exchange.error ? "error" : "success"}>{exchange.status || "-"}</Tag></div>
         <code className="node-id">{exchange.url}</code>
         <Descriptions size="small" column={1} colon={false} items={[
-          { key: "started", label: "开始", children: formatTime(exchange.started_at) },
-          { key: "completed", label: "完成", children: formatTime(exchange.completed_at) },
-          { key: "duration", label: "耗时", children: `${exchange.duration_ms} ms` },
-          { key: "protocol", label: "协议", children: `${exchange.scheme} · ${exchange.protocol}` },
-          { key: "mode", label: "模式", children: modeDescription(exchange) },
-          { key: "request", label: "请求字节", children: `${formatBytes(exchange.request_captured_bytes)} captured / ${formatBytes(exchange.request_observed_bytes)} observed` },
-          { key: "response", label: "响应字节", children: `${formatBytes(exchange.response_captured_bytes)} captured / ${formatBytes(exchange.response_observed_bytes)} observed` },
-          { key: "error", label: "错误", children: exchange.error ? `${exchange.error_code || "error"}: ${exchange.error}` : "无" }
+          { key: "started", label: t("traffic.started"), children: formatTime(exchange.started_at) },
+          { key: "completed", label: t("traffic.completed"), children: formatTime(exchange.completed_at) },
+          { key: "duration", label: t("traffic.duration"), children: formatDuration(exchange.duration_ms) },
+          { key: "protocol", label: t("traffic.protocol"), children: `${exchange.scheme} · ${exchange.protocol}` },
+          { key: "mode", label: t("traffic.mode"), children: modeDescription(exchange) },
+          { key: "request", label: t("traffic.requestBytes"), children: t("traffic.capturedObserved", { captured: formatLocalizedBytes(exchange.request_captured_bytes), observed: formatLocalizedBytes(exchange.request_observed_bytes) }) },
+          { key: "response", label: t("traffic.responseBytes"), children: t("traffic.capturedObserved", { captured: formatLocalizedBytes(exchange.response_captured_bytes), observed: formatLocalizedBytes(exchange.response_observed_bytes) }) },
+          { key: "error", label: t("traffic.error"), children: exchange.error ? `${exchange.error_code || "error"}: ${exchange.error}` : t("common.none") }
         ]} />
         <ReferenceChain exchange={exchange} onSelectExchange={props.onSelectExchange} />
-        <HeaderSection title="Request headers" headers={exchange.request_headers} truncated={exchange.headers_truncated} reason={exchange.header_truncation_reason} />
+        <HeaderSection title={t("traffic.requestHeaders")} headers={exchange.request_headers} truncated={exchange.headers_truncated} reason={exchange.header_truncation_reason} />
         <BodySection side="request" exchange={exchange} state={bodies.request} onLoad={() => void loadBody("request")} />
-        <HeaderSection title="Response headers" headers={exchange.response_headers} truncated={exchange.headers_truncated} reason={exchange.header_truncation_reason} />
+        <HeaderSection title={t("traffic.responseHeaders")} headers={exchange.response_headers} truncated={exchange.headers_truncated} reason={exchange.header_truncation_reason} />
         <BodySection side="response" exchange={exchange} state={bodies.response} onLoad={() => void loadBody("response")} />
         <ReplayEditor
           runtimeDir={props.runtimeDir}
@@ -86,18 +88,20 @@ export function TrafficInspector(props: TrafficInspectorProps) {
 }
 
 function HeaderSection({ title, headers, truncated, reason }: { title: string; headers?: TrafficHeaderEntry[]; truncated: boolean; reason?: string }) {
+  const { t } = useLanguage();
   return (
     <div className="traffic-section">
       <strong>{title}</strong>
-      {truncated ? <Alert type="warning" showIcon title={`Headers 已截断${reason ? `：${reason}` : ""}`} /> : null}
+      {truncated ? <Alert type="warning" showIcon title={t("traffic.headersTruncated", { reason: reason ? `: ${reason}` : "" })} /> : null}
       {headers?.length ? <div className="traffic-headers">{headers.map((header, index) => (
         <div key={`${header.ordinal}:${index}`}><span>{header.name}</span><code>{header.value}</code></div>
-      ))}</div> : <span className="muted-line">未记录 headers</span>}
+      ))}</div> : <span className="muted-line">{t("traffic.noHeaders")}</span>}
     </div>
   );
 }
 
 function BodySection({ side, exchange, state, onLoad }: { side: BodySide; exchange: TrafficExchange; state: BodyState; onLoad: () => void }) {
+  const { t } = useLanguage();
   const [representation, setRepresentation] = useState<"text" | "base64" | "hex">("text");
   const ref = side === "request" ? exchange.request_body_ref : exchange.response_body_ref;
   const captureState = side === "request" ? exchange.request_capture_state : exchange.response_capture_state;
@@ -105,27 +109,27 @@ function BodySection({ side, exchange, state, onLoad }: { side: BodySide; exchan
   const observed = side === "request" ? exchange.request_observed_bytes : exchange.response_observed_bytes;
   const exchangeTruncated = side === "request" ? exchange.request_truncated : exchange.response_truncated;
   const reason = side === "request" ? exchange.request_truncation_reason : exchange.response_truncation_reason;
-  const bodyLabel = side === "request" ? "Request body" : "Response body";
-  const availability = bodyAvailability(ref, captureState, captured, observed, exchangeTruncated, reason);
+  const bodyLabel = t(side === "request" ? "traffic.requestBody" : "traffic.responseBody");
+  const availability = bodyAvailability(t, ref, captureState, captured, observed, exchangeTruncated, reason);
   const decoded = state.value ? decodeBody(state.value.data) : undefined;
   const displayMode = representation === "text" && !decoded?.text ? "base64" : representation;
 
   return (
     <div className="traffic-section traffic-body-section">
       <div className="traffic-section-heading"><strong>{bodyLabel}</strong>{state.value ? (
-        <Select size="small" aria-label={`${bodyLabel} 展示格式`} value={displayMode} onChange={setRepresentation} options={[
+        <Select size="small" aria-label={t("traffic.displayFormat", { side: bodyLabel })} value={displayMode} onChange={setRepresentation} options={[
           ...(decoded?.text ? [{ value: "text", label: decoded.json ? "Text / JSON" : "Text" }] : []),
           { value: "base64", label: "Base64" },
           { value: "hex", label: "Hex" }
         ]} />
       ) : null}</div>
       {!state.value ? <Alert type={availability.level} showIcon title={availability.message} /> : null}
-      {state.loading ? <div className="traffic-body-loading"><Spin size="small" /> 正在按需加载…</div> : null}
-      {state.error ? <Alert type="warning" showIcon title={`Body 无法读取，可能已淘汰或过大：${state.error}`} /> : null}
-      {!state.value && ref && !state.loading ? <Button size="small" onClick={onLoad}>加载 body（最大 256 KiB）</Button> : null}
+      {state.loading ? <div className="traffic-body-loading"><Spin size="small" /> {t("traffic.loadingOnDemand")}</div> : null}
+      {state.error ? <Alert type="warning" showIcon title={t("traffic.bodyReadFailed", { error: state.error })} /> : null}
+      {!state.value && ref && !state.loading ? <Button size="small" onClick={onLoad}>{t("traffic.loadBody")}</Button> : null}
       {state.value ? (
         <>
-          {state.value.truncated || exchangeTruncated ? <Alert type="warning" showIcon title={`Body 仅显示已捕获部分（截断${reason ? `：${reason}` : ""}）`} /> : null}
+          {state.value.truncated || exchangeTruncated ? <Alert type="warning" showIcon title={t("traffic.bodyTruncated", { reason: reason ? `: ${reason}` : "" })} /> : null}
           <pre className="traffic-body-pre">{renderBody(state.value.data, displayMode, decoded)}</pre>
         </>
       ) : null}
@@ -141,6 +145,7 @@ function ReplayEditor({ runtimeDir, exchange, user, requestBody, loadRequestBody
   loadRequestBody: () => Promise<TrafficHistoryBody | undefined>;
   onReplayed: (exchangeId: number) => void;
 }) {
+  const { t } = useLanguage();
   const [open, setOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [method, setMethod] = useState(exchange.method);
@@ -178,7 +183,7 @@ function ReplayEditor({ runtimeDir, exchange, user, requestBody, loadRequestBody
       setBody(source.data);
     }
   };
-  const target = safeTarget(url);
+  const target = safeTarget(url, t("traffic.invalidUrl"));
   const submit = async () => {
     setSending(true);
     setError(undefined);
@@ -212,31 +217,31 @@ function ReplayEditor({ runtimeDir, exchange, user, requestBody, loadRequestBody
   return (
     <div className="traffic-section replay-editor">
       <strong>Replay</strong>
-      {user.role !== "admin" ? <Alert type="info" showIcon title="仅管理员可发送 Replay；分析员可查看原始 exchange。" /> : (
-        <Button icon={<RotateCcw size={15} />} onClick={() => void initialize()}>编辑并 Replay</Button>
+      {user.role !== "admin" ? <Alert type="info" showIcon title={t("traffic.replayAdminOnly")} /> : (
+        <Button icon={<RotateCcw size={15} />} onClick={() => void initialize()}>{t("traffic.editReplay")}</Button>
       )}
       {error ? <Alert type="error" showIcon title={error} /> : null}
       {open && user.role === "admin" ? (
         <div className="replay-form">
-          <div className="replay-method-url"><Input aria-label="Replay method" value={method} onChange={(event) => setMethod(event.target.value)} /><Input aria-label="Replay URL" value={url} onChange={(event) => setUrl(event.target.value)} /></div>
+          <div className="replay-method-url"><Input aria-label={t("traffic.replayMethod")} value={method} onChange={(event) => setMethod(event.target.value)} /><Input aria-label={t("traffic.replayUrl")} value={url} onChange={(event) => setUrl(event.target.value)} /></div>
           <div className="replay-header-list">{headers.map((header, index) => (
-            <div key={header.key}><Input aria-label={`Replay header name ${index + 1}`} value={header.name} onChange={(event) => setHeaders((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item))} /><Input aria-label={`Replay header value ${index + 1}`} value={header.value} onChange={(event) => setHeaders((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, value: event.target.value } : item))} /><Button aria-label={`删除 header ${index + 1}`} icon={<Trash2 size={14} />} onClick={() => setHeaders((current) => current.filter((_, itemIndex) => itemIndex !== index))} /></div>
+            <div key={header.key}><Input aria-label={t("traffic.replayHeaderName", { value: index + 1 })} value={header.name} onChange={(event) => setHeaders((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item))} /><Input aria-label={t("traffic.replayHeaderValue", { value: index + 1 })} value={header.value} onChange={(event) => setHeaders((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, value: event.target.value } : item))} /><Button aria-label={t("traffic.deleteHeader", { value: index + 1 })} icon={<Trash2 size={14} />} onClick={() => setHeaders((current) => current.filter((_, itemIndex) => itemIndex !== index))} /></div>
           ))}</div>
-          <Button size="small" icon={<Plus size={14} />} onClick={() => setHeaders((current) => [...current, { key: crypto.randomUUID(), name: "", value: "", ordinal: current.length }])}>添加 header</Button>
+          <Button size="small" icon={<Plus size={14} />} onClick={() => setHeaders((current) => [...current, { key: crypto.randomUUID(), name: "", value: "", ordinal: current.length }])}>{t("traffic.addHeader")}</Button>
           <Radio.Group value={bodyMode} onChange={(event) => setBodyMode(event.target.value)} options={[{ value: "utf8", label: "UTF-8" }, { value: "base64", label: "Base64" }]} />
-          <Input.TextArea aria-label="Replay body" rows={7} value={body} onChange={(event) => { setBody(event.target.value); setBodyOverride(true); }} />
-          <span className="muted-line">{bodyOverride ? "将发送编辑后的 body" : "Body 未修改，将由 sidecar 使用完整源 body"}</span>
-          <Button type="primary" icon={<Send size={15} />} onClick={() => setConfirmOpen(true)}>准备发送</Button>
+          <Input.TextArea aria-label={t("traffic.replayBody")} rows={7} value={body} onChange={(event) => { setBody(event.target.value); setBodyOverride(true); }} />
+          <span className="muted-line">{t(bodyOverride ? "traffic.editedBody" : "traffic.sourceBody")}</span>
+          <Button type="primary" icon={<Send size={15} />} onClick={() => setConfirmOpen(true)}>{t("traffic.prepareSend")}</Button>
         </div>
       ) : null}
-      <Modal title="确认发送 Replay" open={confirmOpen} confirmLoading={sending} okText="确认发送" cancelText="取消" onOk={() => void submit()} onCancel={() => setConfirmOpen(false)}>
-        <Alert type="warning" showIcon title="Replay 可能携带敏感 header 与 body" description="请确认你有权向目标发送该请求。敏感值不会写入 URL、localStorage 或前端日志。" />
+      <Modal title={t("traffic.confirmReplay")} open={confirmOpen} confirmLoading={sending} okText={t("traffic.confirmSend")} cancelText={t("common.cancel")} onOk={() => void submit()} onCancel={() => setConfirmOpen(false)}>
+        <Alert type="warning" showIcon title={t("traffic.replayWarning")} description={t("traffic.replayWarningDescription")} />
         <Descriptions size="small" column={1} colon={false} items={[
           { key: "host", label: "Host", children: target.host },
           { key: "origin", label: "Origin", children: target.origin },
           { key: "method", label: "Method", children: method },
-          { key: "headers", label: "Headers", children: `${headers.length} 项（可能含 Authorization/Cookie）` },
-          { key: "body", label: "Body", children: bodyOverride ? `${body.length} 字符（${bodyMode} override）` : "使用完整源 body（无 override）" }
+          { key: "headers", label: "Headers", children: t("traffic.headersCount", { value: headers.length }) },
+          { key: "body", label: "Body", children: bodyOverride ? t("traffic.bodyOverride", { value: body.length, mode: bodyMode }) : t("traffic.fullSourceBody") }
         ]} />
       </Modal>
     </div>
@@ -244,21 +249,24 @@ function ReplayEditor({ runtimeDir, exchange, user, requestBody, loadRequestBody
 }
 
 function ReferenceChain({ exchange, onSelectExchange }: { exchange: TrafficExchange; onSelectExchange: (id: number) => void }) {
+  const { t } = useLanguage();
   const refs = [
     ["task", exchange.task_ref], ["run", exchange.run_ref], ["route", exchange.route_ref], ["session", exchange.session_ref],
     ["connect", exchange.connect_ref]
   ].filter((entry): entry is [string, string] => Boolean(entry[1]));
   return (
-    <div className="traffic-section"><strong>关联链</strong><Space size={[4, 4]} wrap>{refs.length ? refs.map(([label, value]) => <Tag key={`${label}:${value}`}>{label}: {shortRef(value, 28)}</Tag>) : <span className="muted-line">无 task/run/route/session/connect 关联</span>}{exchange.replay_of ? <Button type="link" size="small" onClick={() => onSelectExchange(exchange.replay_of!)}>replay_of #{exchange.replay_of}</Button> : null}</Space></div>
+    <div className="traffic-section"><strong>{t("traffic.referenceChain")}</strong><Space size={[4, 4]} wrap>{refs.length ? refs.map(([label, value]) => <Tag key={`${label}:${value}`}>{label}: {shortRef(value, 28)}</Tag>) : <span className="muted-line">{t("traffic.noReferenceChain")}</span>}{exchange.replay_of ? <Button type="link" size="small" onClick={() => onSelectExchange(exchange.replay_of!)}>replay_of #{exchange.replay_of}</Button> : null}</Space></div>
   );
 }
 
-function bodyAvailability(ref: string | undefined, state: string, captured: number, observed: number, truncated: boolean, reason?: string): { level: "info" | "warning"; message: string } {
-  if (ref) return { level: truncated ? "warning" : "info", message: "Body 尚未加载；点击后按需读取，最大 256 KiB。" };
-  if (state.toLowerCase().includes("evict")) return { level: "warning", message: "Body 已从捕获存储淘汰。" };
-  if (truncated || captured < observed) return { level: "warning", message: `Body 过大或已截断，且没有可读取引用${reason ? `：${reason}` : ""}。` };
-  if (observed === 0) return { level: "info", message: "Body 未捕获：该方向没有观察到 body 字节。" };
-  return { level: "warning", message: `Body 未捕获（capture state: ${state || "unknown"}）。` };
+type Translate = ReturnType<typeof useLanguage>["t"];
+
+function bodyAvailability(t: Translate, ref: string | undefined, state: string, captured: number, observed: number, truncated: boolean, reason?: string): { level: "info" | "warning"; message: string } {
+  if (ref) return { level: truncated ? "warning" : "info", message: t("traffic.bodyAvailable") };
+  if (state.toLowerCase().includes("evict")) return { level: "warning", message: t("traffic.bodyEvicted") };
+  if (truncated || captured < observed) return { level: "warning", message: t("traffic.bodyUnavailableTruncated", { reason: reason ? `: ${reason}` : "" }) };
+  if (observed === 0) return { level: "info", message: t("traffic.bodyNoBytes") };
+  return { level: "warning", message: t("traffic.bodyNotCaptured", { state: state || "unknown" }) };
 }
 
 function modeDescription(exchange: TrafficExchange): React.ReactNode {
@@ -318,11 +326,11 @@ function normalizeBase64(value: string): string {
   return normalized;
 }
 
-function safeTarget(value: string): { host: string; origin: string } {
+function safeTarget(value: string, invalidUrl: string): { host: string; origin: string } {
   try {
     const url = new URL(value);
     return { host: url.host, origin: url.origin };
   } catch {
-    return { host: "无效 URL", origin: "无效 URL" };
+    return { host: invalidUrl, origin: invalidUrl };
   }
 }

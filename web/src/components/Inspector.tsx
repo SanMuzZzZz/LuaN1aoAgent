@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Alert, Badge, Collapse, Descriptions, Empty, Modal, Spin, Tag, Typography } from "antd";
 import { fetchArtifact } from "../api";
 import { taskProgressItems, type TaskProgressItem } from "../graph";
+import { useLanguage } from "../language";
 import type { AgentEvent, ArtifactContent, ArtifactRecord, GraphEdge, GraphNode, TaskSummary, TraceItem, ViewKey } from "../types";
 import { formatTime, isRecent, roleLabel, shortRef, valueText } from "../utils";
 import { looksLikeMarkdown, Markdown } from "./Markdown";
@@ -18,11 +19,12 @@ interface InspectorProps {
 }
 
 export function Inspector(props: InspectorProps) {
+  const { t } = useLanguage();
   return (
     <div className="inspector-content">
       <div className="inspector-heading">
         <span>INSPECTOR</span>
-        <Typography.Title level={4}>{props.view === "trace" ? "当前步骤" : "节点详情"}</Typography.Title>
+        <Typography.Title level={4}>{t(props.view === "trace" ? "inspector.currentStep" : "inspector.nodeDetails")}</Typography.Title>
       </div>
       {props.view === "trace" ? <TraceInspector trace={props.trace} artifacts={props.artifacts} runtimeDir={props.runtimeDir} /> : (
         <NodeInspector node={props.node} edges={props.edges} />
@@ -33,8 +35,9 @@ export function Inspector(props: InspectorProps) {
 }
 
 function TraceInspector({ trace, artifacts, runtimeDir }: { trace?: TraceItem; artifacts: ArtifactRecord[]; runtimeDir: string }) {
+  const { t, formatBytes } = useLanguage();
   const [viewingArtifact, setViewingArtifact] = useState<string>();
-  if (!trace) return <Empty description="选择一条 Trace 查看详情" />;
+  if (!trace) return <Empty description={t("inspector.selectTrace")} />;
   const artifactMap = new Map(artifacts.map((record) => [record.artifactRef, record]));
   return (
     <section className="inspector-primary">
@@ -42,18 +45,18 @@ function TraceInspector({ trace, artifacts, runtimeDir }: { trace?: TraceItem; a
       <Typography.Title level={5}>{trace.title}</Typography.Title>
       {looksLikeMarkdown(trace.summary) ? <Markdown text={trace.summary} /> : <p>{trace.summary}</p>}
       <Descriptions size="small" column={1} colon={false} items={[
-        { key: "intentSource", label: "摘要来源", children: trace.intentSource === "recorded" ? "Agent 公开输出" : trace.intentSource === "structured" ? "结构化理由" : "系统派生目的" },
-        { key: "action", label: "动作", children: trace.action || "无外部动作" },
-        { key: "stage", label: "阶段", children: trace.stage },
-        { key: "event", label: "事件", children: trace.eventLabel || trace.eventType },
-        { key: "task", label: "任务", children: shortRef(trace.taskId) },
-        { key: "time", label: "时间", children: formatTime(trace.timestamp) }
+        { key: "intentSource", label: t("inspector.summarySource"), children: t(trace.intentSource === "recorded" ? "inspector.publicOutput" : trace.intentSource === "structured" ? "inspector.structuredReason" : "inspector.derivedPurpose") },
+        { key: "action", label: t("inspector.action"), children: trace.action || t("inspector.noExternalAction") },
+        { key: "stage", label: t("inspector.stage"), children: trace.stage },
+        { key: "event", label: t("inspector.event"), children: trace.eventLabel || trace.eventType },
+        { key: "task", label: t("inspector.task"), children: shortRef(trace.taskId) },
+        { key: "time", label: t("inspector.time"), children: formatTime(trace.timestamp) }
       ]} />
       <RefSection title="Evidence" refs={trace.evidenceRefs} />
       <RefSection title="Graph refs" refs={trace.graphNodeRefs} />
       {trace.commandDetails?.length ? (
         <div className="inspector-block">
-          <strong>命令明细</strong>
+          <strong>{t("inspector.commandDetails")}</strong>
           <div className="command-detail-list">{trace.commandDetails.map((line, index) => (
             <div className="command-detail-row" key={index}>{line}</div>
           ))}</div>
@@ -69,9 +72,9 @@ function TraceInspector({ trace, artifacts, runtimeDir }: { trace?: TraceItem; a
               <small>{artifact?.kind || artifact?.mediaType || "artifact"}{artifact?.byteLength ? ` · ${formatBytes(artifact.byteLength)}` : ""}</small>
             </button>
           );
-        }) : <span className="muted-line">无关联 Artifact</span>}
+        }) : <span className="muted-line">{t("inspector.noArtifact")}</span>}
       </div>
-      <Collapse size="small" items={[{ key: "raw", label: trace.eventType === "agent_action" || trace.eventType === "tool_execution" ? "聚合事件" : "原始事件", children: <pre className="json-block">{JSON.stringify(trace.rawEvent, null, 2)}</pre> }]} />
+      <Collapse size="small" items={[{ key: "raw", label: t(trace.eventType === "agent_action" || trace.eventType === "tool_execution" ? "inspector.aggregatedEvent" : "inspector.rawEvent"), children: <pre className="json-block">{JSON.stringify(trace.rawEvent, null, 2)}</pre> }]} />
       <ArtifactViewer
         runtimeDir={runtimeDir}
         artifactRef={viewingArtifact}
@@ -88,6 +91,7 @@ function ArtifactViewer({ runtimeDir, artifactRef, fallback, onClose }: {
   fallback?: ArtifactRecord;
   onClose: () => void;
 }) {
+  const { t, formatBytes } = useLanguage();
   const [content, setContent] = useState<ArtifactContent>();
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(false);
@@ -115,10 +119,10 @@ function ArtifactViewer({ runtimeDir, artifactRef, fallback, onClose }: {
       width={760}
       destroyOnHidden
     >
-      {loading ? <div className="artifact-loading"><Spin /> 正在加载内容…</div> : null}
+      {loading ? <div className="artifact-loading"><Spin /> {t("inspector.loadingContent")}</div> : null}
       {error ? (
         <>
-          <Alert type="warning" showIcon message={`无法加载完整内容：${error}`} />
+          <Alert type="warning" showIcon message={t("inspector.loadContentFailed", { error })} />
           {fallback?.preview ? <pre className="json-block artifact-content">{fallback.preview}</pre> : null}
         </>
       ) : null}
@@ -126,7 +130,7 @@ function ArtifactViewer({ runtimeDir, artifactRef, fallback, onClose }: {
         <>
           <div className="artifact-meta">
             <Tag>{content.kind || content.mediaType || "artifact"}</Tag>
-            <span>{formatBytes(content.byteLength ?? 0)}{content.truncated ? "（内容过大，仅显示前段）" : ""}</span>
+            <span>{formatBytes(content.byteLength ?? 0)}{content.truncated ? t("inspector.truncatedContent") : ""}</span>
           </div>
           {isImage && content.encoding === "base64" ? (
             <img className="artifact-image" src={`data:${content.mediaType};base64,${content.content}`} alt={content.artifactRef} />
@@ -139,14 +143,9 @@ function ArtifactViewer({ runtimeDir, artifactRef, fallback, onClose }: {
   );
 }
 
-function formatBytes(value: number): string {
-  if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
-  if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`;
-  return `${value} B`;
-}
-
 function NodeInspector({ node, edges }: { node?: GraphNode; edges: GraphEdge[] }) {
-  if (!node) return <Empty description="选择图中的节点查看属性与关系" />;
+  const { t } = useLanguage();
+  if (!node) return <Empty description={t("inspector.selectNode")} />;
   const incoming = edges.filter((edge) => edge.to === node.id);
   const outgoing = edges.filter((edge) => edge.from === node.id);
   const hiddenProgressKeys = new Set(["milestones", "blockers", "milestoneCount", "blockerCount"]);
@@ -161,16 +160,17 @@ function NodeInspector({ node, edges }: { node?: GraphNode; edges: GraphEdge[] }
       <Typography.Title level={5}>{node.label}</Typography.Title>
       <code className="node-id">{node.id}</code>
       {properties.length ? <Descriptions size="small" column={1} colon={false} items={properties.slice(0, 12)} /> : null}
-      {node.type === "Task" ? <TaskProgressSection title={`里程碑 ${milestones.length}`} type="milestone" items={milestones} /> : null}
-      {node.type === "Task" ? <TaskProgressSection title={`阻塞项 ${blockers.length}`} type="blocker" items={blockers} /> : null}
-      <RefSection title="Evidence" refs={node.evidenceRefs} />
-      <EdgeSection title={`入边 ${incoming.length}`} edges={incoming} direction="in" />
-      <EdgeSection title={`出边 ${outgoing.length}`} edges={outgoing} direction="out" />
+      {node.type === "Task" ? <TaskProgressSection title={t("inspector.milestones", { value: milestones.length })} type="milestone" items={milestones} /> : null}
+      {node.type === "Task" ? <TaskProgressSection title={t("inspector.blockers", { value: blockers.length })} type="blocker" items={blockers} /> : null}
+      <RefSection title={t("inspector.evidence")} refs={node.evidenceRefs} />
+      <EdgeSection title={t("inspector.incoming", { value: incoming.length })} edges={incoming} direction="in" />
+      <EdgeSection title={t("inspector.outgoing", { value: outgoing.length })} edges={outgoing} direction="out" />
     </section>
   );
 }
 
 function TaskProgressSection({ title, type, items }: { title: string; type: "milestone" | "blocker"; items: TaskProgressItem[] }) {
+  const { t } = useLanguage();
   return (
     <div className="inspector-block task-progress-block">
       <strong>{title}</strong>
@@ -181,23 +181,25 @@ function TaskProgressSection({ title, type, items }: { title: string; type: "mil
             {item.status ? <Tag color={type === "blocker" ? "error" : "processing"}>{item.status}</Tag> : null}
           </div>
           {item.reason && item.reason !== item.label ? <p>{item.reason}</p> : null}
-          <small>{shortRef(item.id, 38)}{item.evidenceRefs.length ? ` · ${item.evidenceRefs.length} Evidence` : ""}</small>
+          <small>{shortRef(item.id, 38)}{item.evidenceRefs.length ? ` · ${t("inspector.evidenceCount", { value: item.evidenceRefs.length })}` : ""}</small>
         </article>
-      ))}</div> : <span className="muted-line">暂无{type === "blocker" ? "阻塞" : "里程碑"}</span>}
+      ))}</div> : <span className="muted-line">{t(type === "blocker" ? "inspector.noBlockers" : "inspector.noMilestones")}</span>}
     </div>
   );
 }
 
 function RefSection({ title, refs }: { title: string; refs: string[] }) {
+  const { t } = useLanguage();
   return (
     <div className="inspector-block">
       <strong>{title}</strong>
-      <div className="ref-list">{refs.length ? refs.map((ref) => <Tag key={ref}>{shortRef(ref, 34)}</Tag>) : <span className="muted-line">无关联引用</span>}</div>
+      <div className="ref-list">{refs.length ? refs.map((ref) => <Tag key={ref}>{shortRef(ref, 34)}</Tag>) : <span className="muted-line">{t("inspector.noRefs")}</span>}</div>
     </div>
   );
 }
 
 function EdgeSection({ title, edges, direction }: { title: string; edges: GraphEdge[]; direction: "in" | "out" }) {
+  const { t } = useLanguage();
   return (
     <div className="inspector-block">
       <strong>{title}</strong>
@@ -213,12 +215,13 @@ function EdgeSection({ title, edges, direction }: { title: string; edges: GraphE
             {details ? <small>{details}</small> : null}
           </div>
         );
-      }) : <span className="muted-line">无关系</span>}
+      }) : <span className="muted-line">{t("inspector.noRelations")}</span>}
     </div>
   );
 }
 
 function RuntimeOverview({ tasks, agents }: { tasks: TaskSummary[]; agents: Record<string, AgentEvent | undefined> }) {
+  const { t } = useLanguage();
   return (
     <Collapse
       className="runtime-overview"
@@ -226,17 +229,17 @@ function RuntimeOverview({ tasks, agents }: { tasks: TaskSummary[]; agents: Reco
       items={[
         {
           key: "tasks",
-          label: `任务队列 · ${tasks.length}`,
+          label: t("inspector.taskQueue", { value: tasks.length }),
           children: tasks.length ? tasks.map((task) => (
             <div className="task-inspector-row" key={task.id}>
               <div><strong>{task.label}</strong><span>{shortRef(task.id, 30)}</span></div>
               <Tag color={task.status === "completed" ? "success" : task.status === "blocked" ? "error" : "processing"}>{task.status}</Tag>
             </div>
-          )) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无任务" />
+          )) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t("inspector.noTasks")} />
         },
         {
           key: "agents",
-          label: "Agent 状态",
+          label: t("sidebar.agentStatus"),
           children: ["planner", "executor", "observer", "runtime"].map((role) => {
             const event = agents[role];
             return <div className="agent-inspector-row" key={role}><Badge status={isRecent(event?.timestamp) ? "processing" : "default"} /><strong>{roleLabel(role)}</strong><span>{event?.eventType || "idle"}</span></div>;

@@ -1,5 +1,6 @@
-import { Alert, Button, Form, Input, Tabs, Tag, Typography } from "antd";
-import { Activity, GitBranch, LockKeyhole, Network, ShieldCheck, UserRound } from "lucide-react";
+import { Alert, Button, Form, Input, Tabs, Tag, Tooltip, Typography } from "antd";
+import { Activity, GitBranch, Languages, LockKeyhole, Network, ShieldCheck, UserRound } from "lucide-react";
+import { useLanguage } from "../language";
 
 interface AuthScreenProps {
   submitting: boolean;
@@ -10,47 +11,51 @@ interface AuthScreenProps {
 }
 
 export function AuthScreen(props: AuthScreenProps) {
+  const { locale, t, toggleLocale } = useLanguage();
   return (
     <div className="auth-shell">
       <section className="auth-product">
         <div className="auth-brand">
           <div className="brand-mark">鸾</div>
-          <div><strong>鸾鸟渗透智能体</strong><span>Agent Operations Workbench</span></div>
+          <div><strong>{t("auth.brand")}</strong><span>Agent Operations Workbench</span></div>
+          <Tooltip title={locale === "zh-CN" ? t("language.switchToEnglish") : t("language.switchToChinese")}>
+            <Button type="text" icon={<Languages size={18} />} onClick={toggleLocale}>{locale === "zh-CN" ? "English" : "中文"}</Button>
+          </Tooltip>
         </div>
         <div className="auth-product-copy">
           <Tag color="blue">SECURITY AGENT PLATFORM</Tag>
-          <Typography.Title level={1}>统一观察智能体的判断、行动与证据。</Typography.Title>
-          <p>面向安全研究与授权评测的多 Agent 运行工作台，集中管理实时轨迹、三图状态、任务队列和证据产物。</p>
+          <Typography.Title level={1}>{t("auth.tagline")}</Typography.Title>
+          <p>{t("auth.description")}</p>
         </div>
         <div className="auth-capability-grid">
-          <Capability icon={<Activity size={18} />} title="实时轨迹" description="聚合 Agent 想法、动作和工具返回" />
-          <Capability icon={<GitBranch size={18} />} title="三图推理" description="推理图、作战图与任务树同步联动" />
-          <Capability icon={<Network size={18} />} title="会话管理" description="快速切换历史 Runtime 与执行上下文" />
-          <Capability icon={<ShieldCheck size={18} />} title="访问保护" description="账号会话隔离敏感运行数据" />
+          <Capability icon={<Activity size={18} />} title={t("auth.capability.trace")} description={t("auth.capability.traceDescription")} />
+          <Capability icon={<GitBranch size={18} />} title={t("auth.capability.graph")} description={t("auth.capability.graphDescription")} />
+          <Capability icon={<Network size={18} />} title={t("auth.capability.session")} description={t("auth.capability.sessionDescription")} />
+          <Capability icon={<ShieldCheck size={18} />} title={t("auth.capability.protection")} description={t("auth.capability.protectionDescription")} />
         </div>
         <div className="auth-system-strip">
-          <span><i className="online" /> Auth service ready</span>
-          <span>Session protected</span>
-          <span>SQLite persistence</span>
+          <span><i className="online" /> {t("auth.serviceReady")}</span>
+          <span>{t("auth.sessionProtected")}</span>
+          <span>{t("auth.sqlitePersistence")}</span>
         </div>
       </section>
 
       <section className="auth-access">
         <div className="auth-panel">
           <div className="auth-panel-heading">
-            <span>WORKSPACE ACCESS</span>
-            <Typography.Title level={2}>进入鸾鸟工作台</Typography.Title>
-            <p>使用团队账号登录，或注册一个新的分析员账号。</p>
+            <span>{t("auth.access")}</span>
+            <Typography.Title level={2}>{t("auth.enterWorkbench")}</Typography.Title>
+            <p>{t("auth.accessDescription")}</p>
           </div>
           {props.error ? <Alert closable type="error" showIcon message={props.error} onClose={props.onClearError} /> : null}
           <Tabs
             defaultActiveKey="login"
             items={[
-              { key: "login", label: "登录", children: <LoginForm submitting={props.submitting} onSubmit={props.onLogin} /> },
-              { key: "register", label: "注册", children: <RegisterForm submitting={props.submitting} onSubmit={props.onRegister} /> }
+              { key: "login", label: t("auth.login"), children: <LoginForm submitting={props.submitting} onSubmit={props.onLogin} /> },
+              { key: "register", label: t("auth.register"), children: <RegisterForm submitting={props.submitting} onSubmit={props.onRegister} /> }
             ]}
           />
-          <div className="auth-security-note"><LockKeyhole size={14} /><span>密码仅以加盐哈希保存，会话使用 HttpOnly Cookie。</span></div>
+          <div className="auth-security-note"><LockKeyhole size={14} /><span>{t("auth.securityNote")}</span></div>
         </div>
       </section>
     </div>
@@ -58,38 +63,40 @@ export function AuthScreen(props: AuthScreenProps) {
 }
 
 function LoginForm({ submitting, onSubmit }: { submitting: boolean; onSubmit: AuthScreenProps["onLogin"] }) {
+  const { t } = useLanguage();
   return (
     <Form layout="vertical" requiredMark={false} onFinish={(values) => void onSubmit(values).catch(() => undefined)}>
-      <Form.Item label="用户名" name="username" rules={[{ required: true, message: "请输入用户名" }]}>
+      <Form.Item label={t("auth.username")} name="username" rules={[{ required: true, message: t("auth.usernameRequired") }]}>
         <Input autoComplete="username" prefix={<UserRound size={16} />} placeholder="username" />
       </Form.Item>
-      <Form.Item label="密码" name="password" rules={[{ required: true, message: "请输入密码" }]}>
-        <Input.Password autoComplete="current-password" prefix={<LockKeyhole size={16} />} placeholder="输入密码" />
+      <Form.Item label={t("auth.password")} name="password" rules={[{ required: true, message: t("auth.passwordRequired") }]}>
+        <Input.Password autoComplete="current-password" prefix={<LockKeyhole size={16} />} placeholder={t("auth.passwordPlaceholder")} />
       </Form.Item>
-      <Button block type="primary" htmlType="submit" loading={submitting}>登录工作台</Button>
+      <Button block type="primary" htmlType="submit" loading={submitting}>{t("auth.loginWorkbench")}</Button>
     </Form>
   );
 }
 
 function RegisterForm({ submitting, onSubmit }: { submitting: boolean; onSubmit: AuthScreenProps["onRegister"] }) {
+  const { t } = useLanguage();
   return (
     <Form layout="vertical" requiredMark={false} onFinish={(values) => void onSubmit(values).catch(() => undefined)}>
-      <Form.Item label="显示名称" name="displayName" rules={[{ required: true, message: "请输入显示名称" }, { min: 2, max: 40 }]}>
-        <Input autoComplete="name" prefix={<UserRound size={16} />} placeholder="安全分析员" />
+      <Form.Item label={t("auth.displayName")} name="displayName" rules={[{ required: true, message: t("auth.displayNameRequired") }, { min: 2, max: 40 }]}>
+        <Input autoComplete="name" prefix={<UserRound size={16} />} placeholder={t("auth.displayNamePlaceholder")} />
       </Form.Item>
-      <Form.Item label="用户名" name="username" rules={[{ required: true }, { pattern: /^[a-zA-Z0-9_.-]{3,32}$/, message: "使用 3-32 位字母、数字或 ._-" }]}>
+      <Form.Item label={t("auth.username")} name="username" rules={[{ required: true }, { pattern: /^[a-zA-Z0-9_.-]{3,32}$/, message: t("auth.usernamePattern") }]}>
         <Input autoComplete="username" prefix={<UserRound size={16} />} placeholder="analyst" />
       </Form.Item>
-      <Form.Item label="密码" name="password" rules={[{ required: true }, { min: 8, max: 128, message: "密码至少 8 位" }]}>
-        <Input.Password autoComplete="new-password" prefix={<LockKeyhole size={16} />} placeholder="至少 8 位" />
+      <Form.Item label={t("auth.password")} name="password" rules={[{ required: true }, { min: 8, max: 128, message: t("auth.passwordLength") }]}>
+        <Input.Password autoComplete="new-password" prefix={<LockKeyhole size={16} />} placeholder={t("auth.passwordMinPlaceholder")} />
       </Form.Item>
-      <Form.Item label="确认密码" name="confirmPassword" dependencies={["password"]} rules={[
-        { required: true, message: "请再次输入密码" },
-        ({ getFieldValue }) => ({ validator: (_, value) => !value || getFieldValue("password") === value ? Promise.resolve() : Promise.reject(new Error("两次输入的密码不一致")) })
+      <Form.Item label={t("auth.confirmPassword")} name="confirmPassword" dependencies={["password"]} rules={[
+        { required: true, message: t("auth.confirmPasswordRequired") },
+        ({ getFieldValue }) => ({ validator: (_, value) => !value || getFieldValue("password") === value ? Promise.resolve() : Promise.reject(new Error(t("auth.passwordMismatch"))) })
       ]}>
-        <Input.Password autoComplete="new-password" prefix={<LockKeyhole size={16} />} placeholder="再次输入密码" />
+        <Input.Password autoComplete="new-password" prefix={<LockKeyhole size={16} />} placeholder={t("auth.confirmPasswordPlaceholder")} />
       </Form.Item>
-      <Button block type="primary" htmlType="submit" loading={submitting}>创建账号并进入</Button>
+      <Button block type="primary" htmlType="submit" loading={submitting}>{t("auth.createAccount")}</Button>
     </Form>
   );
 }

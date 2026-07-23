@@ -76,7 +76,7 @@ describe("TrafficInspector", () => {
       <TrafficInspector runtimeDir="runtime/a" exchange={exchange} user={analyst} onSelectExchange={vi.fn()} onReplayed={vi.fn()} />
     );
 
-    const responseSection = screen.getByText("Response body").closest(".traffic-section");
+    const responseSection = screen.getByText("响应 Body").closest(".traffic-section");
     expect(responseSection).not.toBeNull();
     fireEvent.click(within(responseSection as HTMLElement).getByRole("button", { name: /加载 body/ }));
 
@@ -84,7 +84,7 @@ describe("TrafficInspector", () => {
     expect(within(responseSection as HTMLElement).getByText(/Body 仅显示已捕获部分/)).toBeInTheDocument();
     expect(container.querySelector("script")).toBeNull();
 
-    fireEvent.mouseDown(within(responseSection as HTMLElement).getByLabelText("Response body 展示格式"));
+    fireEvent.mouseDown(within(responseSection as HTMLElement).getByLabelText("响应 Body 展示格式"));
     fireEvent.click(await screen.findByText("Hex"));
     await waitFor(() => expect(within(responseSection as HTMLElement).getByText("ff 00")).toBeInTheDocument());
   });
@@ -98,9 +98,9 @@ describe("TrafficInspector", () => {
     const currentExchange = { ...exchange, id: 42, url: "https://target.test/current" };
     const { rerender } = render(<TrafficInspector runtimeDir="runtime/a" exchange={exchange} user={analyst} onSelectExchange={vi.fn()} onReplayed={vi.fn()} />);
 
-    fireEvent.click(within(screen.getByText("Request body").closest(".traffic-section") as HTMLElement).getByRole("button", { name: /加载 body/ }));
+    fireEvent.click(within(screen.getByText("请求 Body").closest(".traffic-section") as HTMLElement).getByRole("button", { name: /加载 body/ }));
     rerender(<TrafficInspector runtimeDir="runtime/a" exchange={currentExchange} user={analyst} onSelectExchange={vi.fn()} onReplayed={vi.fn()} />);
-    fireEvent.click(within(screen.getByText("Request body").closest(".traffic-section") as HTMLElement).getByRole("button", { name: /加载 body/ }));
+    fireEvent.click(within(screen.getByText("请求 Body").closest(".traffic-section") as HTMLElement).getByRole("button", { name: /加载 body/ }));
     resolveCurrent({ exchange_id: 42, side: "request", body_ref: "body:current", encoding: "base64", data: "Y3VycmVudA==", bytes: 7, truncated: false });
     await screen.findByText("current");
     resolveOld({ exchange_id: 41, side: "request", body_ref: "body:old", encoding: "base64", data: "b2xk", bytes: 3, truncated: false });
@@ -127,7 +127,7 @@ describe("TrafficInspector", () => {
     render(<TrafficInspector runtimeDir="runtime/a" exchange={source} user={admin} onSelectExchange={vi.fn()} onReplayed={vi.fn()} />);
 
     fireEvent.click(screen.getByRole("button", { name: "编辑并 Replay" }));
-    await waitFor(() => expect(screen.getByLabelText("Replay body")).toHaveValue('{"test":true}'));
+    await waitFor(() => expect(screen.getByLabelText("Replay Body")).toHaveValue('{"test":true}'));
     expect(screen.getByText(/Body 未修改，将由 sidecar 使用完整源 body/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "准备发送" }));
     const dialog = await screen.findByRole("dialog");
@@ -146,8 +146,8 @@ describe("TrafficInspector", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "编辑并 Replay" }));
     expect(screen.getAllByDisplayValue("X-Test")).toHaveLength(2);
-    fireEvent.change(screen.getByLabelText("Replay header value 2"), { target: { value: "edited" } });
-    fireEvent.change(screen.getByLabelText("Replay body"), { target: { value: "hello" } });
+    fireEvent.change(screen.getByLabelText("Replay Header 值 2"), { target: { value: "edited" } });
+    fireEvent.change(screen.getByLabelText("Replay Body"), { target: { value: "hello" } });
     fireEvent.click(screen.getByRole("button", { name: "准备发送" }));
 
     const dialog = await screen.findByRole("dialog");

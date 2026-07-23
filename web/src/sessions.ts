@@ -50,7 +50,7 @@ export function buildSessionTree(sessions: RuntimeSession[]): SessionTreeModel {
 
   const folders = [...rootFolders.values()].map(finalizeFolder).sort(compareFolder);
   const standalone = standaloneSessions.length
-    ? finalizeFolder({ path: "__standalone__", name: "独立会话", sessions: standaloneSessions, folders: new Map() })
+    ? finalizeFolder({ path: "__standalone__", name: "__standalone__", sessions: standaloneSessions, folders: new Map() })
     : undefined;
   return { rootSessions, standalone, folders };
 }

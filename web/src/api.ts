@@ -1,3 +1,4 @@
+import { translate } from "./language";
 import type { ActiveRunsResponse, ArtifactContent, AuthResponse, ConnectionItem, ConnectionsResponse, CreateSshTunnelInput, RuntimeState, SessionsResponse, StartRunInput, StartRunResponse, StopRunResponse, TrafficExchange, TrafficHistoryBody, TrafficHistoryFilters, TrafficHistoryPage, TrafficReplayInput, TrafficReplayResponse } from "./types";
 
 export class ApiError extends Error {
@@ -29,7 +30,7 @@ function csrfToken(): Promise<string> {
   csrfTokenPromise ??= fetch("/api/auth/csrf", { cache: "no-store", credentials: "same-origin" })
     .then(async (response) => {
       const body = await response.json().catch(() => ({})) as { csrfToken?: string };
-      if (!response.ok || !body.csrfToken) throw new ApiError("无法获取 CSRF token", response.status, "csrf_token_unavailable");
+      if (!response.ok || !body.csrfToken) throw new ApiError(translate("api.csrfUnavailable"), response.status, "csrf_token_unavailable");
       return body.csrfToken;
     })
     .catch((error) => {

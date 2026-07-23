@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Alert, Form, Input, InputNumber, Modal } from "antd";
 import { startRun } from "../api";
+import { useLanguage } from "../language";
 
 interface StartRunModalProps {
   open: boolean;
@@ -9,6 +10,7 @@ interface StartRunModalProps {
 }
 
 export function StartRunModal({ open, onClose, onStarted }: StartRunModalProps) {
+  const { t } = useLanguage();
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
@@ -36,10 +38,10 @@ export function StartRunModal({ open, onClose, onStarted }: StartRunModalProps) 
 
   return (
     <Modal
-      title="启动新任务"
+      title={t("startRun.title")}
       open={open}
-      okText="启动"
-      cancelText="取消"
+      okText={t("common.start")}
+      cancelText={t("common.cancel")}
       confirmLoading={submitting}
       width={560}
       destroyOnHidden
@@ -56,20 +58,20 @@ export function StartRunModal({ open, onClose, onStarted }: StartRunModalProps) 
         layout="vertical"
         initialValues={{ maxRunTimeMin: 15, maxParallelTasks: 2, maxPlannerCycles: 8 }}
       >
-        <Form.Item name="goal" label="任务目标" rules={[{ required: true, whitespace: true, message: "请输入任务目标" }]}>
-          <Input.TextArea rows={4} maxLength={4000} placeholder="例如：对授权目标 http://10.0.x.x 进行安全测试，寻找并提交所有 flag" />
+        <Form.Item name="goal" label={t("startRun.goal")} rules={[{ required: true, whitespace: true, message: t("startRun.goalRequired") }]}>
+          <Input.TextArea rows={4} maxLength={4000} placeholder={t("startRun.goalPlaceholder")} />
         </Form.Item>
-        <Form.Item name="scope" label="授权范围" rules={[{ required: true, whitespace: true, message: "请输入授权范围" }]}>
-          <Input.TextArea rows={3} maxLength={4000} placeholder="例如：仅限 http://10.0.x.x；禁止访问或攻击其他主机" />
+        <Form.Item name="scope" label={t("startRun.scope")} rules={[{ required: true, whitespace: true, message: t("startRun.scopeRequired") }]}>
+          <Input.TextArea rows={3} maxLength={4000} placeholder={t("startRun.scopePlaceholder")} />
         </Form.Item>
         <div style={{ display: "flex", gap: 12 }}>
-          <Form.Item name="maxRunTimeMin" label="最大运行时间（分钟）" style={{ flex: 1 }}>
+          <Form.Item name="maxRunTimeMin" label={t("startRun.maxMinutes")} style={{ flex: 1 }}>
             <InputNumber min={1} max={180} style={{ width: "100%" }} />
           </Form.Item>
-          <Form.Item name="maxParallelTasks" label="并行任务数" style={{ flex: 1 }}>
+          <Form.Item name="maxParallelTasks" label={t("startRun.parallelTasks")} style={{ flex: 1 }}>
             <InputNumber min={1} max={8} style={{ width: "100%" }} />
           </Form.Item>
-          <Form.Item name="maxPlannerCycles" label="Planner 最大循环" style={{ flex: 1 }}>
+          <Form.Item name="maxPlannerCycles" label={t("startRun.plannerCycles")} style={{ flex: 1 }}>
             <InputNumber min={1} max={64} style={{ width: "100%" }} />
           </Form.Item>
         </div>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchRuns, fetchRuntimeState, fetchSessions } from "./api";
+import { translate } from "./language";
 import type { ActiveRun, RuntimeSession, RuntimeState } from "./types";
 
 export interface RuntimeDashboardState {
@@ -39,7 +40,7 @@ export function useRuntimeDashboard(runtimeDir: string): RuntimeDashboardState {
       const response = await fetchSessions(runtimeDir, controller.signal);
       if (!controller.signal.aborted) setSessions(response.sessions || []);
     } catch (requestError) {
-      if (!controller.signal.aborted) setError((current) => current || `会话列表加载失败：${errorText(requestError)}`);
+      if (!controller.signal.aborted) setError((current) => current || translate("dashboard.sessionsFailed", { error: errorText(requestError) }));
     }
   }, [runtimeDir]);
 
@@ -61,7 +62,7 @@ export function useRuntimeDashboard(runtimeDir: string): RuntimeDashboardState {
     } catch (requestError) {
       if (controller.signal.aborted) return;
       if (requestId === requestSequence.current) {
-        setError(`运行态加载失败：${errorText(requestError)}`);
+        setError(translate("dashboard.runtimeFailed", { error: errorText(requestError) }));
       }
     } finally {
       if (requestId === requestSequence.current) {
