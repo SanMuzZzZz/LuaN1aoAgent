@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { stableSessionNodeId } from "./operation-identity.js";
 import type { ExecutionEvent, GraphDelta, GraphEdge, GraphNode } from "./types.js";
 
 export type ProjectionObservationKind = "action" | "task_outcome" | "runtime_error";
@@ -28,6 +29,12 @@ export type ProjectionObservation = {
   anchors: string[];
   sourceEventIds: string[];
   repeatCount?: number;
+  actions?: Array<{
+    action: string;
+    inputDigest?: string;
+    outcomeDigest: string;
+    status: "ok" | "error" | "incomplete";
+  }>;
 };
 
 export type ProjectionBatch = {
@@ -54,8 +61,6 @@ export type ProjectionGraphContext = {
     properties: Record<string, unknown>;
   }>;
   nodeAliases: Map<string, string>;
-  identityOnlyRefs: Set<string>;
-  identityIndexComplete: boolean;
 };
 
 type PendingAction = {
@@ -74,17 +79,55 @@ export function buildProjectionObservations(events: ExecutionEvent[]): Projectio
   let pendingIntent: { text: string; eventId: string; seq: number } | undefined;
 
   const closeOpenActions = (interpretation: string, _sourceEventId: string): void => {
-    for (const observation of observations) {
-      if (observation.kind !== "action" || (observation.interpretation
-        && observation.interpretation !== LEGACY_RAW_RESULT_INTERPRETATION
-        && observation.interpretation !== MISSING_RESULT_INTERPRETATION)) {
-        continue;
-      }
-      observation.interpretation = truncate(interpretation, 260);
+    const openIndexes = observations.flatMap((observation, index) => (
+      observation.kind === "action"
+        && (!observation.interpretation || observation.interpretation === LEGACY_RAW_RESULT_INTERPRETATION)
+        ? [index]
+        : []
+    ));
+    if (openIndexes.length === 0) {
+      return;
+    }
+    const normalizedInterpretation = truncate(interpretation, 260);
+    if (openIndexes.length === 1) {
+      const observation = observations[openIndexes[0]!]!;
+      observation.interpretation = normalizedInterpretation;
       observation.anchors = dedupeStrings([
         ...observation.anchors,
-        ...extractAnchors(observation.interpretation)
+        ...extractAnchors(normalizedInterpretation)
       ]).slice(0, 6);
+      return;
+    }
+    const grouped = openIndexes.map((index) => observations[index]!);
+    const firstIndex = openIndexes[0]!;
+    observations[firstIndex] = {
+      ref: "",
+      kind: "action",
+      seqStart: Math.min(...grouped.map((observation) => observation.seqStart)),
+      seqEnd: Math.max(...grouped.map((observation) => observation.seqEnd)),
+      intent: grouped.find((observation) => observation.intent)?.intent,
+      interpretation: normalizedInterpretation,
+      action: "tool_group",
+      outcomeDigest: `${grouped.length} tool results interpreted together`,
+      status: grouped.some((observation) => observation.status === "error") ? "error" : "ok",
+      artifactRefs: dedupeStrings(grouped.flatMap((observation) => observation.artifactRefs)),
+      anchors: dedupeStrings([
+        ...grouped.flatMap((observation) => observation.anchors),
+        ...extractAnchors(normalizedInterpretation)
+      ]).slice(0, 8),
+      sourceEventIds: dedupeStrings(grouped.flatMap((observation) => observation.sourceEventIds)),
+      actions: grouped.map((observation) => ({
+        action: observation.action ?? "unknown",
+        inputDigest: observation.inputDigest,
+        outcomeDigest: observation.outcomeDigest,
+        status: observation.status
+      }))
+    };
+    const removedIndexes = new Set(openIndexes.slice(1));
+    for (let index = observations.length - 1; index >= 0; index -= 1) {
+      if (removedIndexes.has(index)) {
+        observations.splice(index, 1);
+      }
     }
   };
 
@@ -231,22 +274,11 @@ export function selectProjectionBatch(
 export function aliasProjectionGraphContext(input: {
   nodes: GraphNode[];
   edges: GraphEdge[];
-  identityNodes?: GraphNode[];
-  identityEdges?: GraphEdge[];
-  identityIndexComplete?: boolean;
 }): ProjectionGraphContext {
-  const localNodeIds = new Set(input.nodes.map((node) => node.id));
-  const combinedNodes = [...new Map(
-    [...input.nodes, ...(input.identityNodes ?? [])].map((node) => [node.id, node])
-  ).values()];
   const nodeAliases = new Map<string, string>();
-  const identityOnlyRefs = new Set<string>();
-  const nodes = combinedNodes.map((node, index) => {
+  const nodes = input.nodes.map((node, index) => {
     const ref = `existing:${index + 1}`;
     nodeAliases.set(ref, node.id);
-    if (!localNodeIds.has(node.id)) {
-      identityOnlyRefs.add(ref);
-    }
     return {
       ref,
       id: node.id,
@@ -258,10 +290,7 @@ export function aliasProjectionGraphContext(input: {
     };
   });
   const aliasesByNodeId = new Map([...nodeAliases.entries()].map(([alias, nodeId]) => [nodeId, alias]));
-  const edges = [...new Map(
-    [...input.edges, ...(input.identityEdges ?? [])]
-      .map((edge) => [edge.id ?? `${edge.from}\u0000${edge.type}\u0000${edge.to}`, edge])
-  ).values()]
+  const edges = input.edges
     .map((edge) => ({
       id: edge.id,
       from: aliasesByNodeId.get(edge.from) ?? "",
@@ -273,9 +302,7 @@ export function aliasProjectionGraphContext(input: {
   return {
     nodes,
     edges,
-    nodeAliases,
-    identityOnlyRefs,
-    identityIndexComplete: input.identityIndexComplete ?? true
+    nodeAliases
   };
 }
 
@@ -292,7 +319,6 @@ export function expandProjectionDraft(input: {
     stringArray(value).flatMap((ref) => observationRefs.get(ref) ?? (sourceEventIds.has(ref) ? [ref] : []))
   );
   const existingNodesById = new Map(input.graphContext.nodes.map((node) => [node.id, node]));
-  const operationIdentityIndex = buildOperationIdentityIndex(input.graphContext.nodes);
   const submittedNodeRefs = new Map<string, string>();
   const resolveNodeRef = (value: unknown): string => {
     const ref = String(value ?? "").trim();
@@ -310,17 +336,13 @@ export function expandProjectionDraft(input: {
     for (const node of draft.nodes.filter(isRecord).slice(0, 12)) {
       const submittedRef = String(node.id ?? "").trim();
       const existingId = input.graphContext.nodeAliases.get(submittedRef);
-      const matchedOperationId = !existingId && submittedRef.startsWith("new:")
-        ? matchExistingOperationNode(node, operationIdentityIndex)
-        : undefined;
-      const resolvedId = existingId ?? matchedOperationId
-        ?? (submittedRef.startsWith("new:")
+      const resolvedId = existingId ?? (submittedRef.startsWith("new:")
           ? stableOperationNodeId(node) ?? `projected:${randomUUID()}`
           : "");
       if (!resolvedId) {
         continue;
       }
-      if (!existingId || matchedOperationId) {
+      if (!existingId) {
         submittedNodeRefs.set(submittedRef, resolvedId);
       }
       const existing = existingNodesById.get(resolvedId);
@@ -391,139 +413,122 @@ export function renderProjectionObservations(observations: ProjectionObservation
     `${observation.ref} [${observation.kind}] seq=${observation.seqStart}-${observation.seqEnd} status=${observation.status}`,
     observation.intent ? `  intent: ${observation.intent}` : undefined,
     observation.action ? `  action: ${observation.action}` : undefined,
+    ...(observation.actions ?? []).flatMap((action, index) => [
+      `  tool[${index + 1}]: ${action.action} status=${action.status}`,
+      action.inputDigest ? `    input: ${action.inputDigest}` : undefined,
+      `    outcome: ${action.outcomeDigest}`
+    ]),
     (observation.repeatCount ?? 1) > 1 ? `  repeated: ${observation.repeatCount}` : undefined,
-    observation.inputDigest ? `  input: ${observation.inputDigest}` : undefined,
-    `  outcome: ${observation.outcomeDigest}`,
+    !observation.actions && observation.inputDigest ? `  input: ${observation.inputDigest}` : undefined,
+    !observation.actions ? `  outcome: ${observation.outcomeDigest}` : undefined,
     observation.interpretation ? `  executor_interpretation: ${observation.interpretation}` : undefined,
     observation.artifactRefs.length > 0 ? `  artifacts: ${observation.artifactRefs.join(", ")}` : undefined,
     observation.anchors.length > 0 ? `  anchors: ${observation.anchors.join(", ")}` : undefined
   ].filter((line): line is string => Boolean(line)).join("\n")).join("\n");
 }
 
+export function compactProjectionBatchForInput(
+  batch: ProjectionBatch,
+  options: { maxObservations: number; maxChars: number }
+): ProjectionBatch {
+  const maxObservations = Math.max(1, options.maxObservations);
+  const maxChars = Math.max(800, options.maxChars);
+  const taskOutcome = [...batch.observations]
+    .filter((observation) => observation.kind === "task_outcome")
+    .sort((left, right) => right.seqEnd - left.seqEnd)[0];
+  const remaining = batch.observations.filter((observation) => observation !== taskOutcome);
+  const bucketLimit = Math.max(1, maxObservations - (taskOutcome ? 1 : 0));
+  const grouped = remaining.length <= bucketLimit
+    ? remaining
+    : groupProjectionObservations(remaining, bucketLimit);
+  const selected = taskOutcome ? [...grouped, taskOutcome] : grouped;
+  const perObservationChars = Math.max(180, Math.floor(maxChars / Math.max(1, selected.length)) - 100);
+  const observations = selected
+    .sort((left, right) => left.seqEnd - right.seqEnd)
+    .map((observation, index) => compactProjectionObservation(observation, perObservationChars, `o${index + 1}`));
+  return {
+    observations,
+    toSeq: batch.toSeq,
+    sourceEventIds: batch.sourceEventIds
+  };
+}
+
+function groupProjectionObservations(
+  observations: ProjectionObservation[],
+  bucketLimit: number
+): ProjectionObservation[] {
+  const bucketSize = Math.ceil(observations.length / bucketLimit);
+  const grouped: ProjectionObservation[] = [];
+  for (let index = 0; index < observations.length; index += bucketSize) {
+    const bucket = observations.slice(index, index + bucketSize);
+    grouped.push({
+      ref: "",
+      kind: bucket.some((observation) => observation.kind === "runtime_error") ? "runtime_error" : "action",
+      seqStart: Math.min(...bucket.map((observation) => observation.seqStart)),
+      seqEnd: Math.max(...bucket.map((observation) => observation.seqEnd)),
+      interpretation: "多个连续 observation 为适配 Projector 输入预算合并，按其中的因果摘要投影。",
+      action: "observation_group",
+      outcomeDigest: causalObservationDigest(bucket, 900),
+      status: bucket.some((observation) => observation.status === "error") ? "error" : "ok",
+      artifactRefs: dedupeStrings(bucket.flatMap((observation) => observation.artifactRefs)).slice(0, 8),
+      anchors: dedupeStrings(bucket.flatMap((observation) => observation.anchors)).slice(0, 12),
+      sourceEventIds: dedupeStrings(bucket.flatMap((observation) => observation.sourceEventIds)),
+      repeatCount: bucket.length
+    });
+  }
+  return grouped;
+}
+
+function compactProjectionObservation(
+  observation: ProjectionObservation,
+  maxChars: number,
+  ref: string
+): ProjectionObservation {
+  const fieldLimit = Math.max(60, Math.floor(maxChars / 3));
+  const actions = observation.actions?.slice(0, 8).map((action) => ({
+    ...action,
+    inputDigest: action.inputDigest ? compactHeadTail(action.inputDigest, Math.max(50, Math.floor(fieldLimit / 2))) : undefined,
+    outcomeDigest: compactHeadTail(action.outcomeDigest, fieldLimit)
+  }));
+  return {
+    ...observation,
+    ref,
+    intent: observation.intent ? compactHeadTail(observation.intent, fieldLimit) : undefined,
+    interpretation: observation.interpretation ? compactHeadTail(observation.interpretation, fieldLimit) : undefined,
+    inputDigest: observation.inputDigest ? compactHeadTail(observation.inputDigest, fieldLimit) : undefined,
+    outcomeDigest: compactHeadTail(observation.outcomeDigest, actions ? Math.max(80, fieldLimit) : Math.max(120, fieldLimit * 2)),
+    actions,
+    artifactRefs: observation.artifactRefs.slice(0, 4),
+    anchors: observation.anchors.slice(0, 8)
+  };
+}
+
 export function renderProjectionGraphContext(context: ProjectionGraphContext): string {
   if (context.nodes.length === 0) {
     return "无已有相关图节点。";
   }
-  const localNodeLines = context.nodes
-    .filter((node) => !context.identityOnlyRefs.has(node.ref))
-    .map((node) => (
+  const nodeLines = context.nodes.map((node) => (
     `${node.ref} ${node.graphKind}/${node.type} ${node.label}${Object.keys(node.properties).length > 0 ? ` ${JSON.stringify(node.properties)}` : ""}`
   ));
-  const identityLines = context.nodes
-    .filter((node) => context.identityOnlyRefs.has(node.ref))
-    .map((node) => `${node.ref} ${node.type} ${operationIdentitySummary(node)}`);
   const edgeLines = context.edges.map((edge) => (
     `${edge.from} -${edge.type}-> ${edge.to}${Object.keys(edge.properties).length > 0 ? ` ${JSON.stringify(edge.properties)}` : ""}`
   ));
   return [
-    "局部完整节点：",
-    ...(localNodeLines.length > 0 ? localNodeLines : ["无"]),
-    context.identityIndexComplete ? "全量作战身份索引：" : "作战身份索引（已按输入预算截断）：",
-    ...(identityLines.length > 0 ? identityLines : ["无额外节点"]),
+    "相关图节点：",
+    ...(nodeLines.length > 0 ? nodeLines : ["无"]),
     "可见拓扑：",
     ...(edgeLines.length > 0 ? edgeLines : ["无"])
   ].join("\n");
-}
-
-type OperationIdentityIndex = Map<string, string>;
-
-function buildOperationIdentityIndex(nodes: ProjectionGraphContext["nodes"]): OperationIdentityIndex {
-  const index = new Map<string, string>();
-  for (const node of nodes) {
-    const key = operationIdentityKey(node.type, node.label, node.properties);
-    if (key && !index.has(key)) {
-      index.set(key, node.id);
-    }
-  }
-  return index;
-}
-
-function matchExistingOperationNode(
-  node: Record<string, unknown>,
-  index: OperationIdentityIndex
-): string | undefined {
-  if (normalizeGraphKind(node.graphKind) !== "operation") {
-    return undefined;
-  }
-  const key = operationIdentityKey(
-    String(node.type ?? ""),
-    String(node.label ?? ""),
-    isRecord(node.properties) ? node.properties : {}
-  );
-  return key ? index.get(key) : undefined;
-}
-
-function operationIdentitySummary(node: ProjectionGraphContext["nodes"][number]): string {
-  const key = operationIdentityKey(node.type, node.label, node.properties);
-  return key ? `${node.label} key=${key}` : node.label;
-}
-
-function operationIdentityKey(
-  type: string,
-  label: string,
-  properties: Record<string, unknown>
-): string | undefined {
-  if (type === "Host") {
-    const host = normalizedHost(properties.host ?? properties.hostname ?? properties.ip ?? properties.url ?? label);
-    return host ? `host:${host}` : undefined;
-  }
-  if (type === "Port") {
-    const endpoint = normalizedNetworkEndpoint(properties, label);
-    return endpoint?.host && endpoint.port
-      ? `port:${endpoint.host}:${endpoint.port}/${endpoint.protocol ?? "tcp"}`
-      : undefined;
-  }
-  if (type === "Service") {
-    const endpoint = normalizedNetworkEndpoint(properties, label);
-    const protocol = normalizedProtocol(properties.protocol ?? properties.service ?? endpoint?.protocol);
-    return endpoint?.host && endpoint.port && protocol
-      ? `service:${endpoint.host}:${endpoint.port}/${protocol}`
-      : undefined;
-  }
-  if (type === "WebEndpoint") {
-    const url = normalizedUrl(properties.url);
-    const host = url?.hostname ?? normalizedHost(properties.host ?? properties.hostname);
-    const port = url?.port || normalizedPort(properties.port) || defaultPort(url?.protocol);
-    const protocol = normalizedProtocol(url?.protocol ?? properties.protocol ?? properties.scheme);
-    const path = normalizedPath(url?.pathname ?? properties.path);
-    const method = String(properties.method ?? methodFromLabel(label) ?? "GET").trim().toUpperCase();
-    return host && port && protocol && path
-      ? `endpoint:${protocol}://${host}:${port}:${method}:${path}`
-      : undefined;
-  }
-  if (type === "Parameter") {
-    const name = String(properties.name ?? "").trim().toLowerCase();
-    const location = String(properties.location ?? properties.in ?? "").trim().toLowerCase();
-    const endpoint = normalizedUrl(properties.endpoint ?? properties.url);
-    const path = normalizedPath(endpoint?.pathname ?? properties.path);
-    const host = endpoint?.hostname ?? normalizedHost(properties.host ?? properties.hostname);
-    const port = endpoint?.port || normalizedPort(properties.port) || defaultPort(endpoint?.protocol);
-    const protocol = normalizedProtocol(endpoint?.protocol ?? properties.protocol ?? properties.scheme);
-    return name && location && host && port && protocol && path
-      ? `parameter:${protocol}://${host}:${port}:${path}:${location}:${name}`
-      : undefined;
-  }
-  if (type === "AgentSession") {
-    return stableIdentity("agent-session", properties.sessionId ?? properties.agentSessionId);
-  }
-  if (type === "ShellSession") {
-    return stableIdentity("shell-session", properties.sessionId ?? properties.shellSessionId);
-  }
-  if (type === "Session") {
-    return stableIdentity("session", properties.sessionId ?? properties.agentSessionId ?? properties.shellSessionId);
-  }
-  return undefined;
 }
 
 function stableOperationNodeId(node: Record<string, unknown>): string | undefined {
   if (normalizeGraphKind(node.graphKind) !== "operation") {
     return undefined;
   }
-  const type = String(node.type ?? "");
-  if (!["AgentSession", "ShellSession", "Session"].includes(type)) {
-    return undefined;
-  }
-  return operationIdentityKey(type, "", isRecord(node.properties) ? node.properties : {});
+  return stableSessionNodeId({
+    type: String(node.type ?? ""),
+    properties: isRecord(node.properties) ? node.properties : {}
+  });
 }
 
 function stableOperationalEdgeId(type: string, properties: Record<string, unknown>): string | undefined {
@@ -539,71 +544,6 @@ function stableOperationalEdgeId(type: string, properties: Record<string, unknow
 function stableIdentity(prefix: string, value: unknown): string | undefined {
   const identity = typeof value === "string" ? value.trim() : "";
   return identity ? `${prefix}:${encodeURIComponent(identity)}` : undefined;
-}
-
-function normalizedNetworkEndpoint(
-  properties: Record<string, unknown>,
-  _label: string
-): { host?: string; port?: string; protocol?: string } | undefined {
-  const url = normalizedUrl(properties.url);
-  const host = url?.hostname ?? normalizedHost(properties.host ?? properties.hostname);
-  const port = url?.port || normalizedPort(properties.port);
-  const protocol = normalizedProtocol(url?.protocol ?? properties.protocol ?? properties.service);
-  return host || port || protocol ? { host, port, protocol } : undefined;
-}
-
-function normalizedUrl(value: unknown): URL | undefined {
-  if (typeof value !== "string" || value.trim().length === 0) {
-    return undefined;
-  }
-  try {
-    return new URL(value.trim());
-  } catch {
-    return undefined;
-  }
-}
-
-function normalizedHost(value: unknown): string | undefined {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-  const trimmed = value.trim();
-  const parsed = normalizedUrl(trimmed.includes("://") ? trimmed : `http://${trimmed}`);
-  const host = parsed?.hostname || trimmed.replace(/^\[|\]$/g, "").split(":")[0];
-  const normalized = host.trim().toLowerCase().replace(/\.$/, "");
-  return normalized || undefined;
-}
-
-function normalizedPort(value: unknown): string | undefined {
-  const port = typeof value === "number" ? String(value) : typeof value === "string" ? value.trim() : "";
-  return /^\d{1,5}$/.test(port) ? String(Number(port)) : undefined;
-}
-
-function normalizedProtocol(value: unknown): string | undefined {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-  const protocol = value.trim().toLowerCase().replace(/:$/, "");
-  return protocol || undefined;
-}
-
-function defaultPort(protocol: string | undefined): string | undefined {
-  return protocol === "https:" || protocol === "https" ? "443"
-    : protocol === "http:" || protocol === "http" ? "80"
-      : undefined;
-}
-
-function normalizedPath(value: unknown): string | undefined {
-  if (typeof value !== "string" || value.trim().length === 0) {
-    return undefined;
-  }
-  const path = value.trim().split(/[?#]/, 1)[0].replace(/\/{2,}/g, "/");
-  return path.startsWith("/") ? path : `/${path}`;
-}
-
-function methodFromLabel(label: string): string | undefined {
-  const match = label.trim().match(/^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b/i);
-  return match?.[1];
 }
 
 export function observationDigest(observations: ProjectionObservation[], maxChars = 900, limit = 6): string {
@@ -807,7 +747,7 @@ function coalesceProjectionObservations(observations: ProjectionObservation[]): 
 }
 
 function canCoalesceObservations(left: ProjectionObservation, right: ProjectionObservation): boolean {
-  if (left.kind !== "action" || right.kind !== "action") {
+  if (left.kind !== "action" || right.kind !== "action" || left.actions || right.actions) {
     return false;
   }
   return left.action === right.action

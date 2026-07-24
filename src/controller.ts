@@ -31,6 +31,7 @@ import {
   buildProjectionObservations,
   causalObservationDigest,
   capabilityDigest,
+  compactProjectionBatchForInput,
   expandProjectionDraft,
   observationDigest,
   renderProjectionGraphContext,
@@ -130,13 +131,18 @@ const DEFAULT_MAX_PARALLEL_TASKS = 2;
 const BUDGET_EXTENSION_TURNS = 4;
 const MAX_BUDGET_EXTENSIONS = 3;
 const BUDGET_PRESSURE_TURNS = 2;
-const PROJECTION_DRAIN_TIMEOUT_MS = 30_000;
 const PROJECTION_CANCEL_GRACE_MS = 2_000;
+const PROJECTION_DRAIN_TIMEOUT_MS = positiveIntegerEnv(
+  "PROJECTION_DRAIN_TIMEOUT_MS",
+  PROJECTOR_HARD_TIMEOUT_MS
+);
 const MAX_ACTIVE_PROJECTION_JOBS = positiveIntegerEnv("MAX_ACTIVE_PROJECTION_JOBS", 2);
 const PROJECTOR_ARTIFACT_MANIFEST_LIMIT = 3;
 const PROJECTOR_MAX_OBSERVATIONS_PER_JOB = positiveIntegerEnv("PROJECTOR_MAX_OBSERVATIONS_PER_JOB", 16);
-const PROJECTOR_INPUT_HARD_LIMIT = 10_000;
-const PROJECTOR_OPERATION_IDENTITY_LIMIT = positiveIntegerEnv("PROJECTOR_OPERATION_IDENTITY_LIMIT", 48);
+const PROJECTOR_INPUT_TARGET_BYTES = positiveIntegerEnv(
+  "PROJECTOR_INPUT_TARGET_BYTES",
+  positiveIntegerEnv("PROJECTOR_INPUT_HARD_LIMIT_BYTES", 32_000)
+);
 const PROJECTOR_MAX_RETRIES = 1;
 const DEFAULT_PROJECTOR_CATCHUP_DELAY_MS = 45_000;
 const DEFAULT_PROJECTOR_CATCHUP_MIN_OBSERVATIONS = 4;
@@ -294,6 +300,7 @@ export class SecurityAgentController {
   }>();
   private activeProjectionJobCount = 0;
   private projectionQueueClosed = false;
+  private projectionQueueDrainingOnClose = false;
   private projectionCancellationRequested = false;
   private graphStoreClosed = false;
   private projectionJobs = new Set<Promise<ObserverProjection>>();
@@ -303,6 +310,7 @@ export class SecurityAgentController {
   private projectionSequence = 0;
   private projectionRetryCountByTask = new Map<string, number>();
   private projectionCatchupTimers = new Map<string, NodeJS.Timeout>();
+  private projectionOrphanRefsByTask = new Map<string, string[]>();
   private activeEpochs = new Map<string, ActiveTaskState>();
   private activeEpochIdByTask = new Map<string, string>();
   private taskSupervisionStates = new Map<string, TaskSupervisionState>();
@@ -413,9 +421,6 @@ export class SecurityAgentController {
         summary: plannerDecision.reason,
         payload: { plannerDecision, decisionAttempt }
       });
-      if (plannerDecision.decision === "need_user_input") {
-        return { plannerDecision };
-      }
       try {
         taskEnvelopes = await this.applyPlannerCommands(
           plannerDecision,
@@ -512,7 +517,7 @@ export class SecurityAgentController {
           maxActiveJobs: MAX_ACTIVE_PROJECTION_JOBS,
           idleTimeoutMs: PROJECTOR_IDLE_TIMEOUT_MS,
           hardTimeoutMs: PROJECTOR_HARD_TIMEOUT_MS,
-          inputHardLimitBytes: PROJECTOR_INPUT_HARD_LIMIT
+          inputTargetBytes: PROJECTOR_INPUT_TARGET_BYTES
         },
         supervisor: {
           turnWindowSize: SUPERVISOR_TURN_WINDOW_SIZE,
@@ -624,9 +629,6 @@ export class SecurityAgentController {
         if (this.isRootGoalStatus("blocked")) {
           return await decideRun({ cycles, completed: false, stoppedReason: cycleResult.plannerDecision.reason });
         }
-        if (cycleResult.plannerDecision.decision === "need_user_input") {
-          return await decideRun({ cycles, completed: false, stoppedReason: cycleResult.plannerDecision.reason });
-        }
       }
       return await decideRun({
         cycles,
@@ -676,7 +678,7 @@ export class SecurityAgentController {
       }
       state.executorStopRequested = true;
       state.abortContext = { kind: "controller_abort", reason };
-      void state.executorSession?.abort();
+      this.terminateExecutorSession(state);
     }
     for (const session of this.activePlannerSessions) {
       void session.abort();
@@ -789,7 +791,7 @@ export class SecurityAgentController {
       }
       state.lifecycleState = "closing";
       state.abortContext = { kind: "controller_abort", reason: "Controller shutdown" };
-      void state.executorSession?.abort();
+      this.terminateExecutorSession(state);
       this.finishTaskExecution(state.taskEnvelope.taskId, "shutdown");
     }
     for (const pending of [...this.pendingSupervisorRequests.values()]) {
@@ -812,16 +814,22 @@ export class SecurityAgentController {
         2_000
       );
     }
-    this.cancelPendingProjectionRequests("controller is closing; pending projection request discarded");
     if (input.drainProjectionJobs !== false) {
+      this.projectionQueueDrainingOnClose = true;
+      this.drainProjectionQueue();
       await this.drainProjectionJobs(
         input.projectionDrainTimeoutMs ?? PROJECTION_DRAIN_TIMEOUT_MS,
         input.projectionCancelGraceMs ?? PROJECTION_CANCEL_GRACE_MS
       );
+      this.projectionQueueDrainingOnClose = false;
     } else {
+      this.cancelPendingProjectionRequests("controller is closing; pending projection request discarded");
       await this.cancelAndJoinProjectionJobs({
         summary: `Controller close cancelled ${this.projectionJobs.size} projection job(s) without drain`,
-        payload: { pendingProjectionJobs: this.projectionJobs.size },
+        payload: {
+          pendingProjectionJobs: this.pendingProjectionRequests.size,
+          activeProjectionJobCount: this.activeProjectionJobCount
+        },
         graceMs: 0
       });
     }
@@ -835,20 +843,29 @@ export class SecurityAgentController {
   }
 
   private async drainProjectionJobs(timeoutMs: number, cancelGraceMs: number): Promise<void> {
-    if (this.projectionJobs.size === 0) {
-      return;
+    const deadlineAt = Date.now() + timeoutMs;
+    while (this.projectionJobs.size > 0 || this.pendingProjectionRequests.size > 0) {
+      this.drainProjectionQueue();
+      const activeJobs = [...this.projectionJobs];
+      const remainingMs = deadlineAt - Date.now();
+      if (remainingMs <= 0 || activeJobs.length === 0) {
+        break;
+      }
+      const drainResult = await raceWithTimeout(
+        Promise.allSettled(activeJobs).then(() => "drained" as const),
+        remainingMs
+      );
+      if (drainResult === "timeout") {
+        break;
+      }
     }
-    const drainResult = await raceWithTimeout(
-      Promise.allSettled([...this.projectionJobs]).then(() => "drained" as const),
-      timeoutMs
-    );
-    if (drainResult === "drained") {
+    if (this.projectionJobs.size === 0 && this.pendingProjectionRequests.size === 0) {
       return;
     }
     await this.cancelAndJoinProjectionJobs({
-      summary: `Controller close cancelled ${this.projectionJobs.size} projection job(s) after drain timeout`,
+      summary: `Controller close cancelled ${this.projectionJobs.size} active and ${this.pendingProjectionRequests.size} pending projection job(s) after drain timeout`,
       payload: {
-        pendingProjectionJobs: this.projectionJobs.size,
+        pendingProjectionJobs: this.pendingProjectionRequests.size,
         activeProjectionJobCount: this.activeProjectionJobCount,
         timeoutMs
       },
@@ -908,6 +925,7 @@ export class SecurityAgentController {
       clearTimeout(timer);
     }
     this.projectionCatchupTimers.clear();
+    this.projectionOrphanRefsByTask.clear();
   }
 
   private requireAgents(): SecurityAgentRuntime {
@@ -1883,16 +1901,20 @@ export class SecurityAgentController {
     taskResult?: TaskResult;
     observations: ProjectionObservation[];
   }): Promise<{ text: string; itemCount: number; omittedCount: number }> {
-    const candidateRefs = dedupeStrings([
-      ...input.observations.flatMap((observation) => observation.artifactRefs),
-      ...(input.taskResult?.artifactRefs ?? [])
-    ]);
+    const directRefs = dedupeStrings(input.observations.flatMap((observation) => observation.artifactRefs));
+    const includeTaskResultArtifacts = input.observations.some((observation) => observation.kind === "task_outcome");
+    const taskResultRefs = includeTaskResultArtifacts ? input.taskResult?.artifactRefs ?? [] : [];
+    const candidateRefs = dedupeStrings([...directRefs, ...taskResultRefs]);
+    const directRefSet = new Set(directRefs);
     const relevantSnippets = await this.artifactStore.searchWithin({
       artifactRefs: candidateRefs,
       query: [
+        ...input.observations.flatMap((observation) => observation.anchors),
+        ...input.observations
+          .filter((observation) => observation.kind === "task_outcome")
+          .map((observation) => observation.outcomeDigest),
         ...input.observations.flatMap((observation) => [
           observation.interpretation ?? "",
-          ...observation.anchors,
           observation.inputDigest ?? "",
           observation.outcomeDigest
         ]),
@@ -1910,16 +1932,17 @@ export class SecurityAgentController {
       if (record && isRuntimeContextArtifact(record.preview)) {
         continue;
       }
-      const tail = record && record.byteLength > 240
+      const snippet = relevantSnippets.find((candidate) => candidate.artifactRef === artifactRef);
+      const needsFallbackPreview = directRefSet.has(artifactRef) && !snippet;
+      const tail = needsFallbackPreview && record && record.byteLength > 240
         ? await this.artifactStore.read(artifactRef, {
           offset: Math.max(0, record.byteLength - 240),
           length: 240
         })
         : "";
-      const snippet = relevantSnippets.find((candidate) => candidate.artifactRef === artifactRef);
       selected.push([
         `${artifactRef} kind=${record?.kind ?? "unknown"} bytes=${record?.byteLength ?? "unknown"}`,
-        record?.preview ? `  head: ${truncateText(record.preview.replace(/\s+/g, " "), 240)}` : undefined,
+        needsFallbackPreview && record?.preview ? `  head: ${truncateText(record.preview.replace(/\s+/g, " "), 240)}` : undefined,
         tail ? `  tail: ${truncateText(tail.replace(/\s+/g, " "), 240)}` : undefined,
         snippet ? `  match: ${truncateText(snippet.snippet.replace(/\s+/g, " "), 480)}` : undefined
       ].filter((line): line is string => Boolean(line)).join("\n"));
@@ -2340,7 +2363,10 @@ export class SecurityAgentController {
   }
 
   private drainProjectionQueue(): void {
-    if (this.projectionQueueClosed || this.projectionCancellationRequested) {
+    if (
+      (this.projectionQueueClosed && !this.projectionQueueDrainingOnClose)
+      || this.projectionCancellationRequested
+    ) {
       return;
     }
     while (this.activeProjectionJobCount < MAX_ACTIVE_PROJECTION_JOBS && this.pendingProjectionRequests.size > 0) {
@@ -2415,51 +2441,48 @@ export class SecurityAgentController {
     batch: ProjectionBatch;
     nodeLimit: number;
     edgeLimit: number;
-    identityLimit?: number;
     artifactTextLimit?: number;
+    observationTextLimit?: number;
+    graphTextLimit?: number;
+    goalTextLimit?: number;
   }) {
+    const orphanRefs = this.projectionOrphanRefsByTask.get(input.input.taskEnvelope.taskId) ?? [];
     const closure = this.graphStore.projectionClosure({
       taskId: input.input.taskEnvelope.taskId,
       scopeRef: input.input.taskEnvelope.scopeRef,
       dependencyTaskIds: input.input.taskEnvelope.dependsOnTaskRefs,
-      targetRefs: input.input.taskEnvelope.targetRefs,
+      targetRefs: [...input.input.taskEnvelope.targetRefs, ...orphanRefs],
       anchors: input.batch.observations.flatMap((observation) => observation.anchors),
       nodeLimit: input.nodeLimit,
       edgeLimit: input.edgeLimit
     });
-    const identityLimit = input.identityLimit ?? PROJECTOR_OPERATION_IDENTITY_LIMIT;
-    const graphStats = this.graphStore.stats();
-    const nodesByKind = graphStats.nodesByKind as Record<string, unknown> | undefined;
-    const operationNodeCount = Number(nodesByKind?.operation ?? 0);
-    const operationIdentity = this.graphStore.query(
-      "operation",
-      [],
-      identityLimit
-    );
-    const graphContext = aliasProjectionGraphContext({
-      ...closure,
-      identityNodes: operationIdentity.nodes,
-      identityEdges: operationIdentity.edges,
-      identityIndexComplete: operationNodeCount <= identityLimit
-    });
+    const graphContext = aliasProjectionGraphContext(closure);
     const artifactIndex = await this.loadProjectorArtifactIndex({
       taskEnvelope: input.input.taskEnvelope,
       taskResult: input.input.taskResult,
       observations: input.batch.observations
     });
-    const artifactText = input.artifactTextLimit
+    const artifactText = input.artifactTextLimit !== undefined
       ? truncateText(artifactIndex.text, input.artifactTextLimit)
       : artifactIndex.text;
+    const observationText = input.observationTextLimit !== undefined
+      ? truncateText(renderProjectionObservations(input.batch.observations), input.observationTextLimit)
+      : renderProjectionObservations(input.batch.observations);
+    const graphText = input.graphTextLimit !== undefined
+      ? truncateText(renderProjectionGraphContext(graphContext), input.graphTextLimit)
+      : renderProjectionGraphContext(graphContext);
     const projectorInput = renderObserverInput({
       projectionJob: [
         `task=${input.input.taskEnvelope.taskId}`,
         `reason=${input.input.reason}`,
         `seq=(${input.claim.fromSeq},${input.batch.toSeq}] desired=${input.claim.toSeq}`,
-        `goal=${truncateText(input.input.taskEnvelope.goal, 500)}`
-      ].join("\n"),
-      observations: renderProjectionObservations(input.batch.observations),
+        orphanRefs.length > 0 ? `unconnectedNodeRefs=${orphanRefs.join(",")}` : undefined,
+        input.input.taskResult ? `taskOutcome=${truncateText(input.input.taskResult.summary, 600)}` : undefined,
+        `goal=${truncateText(input.input.taskEnvelope.goal, input.goalTextLimit ?? 500)}`
+      ].filter((line): line is string => Boolean(line)).join("\n"),
+      observations: observationText,
       artifactIndex: artifactText,
-      graphContext: renderProjectionGraphContext(graphContext)
+      graphContext: graphText
     });
     return {
       batch: input.batch,
@@ -2536,55 +2559,73 @@ export class SecurityAgentController {
       if (availableObservationCount === 0 && availableLogEvents.length > 0) {
         return this.discardProjectionJob(input, "waiting for executor result interpretation");
       }
-      let prepared: Awaited<ReturnType<SecurityAgentController["prepareProjectorInput"]>> | undefined;
-      for (let maxObservations = PROJECTOR_MAX_OBSERVATIONS_PER_JOB; maxObservations >= 1; maxObservations -= 1) {
-        const selectedBatch = selectProjectionBatch(availableLogEvents, {
-          fromSeq: claim.fromSeq,
-          maxObservations
+      const terminalProjection = Boolean(input.taskResult);
+      const selectedBatch = selectProjectionBatch(availableLogEvents, {
+        fromSeq: claim.fromSeq,
+        maxObservations: terminalProjection ? Number.MAX_SAFE_INTEGER : PROJECTOR_MAX_OBSERVATIONS_PER_JOB
+      });
+      const initialBatch = terminalProjection || selectedBatch.observations.length >= availableObservationCount
+        ? { ...selectedBatch, toSeq: claim.toSeq }
+        : selectedBatch;
+      let prepared = await this.prepareProjectorInput({
+        input,
+        claim,
+        batch: initialBatch,
+        nodeLimit: 12,
+        edgeLimit: 16
+      });
+      if (prepared.inputBytes > PROJECTOR_INPUT_TARGET_BYTES) {
+        const compactedBatch = compactProjectionBatchForInput(initialBatch, {
+          maxObservations: terminalProjection ? 24 : PROJECTOR_MAX_OBSERVATIONS_PER_JOB,
+          maxChars: Math.floor(PROJECTOR_INPUT_TARGET_BYTES * 0.55)
         });
-        const batch = selectedBatch.observations.length >= availableObservationCount
-          ? { ...selectedBatch, toSeq: claim.toSeq }
-          : selectedBatch;
-        const candidate = await this.prepareProjectorInput({
-          input,
-          claim,
-          batch,
-          nodeLimit: 12,
-          edgeLimit: 16,
-          identityLimit: PROJECTOR_OPERATION_IDENTITY_LIMIT
-        });
-        prepared = candidate;
-        if (candidate.inputBytes <= PROJECTOR_INPUT_HARD_LIMIT || batch.observations.length <= 1) {
-          break;
-        }
-      }
-      if (!prepared) {
-        throw new Error("Projector input preparation produced no batch");
-      }
-      if (prepared.inputBytes > PROJECTOR_INPUT_HARD_LIMIT) {
         prepared = await this.prepareProjectorInput({
           input,
           claim,
-          batch: prepared.batch,
-          nodeLimit: 9,
+          batch: compactedBatch,
+          nodeLimit: 10,
           edgeLimit: 14,
-          identityLimit: Math.min(PROJECTOR_OPERATION_IDENTITY_LIMIT, 32),
-          artifactTextLimit: 700
+          artifactTextLimit: 1_200,
+          graphTextLimit: 7_000
         });
       }
-      if (prepared.inputBytes > PROJECTOR_INPUT_HARD_LIMIT) {
+      if (prepared.inputBytes > PROJECTOR_INPUT_TARGET_BYTES) {
+        const compactedBatch = compactProjectionBatchForInput(initialBatch, {
+          maxObservations: terminalProjection ? 16 : Math.min(PROJECTOR_MAX_OBSERVATIONS_PER_JOB, 12),
+          maxChars: Math.floor(PROJECTOR_INPUT_TARGET_BYTES * 0.4)
+        });
         prepared = await this.prepareProjectorInput({
           input,
           claim,
-          batch: prepared.batch,
+          batch: compactedBatch,
           nodeLimit: 8,
           edgeLimit: 12,
-          identityLimit: Math.min(PROJECTOR_OPERATION_IDENTITY_LIMIT, 20),
-          artifactTextLimit: 400
+          artifactTextLimit: 500,
+          observationTextLimit: Math.floor(PROJECTOR_INPUT_TARGET_BYTES * 0.42),
+          graphTextLimit: 4_000,
+          goalTextLimit: 240
         });
       }
-      if (prepared.inputBytes > PROJECTOR_INPUT_HARD_LIMIT) {
-        throw new Error(`Projector input exceeds hard limit: ${prepared.inputBytes} > ${PROJECTOR_INPUT_HARD_LIMIT}`);
+      if (prepared.inputBytes > PROJECTOR_INPUT_TARGET_BYTES) {
+        const compactedBatch = compactProjectionBatchForInput(initialBatch, {
+          maxObservations: terminalProjection ? 12 : Math.min(PROJECTOR_MAX_OBSERVATIONS_PER_JOB, 8),
+          maxChars: Math.floor(PROJECTOR_INPUT_TARGET_BYTES * 0.3)
+        });
+        let observationTextLimit = Math.max(800, Math.floor(PROJECTOR_INPUT_TARGET_BYTES * 0.32));
+        do {
+          prepared = await this.prepareProjectorInput({
+            input,
+            claim,
+            batch: compactedBatch,
+            nodeLimit: 8,
+            edgeLimit: 12,
+            artifactTextLimit: 0,
+            observationTextLimit,
+            graphTextLimit: 2_000,
+            goalTextLimit: 120
+          });
+          observationTextLimit = Math.max(400, observationTextLimit - Math.max(500, prepared.inputBytes - PROJECTOR_INPUT_TARGET_BYTES));
+        } while (prepared.inputBytes > PROJECTOR_INPUT_TARGET_BYTES && observationTextLimit > 400);
       }
       const projectionToSeq = prepared.batch.toSeq;
       projectorProjectionToSeq = projectionToSeq;
@@ -2606,10 +2647,10 @@ export class SecurityAgentController {
           observationCount: prepared.batch.observations.length,
           graphNodeCount: prepared.graphContext.nodes.length,
           graphEdgeCount: prepared.graphContext.edges.length,
-          operationIdentityIndexComplete: prepared.graphContext.identityIndexComplete,
           artifactCount: prepared.artifactCount,
           inputBytes: prepared.inputBytes,
-          hardLimitBytes: PROJECTOR_INPUT_HARD_LIMIT
+          targetBytes: PROJECTOR_INPUT_TARGET_BYTES,
+          overTarget: prepared.inputBytes > PROJECTOR_INPUT_TARGET_BYTES
         }
       });
       if (prepared.batch.observations.length === 0) {
@@ -2617,13 +2658,14 @@ export class SecurityAgentController {
           graphDelta: { sourceEventIds: [], nodes: [], edges: [] },
           controlSignal: CONTINUE_CONTROL_SIGNAL
         };
-        this.graphStore.commitProjection({
+        const commitResult = this.graphStore.commitProjection({
           taskId: input.taskEnvelope.taskId,
           fromSeq: claim.fromSeq,
           toSeq: projectionToSeq,
           generation: claim.generation,
           delta: projection.graphDelta
         });
+        projection.graphDelta = commitResult.delta;
         projectionCommitted = true;
         projectorInvocationStatus = "completed_without_llm";
         this.projectionRetryCountByTask.delete(input.taskEnvelope.taskId);
@@ -2640,7 +2682,10 @@ export class SecurityAgentController {
           desiredSeq: claim.toSeq,
           durationMs: Date.now() - projectorInvocationStartedAt,
           inputBytes: prepared.inputBytes,
-          observationCount: prepared.batch.observations.length
+          observationCount: prepared.batch.observations.length,
+          remappedNodeCount: commitResult.remappedNodeCount,
+          mergedNodeCount: commitResult.mergedNodeCount,
+          orphanNodeIds: commitResult.orphanNodeIds
         });
         return projection;
       }
@@ -2679,13 +2724,31 @@ export class SecurityAgentController {
         graphDelta,
         controlSignal: CONTINUE_CONTROL_SIGNAL
       };
-      this.graphStore.commitProjection({
+      const commitResult = this.graphStore.commitProjection({
         taskId: input.taskEnvelope.taskId,
         fromSeq: claim.fromSeq,
         toSeq: projectionToSeq,
         generation: claim.generation,
         delta: projection.graphDelta
       });
+      projection.graphDelta = commitResult.delta;
+      const orphanCandidates = dedupeStrings([
+        ...(this.projectionOrphanRefsByTask.get(input.taskEnvelope.taskId) ?? []),
+        ...commitResult.orphanNodeIds
+      ]);
+      const unresolvedOrphanNodeIds = this.graphStore.findOrphanNodeIds(orphanCandidates).slice(0, 8);
+      if (unresolvedOrphanNodeIds.length > 0) {
+        this.projectionOrphanRefsByTask.set(input.taskEnvelope.taskId, unresolvedOrphanNodeIds);
+        await this.executionLog.append({
+          taskId: input.taskEnvelope.taskId,
+          role: "runtime",
+          eventType: "projection_orphans_detected",
+          summary: `projection has ${unresolvedOrphanNodeIds.length} unconnected nodes`,
+          payload: { orphanNodeIds: unresolvedOrphanNodeIds }
+        });
+      } else {
+        this.projectionOrphanRefsByTask.delete(input.taskEnvelope.taskId);
+      }
       projectionCommitted = true;
       projectorInvocationStatus = "completed";
       this.projectionRetryCountByTask.delete(input.taskEnvelope.taskId);
@@ -2702,7 +2765,10 @@ export class SecurityAgentController {
         desiredSeq: claim.toSeq,
         durationMs: Date.now() - projectorInvocationStartedAt,
         inputBytes: prepared.inputBytes,
-        observationCount: prepared.batch.observations.length
+        observationCount: prepared.batch.observations.length,
+        remappedNodeCount: commitResult.remappedNodeCount,
+        mergedNodeCount: commitResult.mergedNodeCount,
+        orphanNodeIds: commitResult.orphanNodeIds
       });
       return projection;
     } catch (promptError) {
@@ -2781,7 +2847,9 @@ export class SecurityAgentController {
         && projectionState.desiredSeq > projectionState.committedSeq
         && !this.pendingProjectionRequests.has(input.taskEnvelope.taskId)
       ) {
-        this.scheduleProjectionCatchup(input);
+        if (!input.taskResult) {
+          this.scheduleProjectionCatchup(input);
+        }
       }
     }
   }
@@ -2813,9 +2881,11 @@ export class SecurityAgentController {
       return;
     }
     const projectionState = this.runtimeStore.getProjectionState(taskId);
+    if (projectionState.desiredSeq <= projectionState.committedSeq) {
+      return;
+    }
     if (
-      projectionState.desiredSeq <= projectionState.committedSeq
-      || projectionState.activeGeneration !== undefined
+      projectionState.activeGeneration !== undefined
       || this.pendingProjectionRequests.has(taskId)
     ) {
       return;
@@ -3009,6 +3079,9 @@ export class SecurityAgentController {
     durationMs?: number;
     inputBytes?: number;
     observationCount?: number;
+    remappedNodeCount?: number;
+    mergedNodeCount?: number;
+    orphanNodeIds?: string[];
   }): Promise<void> {
     const nodeCounts = input.projection.graphDelta.nodes.reduce<Record<string, number>>((counts, node) => {
       const key = `${node.graphKind}:${node.type}`;
@@ -3030,6 +3103,9 @@ export class SecurityAgentController {
         durationMs: input.durationMs,
         inputBytes: input.inputBytes,
         observationCount: input.observationCount,
+        remappedNodeCount: input.remappedNodeCount,
+        mergedNodeCount: input.mergedNodeCount,
+        orphanNodeIds: input.orphanNodeIds,
         nodeCounts,
         edgeCount: input.projection.graphDelta.edges.length,
         sourceEventIds: input.projection.graphDelta.sourceEventIds,
@@ -3258,6 +3334,14 @@ export class SecurityAgentController {
       summary: controlSignal.reason,
       payload: { controlSignal, abortContext: state.abortContext, epochId: state.epochId }
     });
+    this.terminateExecutorSession(state);
+  }
+
+  private terminateExecutorSession(state: ActiveTaskState): void {
+    // Clear queued steers before aborting: the SDK auto-continues a run when
+    // messages remain queued after abort, which would resurrect the Executor
+    // past its termination point.
+    state.executorSession?.clearQueue?.();
     void state.executorSession?.abort();
   }
 
@@ -3296,7 +3380,7 @@ export class SecurityAgentController {
       }
     });
     if (!steeringQueued) {
-      void state.executorSession?.abort();
+      this.terminateExecutorSession(state);
       return;
     }
     state.checkpointGraceTimer = setTimeout(() => {
@@ -3311,7 +3395,7 @@ export class SecurityAgentController {
         summary: `Executor did not submit TaskResult within ${EXECUTOR_CHECKPOINT_GRACE_MS}ms`,
         payload: { controlSignal, graceMs: EXECUTOR_CHECKPOINT_GRACE_MS }
       });
-      void state.executorSession?.abort();
+      this.terminateExecutorSession(state);
     }, EXECUTOR_CHECKPOINT_GRACE_MS);
     state.checkpointGraceTimer.unref?.();
   }
@@ -3419,7 +3503,7 @@ export class SecurityAgentController {
         ? "Planner should read the updated graph and create the next goal-level task if needed."
         : undefined,
       checkpointReason: signal?.reason,
-      retryable: isInfraAbort ? true : signal?.decision !== "need_user_input" && signal?.decision !== "stop_executor",
+      retryable: isInfraAbort ? true : signal?.decision !== "stop_executor",
       attempt: state?.attempt ?? this.nextTaskAttempt(input.taskEnvelope.taskId),
       resumeCursor: state?.lastEventId,
       lastEventId: state?.lastEventId
@@ -3436,7 +3520,7 @@ export class SecurityAgentController {
       ?? (taskResult.status === "partial" ? "Executor returned a partial epoch result" : undefined);
     const retryable = typeof taskResult.retryable === "boolean"
       ? taskResult.retryable
-      : taskResult.status === "partial" && state?.controlSignal?.decision !== "need_user_input";
+      : taskResult.status === "partial";
     const lastEventId = state?.lastEventId;
     const submittedEvidenceRefs = taskResult.evidenceRefs.filter((ref) => (
       this.executionLog.seqForEvent(ref) !== undefined
@@ -3694,7 +3778,7 @@ function normalizeBudgetNumber(value: unknown, defaultValue: number, maxValue: n
 }
 
 export function shouldStopExecutorForControlSignal(controlSignal: ControlSignal): boolean {
-  return ["checkpoint", "stop_executor", "need_planner", "need_user_input"].includes(controlSignal.decision);
+  return ["checkpoint", "stop_executor", "need_planner"].includes(controlSignal.decision);
 }
 
 function isGracefulCheckpointSignal(controlSignal: ControlSignal): boolean {
@@ -3797,14 +3881,6 @@ function normalizeTaskResult(result: Partial<TaskResult>, taskEnvelope: TaskEnve
 }
 
 function controlSignalForTaskResult(taskResult: TaskResult, evidenceRefs: string[]): ControlSignal {
-  if (taskResult.status === "blocked") {
-    return {
-      decision: "need_user_input",
-      reason: taskResult.blockerReason ?? taskResult.summary,
-      evidenceRefs,
-      confidence: "medium"
-    };
-  }
   if (taskResult.status === "partial") {
     return {
       decision: "need_planner",
@@ -4105,7 +4181,7 @@ function stringProperty(value: unknown): string | undefined {
 }
 
 function isControlSignalDecision(value: string): value is ControlSignal["decision"] {
-  return ["continue", "checkpoint", "stop_executor", "need_planner", "need_user_input"].includes(value);
+  return ["continue", "checkpoint", "stop_executor", "need_planner"].includes(value);
 }
 
 function isTaskResultStatus(value: unknown): value is TaskResultStatus {

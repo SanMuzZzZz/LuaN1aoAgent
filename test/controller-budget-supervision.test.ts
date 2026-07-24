@@ -21,7 +21,7 @@ import type { ControlSignal, ExecutionEvent, ObserverProjection, PlannerDecision
 type ControllerHarness = {
   agents: {
     planner: unknown;
-    executor: { abort: () => Promise<void>; steer?: (text: string) => Promise<void> };
+    executor: { abort: () => Promise<void>; clearQueue?: () => unknown; steer?: (text: string) => Promise<void> };
     observer: unknown;
   };
   activeEpochs?: Map<string, unknown>;
@@ -93,7 +93,7 @@ type ControllerHarness = {
 type TestActiveState = {
   epochId: string;
   lifecycleState: "created" | "running" | "closing" | "closed";
-  executorSession?: { abort: () => Promise<void>; steer?: (text: string) => Promise<void> };
+  executorSession?: { abort: () => Promise<void>; clearQueue?: () => unknown; steer?: (text: string) => Promise<void> };
   executorStopRequested: boolean;
   supervisionState: {
     progressDigest: string;
@@ -337,6 +337,68 @@ test("requestStop aborts active epoch and records an interrupt before shutdown",
   assert.equal(state.executorStopRequested, true);
   assert.ok((await harness.controller.executionLog.readAll()).some((event) =>
     event.eventType === "run_interrupted" && event.summary === "Received SIGTERM"
+  ));
+  await harness.controller.close({ drainProjectionJobs: false });
+});
+
+test("requestStop clears queued steers before aborting the executor", async () => {
+  const harness = createControllerHarness();
+  const taskEnvelope = makeTaskEnvelope();
+  const state = harness.controllerHarness.beginTaskExecution(taskEnvelope);
+  const calls: string[] = [];
+  state.executorSession = {
+    clearQueue() { calls.push("clearQueue"); },
+    async abort() { calls.push("abort"); }
+  };
+
+  await harness.controller.requestStop("Received SIGTERM");
+  await waitForSettled();
+
+  assert.deepEqual(calls, ["clearQueue", "abort"]);
+  await harness.controller.close({ drainProjectionJobs: false });
+});
+
+test("stop_executor control signal clears queued steers before aborting the executor", async () => {
+  const harness = createControllerHarness();
+  const taskEnvelope = makeTaskEnvelope();
+  const state = harness.controllerHarness.beginTaskExecution(taskEnvelope);
+  const calls: string[] = [];
+  state.executorSession = {
+    clearQueue() { calls.push("clearQueue"); },
+    async abort() { calls.push("abort"); }
+  };
+
+  harness.controllerHarness.applyControlSignal(taskEnvelope, {
+    decision: "stop_executor",
+    reason: "supervisor stop",
+    evidenceRefs: ["event:stop"]
+  }, state);
+  await waitForSettled();
+
+  assert.deepEqual(calls, ["clearQueue", "abort"]);
+  await harness.controller.close({ drainProjectionJobs: false });
+});
+
+test("checkpoint without steer support terminates immediately with queue cleared", async () => {
+  const harness = createControllerHarness();
+  const taskEnvelope = makeTaskEnvelope();
+  const state = harness.controllerHarness.beginTaskExecution(taskEnvelope);
+  const calls: string[] = [];
+  state.executorSession = {
+    clearQueue() { calls.push("clearQueue"); },
+    async abort() { calls.push("abort"); }
+  };
+
+  harness.controllerHarness.applyControlSignal(taskEnvelope, {
+    decision: "checkpoint",
+    reason: "budget exhausted",
+    evidenceRefs: ["event:budget"]
+  }, state);
+  await waitForSettled();
+
+  assert.deepEqual(calls, ["clearQueue", "abort"]);
+  assert.ok((await harness.controller.executionLog.readAll()).some((event) =>
+    event.eventType === "executor_checkpoint_requested" && event.payload.delivery === "none"
   ));
   await harness.controller.close({ drainProjectionJobs: false });
 });
@@ -1017,7 +1079,7 @@ test("projection job logs queued, started and succeeded runtime events", async (
 
 test("projector input uses compact artifact index and graph context", async () => {
   const harness = createObserverControllerHarness(observerProjectionJson());
-  const taskEnvelope = makeTaskEnvelope();
+  const taskEnvelope = makeTaskEnvelope({ targetRefs: ["host:identity-index-target"] });
   activateTask(harness.controllerHarness, taskEnvelope);
   const artifactRefs: string[] = [];
   for (let index = 0; index < 30; index += 1) {
@@ -1104,10 +1166,11 @@ test("projector input uses compact artifact index and graph context", async () =
   assert.match(prompt, /<observations>/);
   assert.match(prompt, /<artifact_evidence>/);
   assert.match(prompt, /<graph_context>/);
-  assert.match(prompt, /全量作战身份索引/);
+  assert.match(prompt, /相关图节点/);
   assert.match(prompt, /10\.0\.0\.9/);
   assert.match(prompt, /executor_interpretation: 确认 middle-breakthrough-marker/);
   assert.match(prompt, /middle-breakthrough-marker/);
+  assert.doesNotMatch(prompt, /  head:|  tail:/);
   assert.doesNotMatch(prompt, /ARTIFACT_MANIFEST:|CURRENT_GRAPH_SLICE:/);
   assert.doesNotMatch(prompt, /artifact:graph-noise/);
   assert.doesNotMatch(prompt, /runtime prompt artifact/);
@@ -1280,6 +1343,74 @@ test("projection catchup defers a tiny tail instead of spending a projector call
   assert.equal(events.some((event) => event.eventType === "projection_catchup_started"), false);
   assert.equal(projectorSession.promptCount(), 1);
   harness.controller.close();
+});
+
+test("terminal projection consumes its remaining tail in one job", async () => {
+  const harness = createObserverControllerHarness(observerProjectionJson());
+  const taskEnvelope = makeTaskEnvelope({ budget: { ...DEFAULT_TASK_BUDGET, maxTurns: 20 } });
+  let lastSeq = 0;
+  for (let index = 0; index < 17; index += 1) {
+    const event = await persistExecutorEvent(harness.controller, taskEnvelope.taskId, "tool_finished", `terminal ${index}`);
+    lastSeq = event.seq ?? lastSeq;
+  }
+  harness.controller.runtimeStore.raiseProjectionDesired(taskEnvelope.taskId, lastSeq, 0);
+
+  await harness.controllerHarness.runProjectionJob({
+    reason: "task_end",
+    taskEnvelope,
+    taskResult: {
+      taskId: taskEnvelope.taskId,
+      status: "partial",
+      summary: "terminal projection drain",
+      evidenceRefs: [],
+      artifactRefs: []
+    }
+  });
+
+  const state = harness.controller.runtimeStore.getProjectionState(taskEnvelope.taskId);
+  assert.equal(state.committedSeq, state.desiredSeq);
+  const events = await harness.controller.executionLog.readAll();
+  assert.equal(events.filter((event) => event.eventType === "projection_job_started").length, 1);
+  assert.equal(events.some((event) => event.eventType === "projection_terminal_drain_started"), false);
+  await harness.controller.close();
+});
+
+test("terminal projection compacts an oversized tail without input-limit failure", async () => {
+  const harness = createObserverControllerHarness(observerProjectionJson());
+  const taskEnvelope = makeTaskEnvelope({ budget: { ...DEFAULT_TASK_BUDGET, maxTurns: 40 } });
+  let lastSeq = 0;
+  for (let index = 0; index < 80; index += 1) {
+    const event = await persistExecutorEvent(
+      harness.controller,
+      taskEnvelope.taskId,
+      "tool_finished",
+      `terminal-${index} ${"dense-result ".repeat(120)}`
+    );
+    lastSeq = event.seq ?? lastSeq;
+  }
+  harness.controller.runtimeStore.raiseProjectionDesired(taskEnvelope.taskId, lastSeq, 0);
+
+  await harness.controllerHarness.runProjectionJob({
+    reason: "task_end",
+    taskEnvelope,
+    taskResult: {
+      taskId: taskEnvelope.taskId,
+      status: "partial",
+      summary: `dense terminal result ${"summary ".repeat(2_000)}`,
+      evidenceRefs: [],
+      artifactRefs: []
+    }
+  });
+
+  const state = harness.controller.runtimeStore.getProjectionState(taskEnvelope.taskId);
+  assert.equal(state.committedSeq, state.desiredSeq);
+  assert.equal(harness.observerPromptCount(), 1);
+  const events = await harness.controller.executionLog.readAll();
+  assert.equal(events.some((event) => event.eventType === "projection_job_failed"), false);
+  const input = events.find((event) => event.eventType === "projection_input_built");
+  assert.ok(Number(input?.payload.inputBytes) <= Number(input?.payload.targetBytes));
+  assert.ok(Number(input?.payload.observationCount) <= 24);
+  await harness.controller.close();
 });
 
 test("projector advances committed watermark without losing prior windows", async () => {
@@ -1505,7 +1636,14 @@ test("task_end queues projector without blocking next planner cycle", async () =
         basedOnRefs: ["goal:root"]
       }),
       JSON.stringify({
-        decision: "need_user_input",
+        decision: "apply_commands",
+        commands: [{
+          kind: "set_node_status",
+          nodeId: "goal:root",
+          status: "achieved",
+          reason: "Planner regained control after epoch.",
+          basedOnRefs: ["task:first"]
+        }],
         reason: "Planner regained control after epoch.",
         basedOnRefs: ["task:first"]
       })
@@ -1536,7 +1674,8 @@ test("task_end queues projector without blocking next planner cycle", async () =
   }), 500);
 
   assert.equal(result.cycles.length, 2);
-  assert.equal(result.cycles[1].plannerDecision.decision, "need_user_input");
+  assert.equal(result.cycles[1].plannerDecision.decision, "apply_commands");
+  assert.equal(result.completed, true);
   assert.equal(projectorPromptStarted, true);
   assert.equal((await controller.executionLog.readAll())
     .some((event) => event.eventType === "projection_job_succeeded"), false);
@@ -1551,8 +1690,15 @@ test("planner prompt uses compact decision view and keeps graph retrieval tools 
   const runtimeDir = mkdtempSync(join(tmpdir(), "luanniao-controller-"));
   const controller = createControllerWithTestLlmEnv(runtimeDir);
   const plannerSession = createMockTextSession(JSON.stringify({
-    decision: "need_user_input",
-    reason: "Need operator confirmation",
+    decision: "apply_commands",
+    commands: [{
+      kind: "set_node_status",
+      nodeId: "goal:root",
+      status: "achieved",
+      reason: "Goal achieved",
+      basedOnRefs: ["goal:root"]
+    }],
+    reason: "Mark the goal achieved",
     basedOnRefs: ["goal:root"]
   }));
   const controllerHarness = controller as unknown as ControllerHarness;
@@ -1584,9 +1730,15 @@ test("retries a retryable Planner provider failure with a fresh session", async 
   const sessions = [
     createProviderErrorSession("503 Service unavailable"),
     createStructuredToolSession("planner_submit", {
-      decision: "need_user_input",
-      commands: [],
-      reason: "Need operator input",
+      decision: "apply_commands",
+      commands: [{
+        kind: "set_node_status",
+        nodeId: "goal:root",
+        status: "achieved",
+        reason: "Goal achieved",
+        basedOnRefs: ["goal:root"]
+      }],
+      reason: "Mark the goal achieved",
       basedOnRefs: ["goal:root"]
     })
   ];
@@ -1595,6 +1747,7 @@ test("retries a retryable Planner provider failure with a fresh session", async 
   harness.controllerHarness.structuredInvocationsEnabled = true;
   harness.controllerHarness.buildPlannerDecisionView = async () => ({
     view: "planner_decision",
+    rootRefs: { goalRef: "goal:root", scopeRef: "scope:root" },
     taskLedger: [],
     reasoningDigest: [],
     operationDigest: [],
@@ -1616,7 +1769,7 @@ test("retries a retryable Planner provider failure with a fresh session", async 
   assert.equal(viewVersion, 2);
   assert.match(sessions[0]?.prompts()[0] ?? "", /"nodeCount":1/);
   assert.match(sessions[1]?.prompts()[0] ?? "", /"nodeCount":2/);
-  assert.equal(result.plannerDecision.decision, "need_user_input");
+  assert.equal(result.plannerDecision.decision, "apply_commands");
   assert.ok((await harness.controller.executionLog.readAll())
     .some((event) => event.eventType === "planner_prompt_retry_scheduled"));
   await harness.controller.close({ drainProjectionJobs: false });
@@ -1653,7 +1806,7 @@ test("repairs an invalid planner submit in the same session and executes the cre
   });
   controllerHarness.agents = {
     planner: createStructuredToolSession("planner_submit", {
-      decision: "need_user_input",
+      decision: "apply_commands",
       commands: [],
       reason: "unused fallback planner",
       basedOnRefs: ["goal:root"]
@@ -1695,9 +1848,15 @@ test("retries an unrepaired invalid Planner submit with a fresh session", async 
   const sessions = [
     createStructuredToolErrorSession("planner_submit", "Validation failed: reason is required"),
     createStructuredToolSession("planner_submit", {
-      decision: "need_user_input",
-      commands: [],
-      reason: "Need operator input",
+      decision: "apply_commands",
+      commands: [{
+        kind: "set_node_status",
+        nodeId: "goal:root",
+        status: "achieved",
+        reason: "Goal achieved",
+        basedOnRefs: ["goal:root"]
+      }],
+      reason: "Mark the goal achieved",
       basedOnRefs: ["goal:root"]
     })
   ];
@@ -1715,7 +1874,7 @@ test("retries an unrepaired invalid Planner submit with a fresh session", async 
   const events = await harness.controller.executionLog.readAll();
 
   assert.equal(sessionIndex, 2);
-  assert.equal(result.plannerDecision.decision, "need_user_input");
+  assert.equal(result.plannerDecision.decision, "apply_commands");
   assert.ok(events.some((event) => event.eventType === "planner_prompt_failed"
     && event.summary === "Validation failed: reason is required"
     && event.payload.retryable === true));
@@ -1737,8 +1896,9 @@ test("defers a retryable Planner outage without failing the run", async () => {
     }
     return {
       plannerDecision: {
-        decision: "need_user_input",
-        reason: "Need operator input",
+        decision: "apply_commands",
+        commands: [],
+        reason: "Recovered after the outage",
         basedOnRefs: []
       }
     };
@@ -1900,6 +2060,10 @@ test("root graph initialization preserves an existing completed goal", async () 
     harness.controller.graphStore.query("task", ["goal:root"], 1).nodes[0]?.properties.status,
     "completed"
   );
+  assert.deepEqual((await harness.controllerHarness.buildPlannerDecisionView()).rootRefs, {
+    goalRef: "goal:root",
+    scopeRef: "scope:root"
+  });
   harness.controller.close();
 });
 
@@ -2334,6 +2498,75 @@ test("close drains background projector before closing graph store", async () =>
   await closePromise;
   assert.equal(closeResolved, true);
   assert.equal(graphStoreClosed, true);
+});
+
+test("close drains pending terminal projections after active projector slots settle", async () => {
+  const harness = createObserverControllerHarness(JSON.stringify({ nodes: [], edges: [] }));
+  const taskEnvelopes = [
+    makeTaskEnvelope({ taskId: "task:close-drain-a" }),
+    makeTaskEnvelope({ taskId: "task:close-drain-b" }),
+    makeTaskEnvelope({ taskId: "task:close-drain-terminal" })
+  ];
+  const releases = taskEnvelopes.map(() => createDeferred<void>());
+  let projectorSessionCount = 0;
+  let projectionStatesAtClose: Array<{ committedSeq: number; desiredSeq: number }> = [];
+  const originalClose = harness.controller.graphStore.close.bind(harness.controller.graphStore);
+  harness.controller.graphStore.close = (): void => {
+    projectionStatesAtClose = taskEnvelopes.map(({ taskId }) => {
+      const state = harness.controller.runtimeStore.getProjectionState(taskId);
+      return { committedSeq: state.committedSeq, desiredSeq: state.desiredSeq };
+    });
+    originalClose();
+  };
+  harness.controllerHarness.createObserverSessionForMode = async () => {
+    const sessionIndex = projectorSessionCount;
+    projectorSessionCount += 1;
+    return {
+      session: createDelayedAbortableMockTextSession(async () => {
+        await releases[sessionIndex]?.promise;
+        return JSON.stringify({ nodes: [], edges: [] });
+      }),
+      dynamicObserver: true
+    };
+  };
+
+  const projectionPromises: Array<Promise<ObserverProjection>> = [];
+  for (const [index, taskEnvelope] of taskEnvelopes.entries()) {
+    const sourceEvent = await persistExecutorEvent(
+      harness.controller,
+      taskEnvelope.taskId,
+      index === 2 ? "task_partial" : "tool_finished",
+      index === 2 ? "terminal task result" : `active projection ${index}`
+    );
+    projectionPromises.push(harness.controllerHarness.enqueueProjectionJob({
+      reason: index === 2 ? "task_end" : "project_window:3",
+      taskEnvelope,
+      sourceEventIds: [sourceEvent.id],
+      ...(index === 2 ? {
+        taskResult: {
+          taskId: taskEnvelope.taskId,
+          status: "partial",
+          summary: "terminal projection must drain",
+          evidenceRefs: [sourceEvent.id],
+          artifactRefs: []
+        }
+      } : {})
+    }));
+  }
+  await waitFor(() => projectorSessionCount === 2);
+
+  const closePromise = harness.controller.close({ projectionDrainTimeoutMs: 2_000 });
+  await waitForSettled();
+  assert.equal(projectorSessionCount, 2);
+
+  releases[0]?.resolve();
+  releases[1]?.resolve();
+  await waitFor(() => projectorSessionCount === 3);
+  releases[2]?.resolve();
+  await Promise.all([...projectionPromises, closePromise]);
+
+  assert.equal(projectorSessionCount, 3);
+  assert.ok(projectionStatesAtClose.every((state) => state.committedSeq === state.desiredSeq));
 });
 
 test("close without drain cancels and joins projector before closing stores", async () => {

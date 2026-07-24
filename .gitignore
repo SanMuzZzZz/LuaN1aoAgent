@@ -5,7 +5,7 @@ traffic-proxy/bin/
 .agent-runtime/
 .agents/
 .env
-.env.bak
+.env*.bak
 *.log
 *.sqlite
 *.sqlite-shm

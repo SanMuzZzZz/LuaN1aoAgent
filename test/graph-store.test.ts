@@ -325,6 +325,104 @@ test("projection commit conflict rolls back graph writes and watermark", () => {
   graphStore.close();
 });
 
+test("projection commits merge concurrent operation identities without losing topology", () => {
+  const runtimeDir = mkdtempSync(join(tmpdir(), "luanniao-graph-"));
+  const databasePath = join(runtimeDir, "state.sqlite");
+  const graphStore = new SQLiteGraphStore(databasePath, join(runtimeDir, "deltas.jsonl"));
+  const runtimeStore = new RuntimeStore(databasePath);
+  runtimeStore.raiseProjectionDesired("task:8001", 83);
+  runtimeStore.raiseProjectionDesired("task:8000", 115);
+  const claim8001 = runtimeStore.claimProjection("task:8001");
+  const claim8000 = runtimeStore.claimProjection("task:8000");
+  assert.ok(claim8001);
+  assert.ok(claim8000);
+
+  const first = graphStore.commitProjection({
+    ...claim8001,
+    delta: {
+      sourceEventIds: ["event:8001"],
+      nodes: [
+        { id: "projected:host-a", graphKind: "operation", type: "Host", label: "60.205.226.234", properties: { first: true }, evidenceRefs: ["event:8001"] },
+        { id: "projected:port-8001", graphKind: "operation", type: "Port", label: "8001/TCP", properties: {}, evidenceRefs: ["event:8001"] }
+      ],
+      edges: [{ from: "projected:host-a", to: "projected:port-8001", type: "has_port", evidenceRefs: ["event:8001"] }]
+    }
+  });
+  const second = graphStore.commitProjection({
+    ...claim8000,
+    delta: {
+      sourceEventIds: ["event:8000"],
+      nodes: [
+        { id: "projected:host-b", graphKind: "operation", type: "Host", label: "60.205.226.234", properties: { second: true }, evidenceRefs: ["event:8000"] },
+        { id: "projected:port-8000", graphKind: "operation", type: "Port", label: "8000/TCP", properties: { port: 8000, protocol: "tcp" }, evidenceRefs: ["event:8000"] }
+      ],
+      edges: [{ from: "projected:host-b", to: "projected:port-8000", type: "has_port", evidenceRefs: ["event:8000"] }]
+    }
+  });
+
+  const operation = graphStore.query("operation", [], 20);
+  const hosts = operation.nodes.filter((node) => node.type === "Host");
+  const ports = operation.nodes.filter((node) => node.type === "Port");
+  assert.equal(hosts.length, 1);
+  assert.deepEqual(hosts[0]?.properties, { first: true, second: true });
+  assert.deepEqual(hosts[0]?.evidenceRefs, ["event:8001", "event:8000"]);
+  assert.deepEqual(new Set(ports.map((node) => node.label)), new Set(["8000/TCP", "8001/TCP"]));
+  assert.equal(operation.edges.filter((edge) => edge.from === hosts[0]?.id && edge.type === "has_port").length, 2);
+  assert.equal(first.orphanNodeIds.length, 0);
+  assert.equal(second.orphanNodeIds.length, 0);
+  assert.ok(first.remappedNodeCount >= 2);
+  assert.ok(second.remappedNodeCount >= 2);
+  assert.equal(runtimeStore.getProjectionState("task:8001").committedSeq, 83);
+  assert.equal(runtimeStore.getProjectionState("task:8000").committedSeq, 115);
+  runtimeStore.close();
+  graphStore.close();
+});
+
+test("projection commit rejects dangling edges and preserves the watermark", () => {
+  const runtimeDir = mkdtempSync(join(tmpdir(), "luanniao-graph-"));
+  const databasePath = join(runtimeDir, "state.sqlite");
+  const graphStore = new SQLiteGraphStore(databasePath, join(runtimeDir, "deltas.jsonl"));
+  const runtimeStore = new RuntimeStore(databasePath);
+  runtimeStore.raiseProjectionDesired("task:dangling", 9);
+  const claim = runtimeStore.claimProjection("task:dangling");
+  assert.ok(claim);
+
+  assert.throws(() => graphStore.commitProjection({
+    ...claim,
+    delta: {
+      sourceEventIds: ["event:9"],
+      nodes: [{ id: "projected:evidence", graphKind: "reasoning", type: "Evidence", label: "Evidence", properties: {}, evidenceRefs: ["event:9"] }],
+      edges: [{ from: "projected:evidence", to: "projected:missing", type: "observed_on", evidenceRefs: ["event:9"] }]
+    }
+  }), /references missing node/);
+  assert.equal(runtimeStore.getProjectionState("task:dangling").committedSeq, 0);
+  assert.equal(graphStore.query("reasoning", ["projected:evidence"], 1).nodes.length, 0);
+  runtimeStore.close();
+  graphStore.close();
+});
+
+test("projection commit reports newly written orphan semantic nodes", () => {
+  const runtimeDir = mkdtempSync(join(tmpdir(), "luanniao-graph-"));
+  const databasePath = join(runtimeDir, "state.sqlite");
+  const graphStore = new SQLiteGraphStore(databasePath, join(runtimeDir, "deltas.jsonl"));
+  const runtimeStore = new RuntimeStore(databasePath);
+  runtimeStore.raiseProjectionDesired("task:orphan", 3);
+  const claim = runtimeStore.claimProjection("task:orphan");
+  assert.ok(claim);
+
+  const result = graphStore.commitProjection({
+    ...claim,
+    delta: {
+      sourceEventIds: ["event:3"],
+      nodes: [{ id: "projected:orphan", graphKind: "reasoning", type: "Evidence", label: "Unconnected evidence", properties: {}, evidenceRefs: ["event:3"] }],
+      edges: []
+    }
+  });
+  assert.deepEqual(result.orphanNodeIds, ["projected:orphan"]);
+  runtimeStore.close();
+  graphStore.close();
+});
+
 test("rejects confirmed vulnerability without evidence refs", () => {
   const runtimeDir = mkdtempSync(join(tmpdir(), "luanniao-graph-"));
   const graphStore = new SQLiteGraphStore(join(runtimeDir, "state.sqlite"), join(runtimeDir, "deltas.jsonl"));
@@ -941,6 +1039,25 @@ test("planner task ledger truncates long runtime outcomes", () => {
   const summary = graphStore.plannerDecisionView().taskLedger[0]?.resultSummary ?? "";
   assert.ok(summary.length <= 520);
   assert.match(summary, /\[truncated\]$/);
+  graphStore.close();
+});
+
+test("planner decision view exposes the stored Root Goal and Scope references", () => {
+  const runtimeDir = mkdtempSync(join(tmpdir(), "luanniao-graph-"));
+  const graphStore = new SQLiteGraphStore(join(runtimeDir, "state.sqlite"), join(runtimeDir, "deltas.jsonl"));
+  graphStore.upsertDelta({
+    sourceEventIds: [],
+    nodes: [
+      { id: "goal:root", graphKind: "task", type: "Goal", label: "Goal", properties: {} },
+      { id: "scope:root", graphKind: "task", type: "Scope", label: "Scope", properties: {} }
+    ],
+    edges: [{ from: "goal:root", to: "scope:root", type: "within_scope" }]
+  });
+
+  assert.deepEqual(graphStore.plannerDecisionView().rootRefs, {
+    goalRef: "goal:root",
+    scopeRef: "scope:root"
+  });
   graphStore.close();
 });
 

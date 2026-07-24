@@ -17,7 +17,7 @@ test("supervisor observer mode exposes only the terminating control tool", () =>
   assert.deepEqual(tools.map((tool) => tool.name), ["control_submit"]);
 });
 
-test("projector observer mode exposes only the terminating graph tool", () => {
+test("projector observer mode exposes bounded read-only graph tools and the terminating graph tool", () => {
   const tools = observerToolsForMode({
     mode: "project",
     graphStore: {} as SQLiteGraphStore,
@@ -25,7 +25,12 @@ test("projector observer mode exposes only the terminating graph tool", () => {
     artifactStore: {} as ArtifactStore
   });
 
-  assert.deepEqual(tools.map((tool) => tool.name), ["graph_delta_submit"]);
+  assert.deepEqual(tools.map((tool) => tool.name), [
+    "graph_search",
+    "graph_query",
+    "graph_trace",
+    "graph_delta_submit"
+  ]);
 });
 
 test("executor exposes bounded public research tools", () => {

@@ -33,6 +33,16 @@ import {
 
 export type ExecutorSandboxMode = "macos-seatbelt" | "linux-bubblewrap" | "workspace";
 
+// Default per-call bash timeout (seconds) when the model does not pass one.
+// The Pi SDK schema leaves timeout optional with no default; without a floor a
+// runaway command (e.g. an unbounded brute-force loop) stalls the epoch until
+// the global run deadline. The SDK kills the whole process tree on timeout and
+// returns a "Command timed out" tool error the Executor can react to.
+function executorBashDefaultTimeoutSeconds(): number {
+  const value = Number(process.env.EXECUTOR_BASH_DEFAULT_TIMEOUT_S);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 300;
+}
+
 export type ExecutorSandboxRequestedMode = "auto" | "seatbelt" | "bubblewrap" | "workspace";
 
 export type ExecutorSandbox = {
@@ -128,6 +138,7 @@ export async function createExecutorSandbox(input: {
                 : command;
             return localBash.exec(wrappedCommand, canonicalRoot, {
               ...options,
+              timeout: options.timeout ?? executorBashDefaultTimeoutSeconds(),
               env: sandboxEnvironment(mergeCommandEnvironment(options.env, environment), canonicalRoot)
             });
           }

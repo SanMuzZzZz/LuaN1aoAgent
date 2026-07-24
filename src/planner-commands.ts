@@ -15,9 +15,6 @@ export function normalizePlannerDecision(value: unknown): PlannerDecision {
   const decision = value.decision;
   const reason = nonEmptyString(value.reason) ?? "Planner did not provide a reason";
   const basedOnRefs = stringArray(value.basedOnRefs);
-  if (decision === "need_user_input") {
-    return { decision, commands: [], reason, basedOnRefs };
-  }
   if (decision !== "apply_commands") {
     throw new PlannerProtocolError(`Unsupported planner decision: ${String(decision)}`);
   }

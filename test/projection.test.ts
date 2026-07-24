@@ -90,6 +90,43 @@ test("closes a long tool result with the next Executor interpretation without co
   assert.equal(batch.toSeq, 3);
 });
 
+test("groups parallel tool results under one Executor interpretation", () => {
+  const observations = buildProjectionObservations([
+    event(1, "event:intent", "assistant_intent", { text: "并行确认两个服务" }),
+    event(2, "event:start-http", "tool_started", {
+      toolCallId: "call:http",
+      toolName: "bash",
+      args: { command: "curl http://10.0.0.5/" }
+    }),
+    event(3, "event:start-ssh", "tool_started", {
+      toolCallId: "call:ssh",
+      toolName: "bash",
+      args: { command: "nc -vz 10.0.0.5 22" }
+    }),
+    event(4, "event:end-http", "tool_finished", {
+      toolCallId: "call:http",
+      toolName: "bash",
+      result: { content: [{ type: "text", text: "HTTP/1.1 200 OK" }] }
+    }),
+    event(5, "event:end-ssh", "tool_finished", {
+      toolCallId: "call:ssh",
+      toolName: "bash",
+      result: { content: [{ type: "text", text: "Connection succeeded" }] }
+    }),
+    event(6, "event:interpretation", "assistant_intent", {
+      text: "目标同时开放 HTTP 和 SSH，下一步检查认证面。"
+    })
+  ]);
+
+  assert.equal(observations.length, 1);
+  assert.equal(observations[0]?.action, "tool_group");
+  assert.equal(observations[0]?.actions?.length, 2);
+  assert.match(observations[0]?.interpretation ?? "", /同时开放 HTTP 和 SSH/);
+  const rendered = renderProjectionObservations(observations);
+  assert.match(rendered, /tool\[1\]: bash/);
+  assert.equal(rendered.match(/executor_interpretation:/g)?.length, 1);
+});
+
 test("does not advance projection watermark past an unclosed action", () => {
   const events: ExecutionEvent[] = [
     event(1, "event:intent", "assistant_intent", { text: "验证内部读取能力" }),
@@ -386,103 +423,6 @@ test("new projector aliases receive runtime identities instead of colliding with
   assert.notEqual(delta.nodes[0]?.id, "new:13");
 });
 
-test("projector reuses canonical operation identities outside the local closure", () => {
-  const graphContext = aliasProjectionGraphContext({
-    nodes: [{
-      id: "evidence:local",
-      graphKind: "reasoning",
-      type: "Evidence",
-      label: "Local observation",
-      properties: {},
-      evidenceRefs: ["event:old"]
-    }],
-    edges: [],
-    identityNodes: [{
-      id: "endpoint:existing-admin",
-      graphKind: "operation",
-      type: "WebEndpoint",
-      label: "GET /admin",
-      properties: { url: "http://TARGET.test/admin", method: "GET" }
-    }],
-    identityEdges: []
-  });
-  const delta = expandProjectionDraft({
-    batch: {
-      observations: [{
-        ref: "o1",
-        kind: "action",
-        seqStart: 1,
-        seqEnd: 2,
-        action: "bash",
-        outcomeDigest: "GET /admin returned 200",
-        status: "ok",
-        artifactRefs: [],
-        anchors: ["http://target.test/admin"],
-        sourceEventIds: ["event:new"]
-      }],
-      toSeq: 2,
-      sourceEventIds: ["event:new"]
-    },
-    graphContext,
-    value: {
-      nodes: [{
-        id: "new:1",
-        graphKind: "operation",
-        type: "WebEndpoint",
-        label: "GET /admin",
-        properties: { url: "http://target.test:80/admin", method: "GET" },
-        evidenceRefs: ["o1"]
-      }],
-      edges: []
-    }
-  });
-
-  assert.equal(delta.nodes[0]?.id, "endpoint:existing-admin");
-  assert.match(renderProjectionGraphContext(graphContext), /全量作战身份索引/);
-  assert.match(renderProjectionGraphContext(graphContext), /endpoint:existing-admin|existing:2 WebEndpoint/);
-});
-
-test("canonical operation identities cover host port service endpoint and parameter", () => {
-  const identityNodes: GraphNode[] = [
-    { id: "host:target", graphKind: "operation", type: "Host", label: "Target", properties: { host: "TARGET.test" } },
-    { id: "port:target:80", graphKind: "operation", type: "Port", label: "80/tcp", properties: { host: "target.test", port: 80, protocol: "tcp" } },
-    { id: "service:target:http", graphKind: "operation", type: "Service", label: "HTTP", properties: { host: "target.test", port: 80, protocol: "http" } },
-    { id: "endpoint:target:admin", graphKind: "operation", type: "WebEndpoint", label: "GET /admin", properties: { url: "http://target.test/admin", method: "GET" } },
-    { id: "parameter:target:admin:id", graphKind: "operation", type: "Parameter", label: "query id", properties: { endpoint: "http://target.test/admin", location: "query", name: "id" } }
-  ];
-  const graphContext = aliasProjectionGraphContext({ nodes: [], edges: [], identityNodes, identityEdges: [] });
-  const proposedNodes = identityNodes.map((node, index) => ({
-    id: `new:${index + 1}`,
-    graphKind: node.graphKind,
-    type: node.type,
-    label: node.label,
-    properties: node.properties,
-    evidenceRefs: ["o1"]
-  }));
-  const delta = expandProjectionDraft({
-    batch: {
-      observations: [{
-        ref: "o1",
-        kind: "action",
-        seqStart: 1,
-        seqEnd: 2,
-        action: "bash",
-        outcomeDigest: "Observed target operation surface",
-        status: "ok",
-        artifactRefs: [],
-        anchors: ["target.test"],
-        sourceEventIds: ["event:new"]
-      }],
-      toSeq: 2,
-      sourceEventIds: ["event:new"]
-    },
-    graphContext,
-    value: { nodes: proposedNodes, edges: [] }
-  });
-
-  assert.deepEqual(new Set(delta.nodes.map((node) => node.id)), new Set(identityNodes.map((node) => node.id)));
-});
-
 test("projector drops explicit global ids outside the alias boundary", () => {
   const delta = expandProjectionDraft({
     batch: {
@@ -637,11 +577,7 @@ test("projector derives stable tunnel and proxy route edge identities", () => {
 });
 
 test("canonical operation identities cover agent and shell sessions", () => {
-  const identityNodes: GraphNode[] = [
-    { id: "agent-session:agent-1", graphKind: "operation", type: "AgentSession", label: "Agent one", properties: { sessionId: "agent-1" } },
-    { id: "shell-session:shell-1", graphKind: "operation", type: "ShellSession", label: "Shell one", properties: { shellSessionId: "shell-1" } }
-  ];
-  const graphContext = aliasProjectionGraphContext({ nodes: [], edges: [], identityNodes, identityEdges: [] });
+  const graphContext = aliasProjectionGraphContext({ nodes: [], edges: [] });
   const delta = expandProjectionDraft({
     batch: { observations: [], toSeq: 0, sourceEventIds: [] },
     graphContext,

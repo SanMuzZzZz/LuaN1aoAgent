@@ -152,7 +152,7 @@ export type TaskResult = {
 
 export type TaskGraphStatus = "open" | "partial" | "completed" | "blocked" | "failed" | "archived";
 
-export type PlannerDecisionType = "apply_commands" | "need_user_input";
+export type PlannerDecisionType = "apply_commands";
 
 export type PlannerDecision = {
   decision: PlannerDecisionType;
@@ -219,8 +219,7 @@ export type ControlSignalDecision =
   | "continue"
   | "checkpoint"
   | "stop_executor"
-  | "need_planner"
-  | "need_user_input";
+  | "need_planner";
 
 export type ControlSignal = {
   decision: ControlSignalDecision;
@@ -355,6 +354,10 @@ export type PlannerDigestItem = {
 
 export type PlannerDecisionView = {
   view: "planner_decision";
+  rootRefs: {
+    goalRef: string | null;
+    scopeRef: string | null;
+  };
   taskLedger: PlannerTaskLedgerItem[];
   reasoningDigest: PlannerDigestItem[];
   operationDigest: PlannerDigestItem[];

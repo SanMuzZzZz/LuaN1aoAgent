@@ -234,3 +234,58 @@ test("forced bubblewrap mode fails closed when bwrap is unavailable", async () =
     }
   }
 });
+
+test("executor sandbox bash enforces the default timeout when the model omits it", async () => {
+  const previous = process.env.EXECUTOR_BASH_DEFAULT_TIMEOUT_S;
+  process.env.EXECUTOR_BASH_DEFAULT_TIMEOUT_S = "1";
+  try {
+    const runtimeDir = mkdtempSync(join(tmpdir(), "luanniao-sandbox-timeout-"));
+    const sandbox = await createExecutorSandbox({ runtimeDir, runId: "run", mode: "workspace" });
+    const bashTool = sandbox.createTools().find((tool) => tool.name === "bash");
+    assert.ok(bashTool);
+    const startedAt = Date.now();
+    await assert.rejects(
+      () => bashTool.execute(
+        "call:timeout",
+        { command: "sleep 30" },
+        new AbortController().signal,
+        () => undefined,
+        {} as never
+      ),
+      /timed out after 1 seconds/
+    );
+    assert.ok(Date.now() - startedAt < 15_000, "default timeout should kill the command well before it finishes");
+  } finally {
+    if (previous === undefined) {
+      delete process.env.EXECUTOR_BASH_DEFAULT_TIMEOUT_S;
+    } else {
+      process.env.EXECUTOR_BASH_DEFAULT_TIMEOUT_S = previous;
+    }
+  }
+});
+
+test("executor sandbox bash honors an explicit model timeout over the default", async () => {
+  const previous = process.env.EXECUTOR_BASH_DEFAULT_TIMEOUT_S;
+  process.env.EXECUTOR_BASH_DEFAULT_TIMEOUT_S = "1";
+  try {
+    const runtimeDir = mkdtempSync(join(tmpdir(), "luanniao-sandbox-timeout-override-"));
+    const sandbox = await createExecutorSandbox({ runtimeDir, runId: "run", mode: "workspace" });
+    const bashTool = sandbox.createTools().find((tool) => tool.name === "bash");
+    assert.ok(bashTool);
+    const result = await bashTool.execute(
+      "call:timeout-override",
+      { command: "sleep 2; echo survived", timeout: 10 },
+      new AbortController().signal,
+      () => undefined,
+      {} as never
+    );
+    const output = result.content.find((item) => item.type === "text")?.text ?? "";
+    assert.ok(output.includes("survived"));
+  } finally {
+    if (previous === undefined) {
+      delete process.env.EXECUTOR_BASH_DEFAULT_TIMEOUT_S;
+    } else {
+      process.env.EXECUTOR_BASH_DEFAULT_TIMEOUT_S = previous;
+    }
+  }
+});

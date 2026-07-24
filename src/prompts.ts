@@ -41,7 +41,7 @@ export const PLANNER_SYSTEM_PROMPT = `# Identity
 
 # Retrieval And Output
 默认输入是压缩 PlannerDecisionView。信息足够时直接提交；存在冲突、关键链路缺失或引用不清时，使用 graph_query/graph_trace 查看节点和边。每次 invocation 合计最多检索 3 次。初始图只有 Root Goal/Scope 时直接规划入口任务，不做空检索。
-最终必须调用 planner_submit，decision 只能是 apply_commands 或 need_user_input。commands 使用现有 create_tasks、patch_task、replace_dependencies、set_task_status、set_node_status 命令；没有图修改但已有 ready Task 时提交空 commands。不要输出自由文本 JSON。
+最终必须调用 planner_submit，decision 只能是 apply_commands。commands 使用现有 create_tasks、patch_task、replace_dependencies、set_task_status、set_node_status 命令；没有图修改但已有 ready Task 时提交空 commands。不要输出自由文本 JSON。
 
 # Examples
 <example name="conflicting-observations">
@@ -145,7 +145,7 @@ export const OBSERVER_PROJECTOR_SYSTEM_PROMPT = `# Identity
 8. executor_interpretation 是 Executor 在看到工具结果后的后续理解，只用于定位相关结果和 Artifact 片段，不能单独作为 Evidence。若 interpretation 与动态结果冲突，以动态结果为准，并保持 Hypothesis 或 inconclusive；禁止据此创建 Vulnerability/Exploit。
 
 # Identity And Evidence Rules
-局部闭包和作战身份索引中的 existing:1、existing:2 都是已有节点，可以在 nodes 中增量更新或在 edges 中引用，不能改变其 id、graphKind 或 type。创建 Host、Port、Service、WebEndpoint、Parameter、AgentSession、ShellSession 前必须先检查身份索引并复用等价 existing 别名；索引标为全量时，表示当前作战图实体已全部列出。新节点使用 new:1、new:2，Runtime 会对这些作战实体再次做确定性身份合并，并由 sessionId/agentSessionId/shellSessionId、tunnelId 或 routeId 派生最终身份；模型不得提交 id。evidenceRefs 只能使用本次 observation 别名 o1、o2；Artifact 是原始材料，不是 Evidence。任何 Credential、secret、token、password、cookie、authorization、privateKey 或响应 body 均不得写入节点或边 properties。
+图上下文中的 existing:1、existing:2 都是已有节点，可以在 nodes 中增量更新或在 edges 中引用，不能改变其 id、graphKind 或 type。上下文不足以判断语义关系时，可最多调用两次 graph_search、graph_query 或 graph_trace 补充读取；新节点使用 new:1、new:2，Runtime 会在提交事务中合并具有相同客观身份的作战实体并同步重写关系，模型不得提交全局 id。evidenceRefs 只能使用本次 observation 别名 o1、o2；Artifact 是原始材料，不是 Evidence。任何 Credential、secret、token、password、cookie、authorization、privateKey 或响应 body 均不得写入节点或边 properties。
 禁止写入或连接 Task、Milestone、Blocker、Goal、Scope。运行时 timeout、abort 和 provider error 不是业务 Blocker。最多提交 12 个节点、20 条边，最终调用 graph_delta_submit。
 
 # Examples
@@ -186,7 +186,7 @@ export const OBSERVER_SUPERVISOR_SYSTEM_PROMPT = `你是 Observer Agent 的 Supe
 
 完成判断后必须调用 control_submit，不要输出自由文本 JSON：
 {
-  "decision": "continue | checkpoint | stop_executor | need_planner | need_user_input",
+  "decision": "continue | checkpoint | stop_executor | need_planner",
   "reason": "监督理由",
   "evidenceRefs": ["..."],
   "confidence": "low | medium | high",
@@ -232,7 +232,7 @@ ${stableCompactJson(compactDecisionView)}
 </planner_state>
 ${repairFeedback}
 
-根据 Decision Method 判断下一步。压缩视图足够时直接调用 planner_submit；存在关键冲突、链路缺口或引用不清时先用 graph_query/graph_trace 检索。初始状态为空时直接建立入口任务。不要输出具体执行动作或自由文本 JSON。`;
+根据 Decision Method 判断下一步。planner_state.rootRefs 是 Root Goal/Scope 的真实节点引用，创建任务时直接使用这些 ID，不要自行添加 node: 前缀或改写名称。压缩视图足够时直接调用 planner_submit；存在关键冲突、链路缺口或引用不清时先用 graph_query/graph_trace 检索。初始状态为空时直接建立入口任务。不要输出具体执行动作或自由文本 JSON。`;
 }
 
 export function compactPlannerDecisionViewForPrompt(view: PlannerDecisionView): Record<string, unknown> {
@@ -271,6 +271,7 @@ export function compactPlannerDecisionViewForPrompt(view: PlannerDecisionView): 
   });
   return {
     view: view.view,
+    rootRefs: view.rootRefs,
     taskLedger,
     reasoningDigest: view.reasoningDigest.map(compactDigest),
     operationDigest: view.operationDigest.map(compactDigest),
@@ -443,7 +444,7 @@ ${input.artifactIndex}
 ${input.graphContext}
 </graph_context>
 
-请只基于以上 observations、artifact 片段和局部闭包调用 graph_delta_submit。已有节点使用 existing 别名，新节点使用 new 别名；多个 observation 支持同一语义变化时合并表达；evidenceRefs 只能使用 o1、o2 等 observation 别名。`;
+请只基于以上 observations、artifact 片段和图上下文调用 graph_delta_submit。上下文不足或存在语义冲突时，最多使用两次只读图查询工具；已有节点使用 existing 别名，新节点使用 new 别名；多个 observation 支持同一语义变化时合并表达；evidenceRefs 只能使用 o1、o2 等 observation 别名。`;
 }
 
 export function renderSupervisorInput(input: {
@@ -505,7 +506,7 @@ ${input.actionTraceText}
 循环/漂移信号：
 ${input.loopSignalsText}
 
-请调用 control_submit 提交 ControlSignal。只判断是否 continue、checkpoint、stop_executor、need_planner 或 need_user_input；如果需要动态加预算，只能通过 budgetExtension 表达。不要输出自由文本 JSON、GraphDelta 或具体 HTTP 请求、payload、shell 命令。`;
+请调用 control_submit 提交 ControlSignal。只判断是否 continue、checkpoint、stop_executor 或 need_planner；如果需要动态加预算，只能通过 budgetExtension 表达。不要输出自由文本 JSON、GraphDelta 或具体 HTTP 请求、payload、shell 命令。`;
 }
 
 function formatRemainingTime(value: number | undefined): string {

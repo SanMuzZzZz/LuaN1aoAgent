@@ -116,7 +116,8 @@ test("planner prompt teaches evidence-aware planning without an intermediate con
   assert.match(PLANNER_SYSTEM_PROMPT, /<example name="known-vulnerability-research">/);
   assert.doesNotMatch(PLANNER_SYSTEM_PROMPT, /Runtime 会复用原 Executor Session/);
   assert.doesNotMatch(PLANNER_SYSTEM_PROMPT, /<example name="same-task-resume">/);
-  assert.doesNotMatch(PLANNER_SYSTEM_PROMPT, /"decision": "apply_commands \| need_user_input"/);
+  assert.match(PLANNER_SYSTEM_PROMPT, /decision 只能是 apply_commands/);
+  assert.doesNotMatch(PLANNER_SYSTEM_PROMPT, /need_user_input/);
   assert.match(EXECUTOR_SYSTEM_PROMPT, /只有全部 successCriteria 满足时提交 completed/);
   assert.match(EXECUTOR_SYSTEM_PROMPT, /成功条件满足后立即调用 task_result_submit/);
 });
@@ -127,6 +128,7 @@ test("planner prompt preserves the latest active TaskResult beyond the old 160 c
   assert.ok(resultSummary.indexOf(keyCapability) > 160);
   const view: PlannerDecisionView = {
     view: "planner_decision",
+    rootRefs: { goalRef: "goal:root", scopeRef: "scope:root" },
     taskLedger: [{
       taskId: "task:internal-api",
       status: "partial",
@@ -160,6 +162,8 @@ test("planner prompt preserves the latest active TaskResult beyond the old 160 c
   });
 
   assert.match(input, /admin_token=internal_admin_token_2024/);
+  assert.match(input, /"goalRef":"goal:root"/);
+  assert.match(input, /"scopeRef":"scope:root"/);
   assert.ok(input.length < 8_000, `Planner prompt too large: ${input.length}`);
 });
 

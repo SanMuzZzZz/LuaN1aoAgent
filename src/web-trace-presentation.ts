@@ -66,10 +66,7 @@ export function summarizeTraceAction(call: TraceToolCall | undefined): string | 
 
 export function traceActionHeading(role: string, call: TraceToolCall | undefined): { title: string; eventLabel: string } {
   if (role === "planner") {
-    const decision = textValue(call?.arguments.decision);
-    return decision === "need_user_input"
-      ? { title: "Planner 请求用户输入", eventLabel: "规划判断" }
-      : { title: "Planner 更新任务计划", eventLabel: "规划判断" };
+    return { title: "Planner 更新任务计划", eventLabel: "规划判断" };
   }
   if (role === "observer") {
     return call?.name === "control_submit"

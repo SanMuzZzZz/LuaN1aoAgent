@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { toJsonLine } from "../json.js";
+import { operationIdentityKeys, stableOperationIdentityId } from "../operation-identity.js";
 import type {
   GraphDelta,
   GraphEdge,
@@ -106,6 +107,13 @@ export type AppliedPlannerDecision = {
   nodeStatusCommands: Array<{ commandIndex: number; node: GraphNode }>;
 };
 
+export type ProjectionCommitResult = {
+  delta: GraphDelta;
+  remappedNodeCount: number;
+  mergedNodeCount: number;
+  orphanNodeIds: string[];
+};
+
 export class SQLiteGraphStore {
   readonly databasePath: string;
   readonly deltaLogPath: string;
@@ -134,8 +142,12 @@ export class SQLiteGraphStore {
     toSeq: number;
     generation: number;
     delta: GraphDelta;
-  }): void {
+  }): ProjectionCommitResult {
     validateGraphDelta(input.delta);
+    let committedDelta = input.delta;
+    let remappedNodeCount = 0;
+    let mergedNodeCount = 0;
+    let orphanNodeIds: string[] = [];
     this.database.exec("BEGIN IMMEDIATE");
     try {
       const state = this.database.prepare(`
@@ -164,7 +176,12 @@ export class SQLiteGraphStore {
           `Projection range exceeds desired sequence for ${input.taskId}: ${input.toSeq} > ${state.desired_seq}`
         );
       }
-      this.applyDeltaInTransaction(input.delta, []);
+      const rebased = this.rebaseProjectionDeltaInTransaction(input.delta);
+      committedDelta = rebased.delta;
+      remappedNodeCount = rebased.remappedNodeCount;
+      mergedNodeCount = rebased.mergedNodeCount;
+      this.applyDeltaInTransaction(committedDelta, [], true);
+      orphanNodeIds = this.findOrphanNodeIds(committedDelta.nodes.map((node) => node.id));
       const updated = this.database.prepare(`
         UPDATE projection_states
         SET committed_seq = ?, active_generation = NULL, updated_at = ?
@@ -184,7 +201,140 @@ export class SQLiteGraphStore {
       this.database.exec("ROLLBACK");
       throw error;
     }
-    appendDeltaLog(this.deltaLogPath, input.delta);
+    appendDeltaLog(this.deltaLogPath, committedDelta);
+    return { delta: committedDelta, remappedNodeCount, mergedNodeCount, orphanNodeIds };
+  }
+
+  private rebaseProjectionDeltaInTransaction(delta: GraphDelta): {
+    delta: GraphDelta;
+    remappedNodeCount: number;
+    mergedNodeCount: number;
+  } {
+    this.refreshOperationIdentityIndexInTransaction();
+    const existingNodes = (this.database.prepare(`
+      SELECT id, graph_kind, type, label, properties_json, evidence_refs_json FROM nodes
+    `).all() as StoredNodeRow[]).map(rowToNode);
+    const existingEdges = (this.database.prepare(`
+      SELECT id, from_id, to_id, type, properties_json, evidence_refs_json FROM edges
+    `).all() as StoredEdgeRow[]).map(rowToEdge);
+    const combinedNodes = [...new Map([...existingNodes, ...delta.nodes].map((node) => [node.id, node])).values()];
+    const combinedEdges = [...new Map(
+      [...existingEdges, ...delta.edges].map((edge) => [edgeIdFor(edge), edge])
+    ).values()];
+    const identityKeys = operationIdentityKeys(combinedNodes, combinedEdges);
+    const nodeIdMap = new Map<string, string>();
+    const claimedIdentityIds = new Map<string, string>();
+    const existingNodeIds = new Set(existingNodes.map((node) => node.id));
+    let remappedNodeCount = 0;
+    let mergedNodeCount = 0;
+
+    for (const node of delta.nodes) {
+      if (node.graphKind !== "operation") {
+        nodeIdMap.set(node.id, node.id);
+        continue;
+      }
+      const identityKey = identityKeys.get(node.id);
+      if (!identityKey) {
+        nodeIdMap.set(node.id, node.id);
+        continue;
+      }
+      const indexed = this.database.prepare(`
+        SELECT node_id FROM operation_identities WHERE identity_key = ?
+      `).get(identityKey) as { node_id: string } | undefined;
+      const alreadyClaimed = claimedIdentityIds.get(identityKey);
+      const resolvedId = indexed?.node_id
+        ?? alreadyClaimed
+        ?? stableOperationIdentityId(identityKey);
+      claimedIdentityIds.set(identityKey, resolvedId);
+      nodeIdMap.set(node.id, resolvedId);
+      if (resolvedId !== node.id) {
+        remappedNodeCount += 1;
+        if (existingNodeIds.has(resolvedId) || alreadyClaimed) {
+          mergedNodeCount += 1;
+        }
+      }
+    }
+
+    const nodesById = new Map<string, GraphNode>();
+    for (const node of delta.nodes) {
+      const resolvedId = nodeIdMap.get(node.id) ?? node.id;
+      const previous = nodesById.get(resolvedId);
+      nodesById.set(resolvedId, previous ? {
+        ...node,
+        id: resolvedId,
+        properties: { ...previous.properties, ...node.properties },
+        evidenceRefs: dedupeStringValues([...(previous.evidenceRefs ?? []), ...(node.evidenceRefs ?? [])])
+      } : { ...node, id: resolvedId });
+    }
+
+    const edgesById = new Map<string, GraphEdge>();
+    for (const edge of delta.edges) {
+      const rewritten: GraphEdge = {
+        ...edge,
+        id: edge.id,
+        from: nodeIdMap.get(edge.from) ?? edge.from,
+        to: nodeIdMap.get(edge.to) ?? edge.to
+      };
+      const edgeId = edgeIdFor(rewritten);
+      const previous = edgesById.get(edgeId);
+      edgesById.set(edgeId, previous ? {
+        ...rewritten,
+        properties: { ...(previous.properties ?? {}), ...(rewritten.properties ?? {}) },
+        evidenceRefs: dedupeStringValues([...(previous.evidenceRefs ?? []), ...(rewritten.evidenceRefs ?? [])])
+      } : rewritten);
+    }
+    const rebasedDelta = {
+      sourceEventIds: delta.sourceEventIds,
+      nodes: [...nodesById.values()],
+      edges: [...edgesById.values()]
+    };
+    validateGraphDelta(rebasedDelta);
+    return {
+      delta: rebasedDelta,
+      remappedNodeCount,
+      mergedNodeCount
+    };
+  }
+
+  private refreshOperationIdentityIndexInTransaction(): void {
+    const nodes = (this.database.prepare(`
+      SELECT id, graph_kind, type, label, properties_json, evidence_refs_json
+      FROM nodes WHERE graph_kind = 'operation' ORDER BY id
+    `).all() as StoredNodeRow[]).map(rowToNode);
+    if (nodes.length === 0) {
+      return;
+    }
+    const nodeIds = new Set(nodes.map((node) => node.id));
+    const edges = (this.database.prepare(`
+      SELECT id, from_id, to_id, type, properties_json, evidence_refs_json FROM edges
+    `).all() as StoredEdgeRow[]).map(rowToEdge)
+      .filter((edge) => nodeIds.has(edge.from) || nodeIds.has(edge.to));
+    const identities = operationIdentityKeys(nodes, edges);
+    const insert = this.database.prepare(`
+      INSERT OR IGNORE INTO operation_identities (identity_key, node_id, updated_at) VALUES (?, ?, ?)
+    `);
+    const now = new Date().toISOString();
+    for (const [nodeId, identityKey] of identities) {
+      insert.run(identityKey, nodeId, now);
+    }
+  }
+
+  findOrphanNodeIds(nodeIds: string[]): string[] {
+    const uniqueIds = dedupeStringValues(nodeIds);
+    const orphanIds: string[] = [];
+    const query = this.database.prepare(`
+      SELECT n.id
+      FROM nodes n
+      WHERE n.id = ?
+        AND n.graph_kind IN ('operation', 'reasoning')
+        AND NOT EXISTS (SELECT 1 FROM edges e WHERE e.from_id = n.id OR e.to_id = n.id)
+    `);
+    for (const nodeId of uniqueIds) {
+      if (query.get(nodeId)) {
+        orphanIds.push(nodeId);
+      }
+    }
+    return orphanIds;
   }
 
   private applyDelta(
@@ -205,7 +355,8 @@ export class SQLiteGraphStore {
 
   private applyDeltaInTransaction(
     delta: GraphDelta,
-    edgeReplacements: Array<{ from: string; type: string }>
+    edgeReplacements: Array<{ from: string; type: string }>,
+    requireEdgeEndpoints = false
   ): void {
     for (const replacement of edgeReplacements) {
       this.database.prepare("DELETE FROM edges WHERE from_id = ? AND type = ?")
@@ -257,6 +408,9 @@ export class SQLiteGraphStore {
         .get(edge.from) as { graph_kind: GraphKind; type: string } | undefined;
       const toNode = this.database.prepare("SELECT graph_kind, type FROM nodes WHERE id = ?")
         .get(edge.to) as { graph_kind: GraphKind; type: string } | undefined;
+      if (requireEdgeEndpoints && (!fromNode || !toNode)) {
+        throw new GraphValidationError(`Edge ${edge.type} references missing node: ${edge.from} -> ${edge.to}`);
+      }
       if (edge.type === "depends_on" && (fromNode?.graph_kind !== "task" || fromNode.type !== "Task"
         || toNode?.graph_kind !== "task" || toNode.type !== "Task")) {
         throw new GraphValidationError(`depends_on requires Task -> Task, received ${edge.from} -> ${edge.to}`);
@@ -427,12 +581,10 @@ export class SQLiteGraphStore {
     ]);
     const taskContextRefs = dedupeStringValues([...taskMemoryRefs, input.scopeRef]);
     const taskNodes = this.readNodes({ focusNodeIds: taskContextRefs, limit: Math.max(taskContextRefs.length, 8) });
-    const operationNodes = this.readNodes({ graphKind: "operation", limit: 500 });
-    const reasoningNodes = this.readNodes({ graphKind: "reasoning", limit: 500 });
+    const operationNodes = this.readNodes({ graphKind: "operation", limit: 1_000_000 });
+    const reasoningNodes = this.readNodes({ graphKind: "reasoning", limit: 1_000_000 });
     const semanticNodes = [...operationNodes, ...reasoningNodes];
     const nodeById = new Map([...taskNodes, ...semanticNodes].map((node) => [node.id, node]));
-    const semanticEdges = this.readEdgesForNodes(semanticNodes.map((node) => node.id), 5000)
-      .filter((edge) => nodeById.has(edge.from) && nodeById.has(edge.to));
     const taskEdges = this.readEdgesForNodes(taskNodes.map((node) => node.id), 200)
       .filter((edge) => nodeById.has(edge.from) && nodeById.has(edge.to));
     const anchorTokens = dedupeStringValues(input.anchors ?? [])
@@ -445,8 +597,7 @@ export class SQLiteGraphStore {
     ));
 
     const selectedIds = new Set(taskNodes.slice(0, 8).map((node) => node.id));
-    const allEdges = [...new Map([...taskEdges, ...semanticEdges].map((edge) => [edgeIdFor(edge), edge])).values()];
-    const adjacency = buildEdgeAdjacency(allEdges);
+    const traversedEdges = new Map(taskEdges.map((edge) => [edgeIdFor(edge), edge]));
     const allowedTaskIds = new Set(taskMemoryRefs);
     const collectNeighborhood = (seedIds: string[], maxNewNodes: number, maxDepth: number): void => {
       const queue = seedIds.map((nodeId) => ({ nodeId, depth: 0 }));
@@ -467,7 +618,13 @@ export class SQLiteGraphStore {
         if (current.depth >= maxDepth) {
           continue;
         }
-        const neighbors = (adjacency.get(current.nodeId) ?? [])
+        const currentEdges = this.readEdgesForNodes([current.nodeId], 200)
+          .filter((edge) => nodeById.has(edge.from) && nodeById.has(edge.to));
+        for (const edge of currentEdges) {
+          traversedEdges.set(edgeIdFor(edge), edge);
+        }
+        const neighbors = dedupeStringValues(currentEdges.flatMap((edge) => [edge.from, edge.to]))
+          .filter((nodeId) => nodeId !== current.nodeId)
           .map((nodeId) => nodeById.get(nodeId))
           .filter((node): node is GraphNode => Boolean(node))
           .filter((node) => node.graphKind !== "task" || allowedTaskIds.has(node.id))
@@ -493,11 +650,42 @@ export class SQLiteGraphStore {
       .filter((node): node is GraphNode => Boolean(node))
       .slice(0, nodeLimit);
     const includedIds = new Set(nodes.map((node) => node.id));
-    const edges = allEdges
+    const edges = [...traversedEdges.values()]
       .filter((edge) => includedIds.has(edge.from) && includedIds.has(edge.to))
       .sort(compareProjectionEdges)
       .slice(0, edgeLimit);
     return { nodes, edges };
+  }
+
+  searchSemanticNodes(input: {
+    query: string;
+    graphKind?: "operation" | "reasoning";
+    limit?: number;
+  }): GraphSnapshot {
+    const requestedLimit = Number.isFinite(input.limit) ? Math.trunc(input.limit!) : 20;
+    const limit = Math.max(1, Math.min(requestedLimit, 50));
+    const tokens = dedupeStringValues(input.query.split(/\s+/))
+      .map(normalizeProjectionToken)
+      .filter((token) => token.length >= 3);
+    const graphKinds: GraphKind[] = input.graphKind ? [input.graphKind] : ["operation", "reasoning"];
+    const candidates = graphKinds.flatMap((graphKind) => (
+      this.readNodes({ graphKind, limit: 1_000_000 })
+    )).map((node) => ({
+      node,
+      matches: tokens.filter((token) => projectionNodeSearchText(node).includes(token)).length
+    })).filter((candidate) => candidate.matches > 0)
+      .sort((left, right) => right.matches - left.matches || compareProjectionSeedNodes(left.node, right.node));
+    const nodes = candidates.slice(0, limit).map((candidate) => candidate.node);
+    return {
+      view: input.graphKind ?? "planner",
+      nodes,
+      edges: this.readEdgesForNodes(nodes.map((node) => node.id), limit * 2),
+      summary: {
+        query: input.query,
+        matched: candidates.length,
+        omitted: Math.max(0, candidates.length - limit)
+      }
+    };
   }
 
   plannerDecisionView(limit = 200): PlannerDecisionView {
@@ -511,6 +699,10 @@ export class SQLiteGraphStore {
     const allNodes = dedupeNodes([...taskNodes, ...reasoningNodes, ...operationNodes]);
     const allEdges = this.readEdgesForNodes(allNodes.map((node) => node.id), limit * 4);
     const fullTaskLedger = buildTaskLedger(taskNodes);
+    const rootGoal = taskNodes.find((node) => node.id === "goal:root")
+      ?? taskNodes.find((node) => node.type === "Goal");
+    const rootScope = taskNodes.find((node) => node.id === "scope:root")
+      ?? taskNodes.find((node) => node.type === "Scope");
     const taskLedger = [
       ...fullTaskLedger.filter((item) => ["open", "partial", "blocked", "failed"].includes(item.status)),
       ...fullTaskLedger.filter((item) => item.status === "completed").slice(0, 8),
@@ -521,6 +713,10 @@ export class SQLiteGraphStore {
     const context = createPlannerDigestContext(taskNodes, allEdges);
     return {
       view: "planner_decision",
+      rootRefs: {
+        goalRef: rootGoal?.id ?? null,
+        scopeRef: rootScope?.id ?? null
+      },
       taskLedger,
       reasoningDigest: topDigestItems(reasoningNodes, allEdges, context, 10),
       operationDigest: topDigestItems(operationNodes, allEdges, context, 10),
@@ -1347,6 +1543,11 @@ export class SQLiteGraphStore {
         delta_json TEXT NOT NULL,
         created_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS operation_identities (
+        identity_key TEXT PRIMARY KEY,
+        node_id TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS projection_states (
         task_id TEXT PRIMARY KEY,
         committed_seq INTEGER NOT NULL DEFAULT 0,
@@ -1359,6 +1560,7 @@ export class SQLiteGraphStore {
       CREATE INDEX IF NOT EXISTS idx_nodes_kind_type ON nodes(graph_kind, type);
       CREATE INDEX IF NOT EXISTS idx_edges_from ON edges(from_id);
       CREATE INDEX IF NOT EXISTS idx_edges_to ON edges(to_id);
+      CREATE INDEX IF NOT EXISTS idx_operation_identities_node ON operation_identities(node_id);
     `);
     this.database.exec(`
       UPDATE nodes SET graph_kind = 'task', type = 'Task' WHERE id LIKE 'task:%' AND type <> 'Task';
@@ -1435,15 +1637,6 @@ export class SQLiteGraphStore {
     `).all(...nodeIds, ...nodeIds, limit) as StoredEdgeRow[];
     return rows.map(rowToEdge);
   }
-}
-
-function buildEdgeAdjacency(edges: GraphEdge[]): Map<string, string[]> {
-  const adjacency = new Map<string, string[]>();
-  for (const edge of edges) {
-    adjacency.set(edge.from, dedupeStringValues([...(adjacency.get(edge.from) ?? []), edge.to]));
-    adjacency.set(edge.to, dedupeStringValues([...(adjacency.get(edge.to) ?? []), edge.from]));
-  }
-  return adjacency;
 }
 
 function projectionNodeSearchText(node: GraphNode): string {

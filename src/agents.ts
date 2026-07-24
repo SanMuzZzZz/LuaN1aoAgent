@@ -25,6 +25,7 @@ import {
   createControlSubmitTool,
   createGraphDeltaSubmitTool,
   createGraphQueryTool,
+  createGraphSearchTool,
   createGraphTraceTool,
   createPlannerSubmitTool,
   createTaskResultSubmitTool
@@ -219,7 +220,12 @@ export function observerToolsForMode(input: {
   if (input.mode === "supervise") {
     return [createControlSubmitTool()];
   }
-  return [createGraphDeltaSubmitTool()];
+  return [
+    createGraphSearchTool(input.graphStore),
+    createGraphQueryTool(input.graphStore),
+    createGraphTraceTool(input.graphStore),
+    createGraphDeltaSubmitTool()
+  ];
 }
 
 async function createPromptLoader(cwd: string, systemPrompt: string, additionalSkillPaths: string[] = []): Promise<DefaultResourceLoader> {

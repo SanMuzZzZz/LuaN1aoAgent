@@ -247,7 +247,7 @@ export function createPlannerSubmitTool(input: {
     label: "Submit Planner Decision",
     description: "Submit the final Planner decision using commands discriminated by the required kind field, then terminate this Planner invocation.",
     parameters: Type.Object({
-      decision: Type.Union([Type.Literal("apply_commands"), Type.Literal("need_user_input")]),
+      decision: Type.Union([Type.Literal("apply_commands")]),
       commands: Type.Optional(Type.Array(PlannerCommandSchema, { maxItems: 32 })),
       reason: Type.String({ minLength: 1, maxLength: 4_000 }),
       basedOnRefs: PlannerRefArraySchema
@@ -301,8 +301,7 @@ export function createControlSubmitTool() {
         Type.Literal("continue"),
         Type.Literal("checkpoint"),
         Type.Literal("stop_executor"),
-        Type.Literal("need_planner"),
-        Type.Literal("need_user_input")
+        Type.Literal("need_planner")
       ]),
       reason: Type.String(),
       evidenceRefs: Type.Array(Type.String()),
@@ -375,6 +374,30 @@ export function createGraphTraceTool(graphStore: SQLiteGraphStore) {
     }),
     execute: async (_toolCallId, params) => ({
       content: [{ type: "text", text: JSON.stringify(graphStore.trace(params), null, 2) }],
+      details: {}
+    })
+  });
+}
+
+export function createGraphSearchTool(graphStore: SQLiteGraphStore) {
+  return defineTool({
+    name: "graph_search",
+    label: "Graph Search",
+    description: "Search existing operation and reasoning nodes by semantic anchors when the supplied projection context is incomplete. This is read-only.",
+    parameters: Type.Object({
+      query: Type.String(),
+      graphKind: Type.Optional(Type.Union([
+        Type.Literal("operation"),
+        Type.Literal("reasoning")
+      ])),
+      limit: Type.Optional(Type.Number())
+    }),
+    execute: async (_toolCallId, params) => ({
+      content: [{ type: "text", text: JSON.stringify(graphStore.searchSemanticNodes({
+        query: params.query,
+        graphKind: params.graphKind,
+        limit: params.limit
+      }), null, 2) }],
       details: {}
     })
   });

@@ -2096,7 +2096,6 @@ function isAgentActionDetailEvent(eventType: string): boolean {
     "runtime_control",
     "turn_usage",
     "planner_apply_commands",
-    "planner_need_user_input",
     "supervisor_check_succeeded",
     "task_completed",
     "task_partial",
