@@ -8,7 +8,7 @@
 
 <div align="center">
 
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0.html)
 [![GitHub Release](https://img.shields.io/github/v/release/SanMuzZzZz/LuaN1aoAgent?sort=semver)](https://github.com/SanMuzZzZz/LuaN1aoAgent/releases/latest)
 [![Node.js 25+](https://img.shields.io/badge/Node.js-25%2B-339933.svg?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
@@ -540,7 +540,11 @@ npm run web:dev
 
 ## 📝 许可证
 
-LuaN1aoAgent v2 采用与 v1 一致的 [Apache License 2.0](LICENSE)。
+LuaN1aoAgent v2 采用 [GNU Affero General Public License v3.0](LICENSE)（`AGPL-3.0-only`），仅供个人和教育用途使用。
+
+**商业使用**：如果您希望在商业或专有环境中使用本项目，同时不受 AGPL-3.0 开源义务约束，**请[联系维护者](#-联系方式)获取商业许可证。**
+
+**参与贡献**：提交 Pull Request 即表示您同意，您的贡献可同时用于 AGPL-3.0 版本及本项目的商业许可版本。
 
 ---
 

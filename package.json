@@ -4,7 +4,7 @@
   "private": false,
   "type": "module",
   "description": "Pi SDK based security agent with Planner, Executor, Observer and tri-graph runtime state.",
-  "license": "Apache-2.0",
+  "license": "AGPL-3.0-only",
   "scripts": {
     "build": "npm run build:server && npm run build:web",
     "build:server": "tsc -p tsconfig.json",

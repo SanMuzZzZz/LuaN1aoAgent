@@ -8,7 +8,7 @@
 
 <div align="center">
 
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0.html)
 [![GitHub Release](https://img.shields.io/github/v/release/SanMuzZzZz/LuaN1aoAgent?sort=semver)](https://github.com/SanMuzZzZz/LuaN1aoAgent/releases/latest)
 [![Node.js 25+](https://img.shields.io/badge/Node.js-25%2B-339933.svg?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
@@ -540,7 +540,11 @@ Contributions are welcome, including bug reports, runtime tests, documentation, 
 
 ## 📝 License
 
-LuaN1aoAgent v2 is licensed under the [Apache License 2.0](LICENSE), consistent with the v1 project.
+LuaN1aoAgent v2 is licensed under the [GNU Affero General Public License v3.0](LICENSE) (`AGPL-3.0-only`) for personal and educational use.
+
+**Commercial Use**: If you wish to use this project in a commercial or proprietary environment without the AGPL-3.0 open-source obligations, **please [contact the maintainer](#-contact) to obtain a commercial license.**
+
+**Contributions**: By submitting a Pull Request, you agree that your contributions may be used under both the AGPL-3.0 and the project's commercial license.
 
 ---
 
