@@ -236,7 +236,7 @@ async function readReadyLine(child: ChildProcess, timeoutMs: number): Promise<{ 
       if (Buffer.byteLength(input) > TRAFFIC_PROXY_MESSAGE_LIMIT) return done(new Error("traffic-proxy ready line exceeds 64KiB"));
       const newline = input.indexOf("\n");
       if (newline < 0) return;
-      const match = /^proxy=(\S+) control=(\S+) data=(\S+) runtime_ref=(\S+)$/.exec(input.slice(0, newline).trim());
+      const match = /^proxy=(\S+) control=(\S+) data=(\S+) runtime_ref=(\S+)(?: connect=\S*)?$/.exec(input.slice(0, newline).trim());
       if (!match) return done(new Error("invalid traffic-proxy ready line"));
       done(undefined, { proxy: match[1]!, control: match[2]!, data: match[3]!, runtimeRef: match[4]! });
     };
