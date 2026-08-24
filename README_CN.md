@@ -581,4 +581,4 @@ LuaN1aoAgent v2 采用 [GNU Affero General Public License v3.0](LICENSE)（`AGPL
 
 ## ⭐ Star History
 
-[![Star History Chart](https://api.star-history.com/image?repos=SanMuzZzZz/LuaN1aoAgent&type=date&legend=top-left)](https://www.star-history.com/?repos=SanMuzZzZz%2FLuaN1aoAgent&type=date&legend=top-left)
+[![Star History Chart](https://star-history.dera.page/image?repos=SanMuzZzZz/LuaN1aoAgent&type=date&legend=top-left)](https://star-history.dera.page/#SanMuzZzZz/LuaN1aoAgent&type=date&legend=top-left)
