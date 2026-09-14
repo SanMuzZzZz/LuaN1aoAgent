@@ -405,6 +405,10 @@ export class NetworkSandboxManager {
       "--sysctl", "net.ipv4.conf.default.rp_filter=0",
       "--read-only", "--cap-drop", "ALL",
       "--cap-add", "NET_ADMIN", "--cap-add", "SETUID", "--cap-add", "SETGID",
+      // The gateway control plane hands capture files to the unprivileged data-plane uid.
+      "--cap-add", "CHOWN",
+      // begin_epoch writes metadata inside uid 101-owned capture directories.
+      "--cap-add", "DAC_OVERRIDE",
       "--group-add", "101",
       "--device", "/dev/net/tun:/dev/net/tun",
       "--security-opt", "no-new-privileges",
@@ -442,8 +446,8 @@ export class NetworkSandboxManager {
   // container remains the authoritative enforcement point.
   private async chownGatewayStorage(dir: string): Promise<void> {
     try {
+      await chmod(dir, 0o2755);
       await chown(dir, 101, 101);
-      await chmod(dir, 0o2770);
     } catch {
       // Best-effort only: insufficient privileges (e.g. non-root host) must
       // not block gateway startup.

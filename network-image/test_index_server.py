@@ -475,6 +475,34 @@ class RouteProxyTest(unittest.TestCase):
             self.assertEqual(routes_path.stat().st_mode & 0o777, 0o644)
             self.assertFalse(routes_path.with_suffix(".tmp").exists())
 
+    def test_gateway_begin_epoch_keeps_capture_storage_host_readable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            control = GatewayControl(
+                str(root / "gateway.sock"),
+                MagicMock(),
+                root / "epoch.json",
+                root,
+                root / "routes.json",
+            )
+            with patch("index_server.os.chown") as chown, patch("index_server.os.chmod") as chmod:
+                control.begin_epoch({
+                    "epochRef": "epoch:test",
+                    "flowFile": str(root / "epoch:test.mitm"),
+                    "netFile": str(root / "epoch:test.net.jsonl"),
+                })
+
+            owned = {call.args for call in chown.call_args_list}
+            capture_modes = {
+                call.args for call in chmod.call_args_list
+                if call.args[0].name.endswith((".mitm", ".net.jsonl"))
+            }
+            self.assertIn((root.resolve(), 101, 101), owned)
+            self.assertIn(((root / "epoch:test.mitm").resolve(), 101, 101), owned)
+            self.assertIn(((root / "epoch:test.net.jsonl").resolve(), 101, 101), owned)
+            self.assertIn(((root / "epoch:test.mitm").resolve(), 0o664), capture_modes)
+            self.assertIn(((root / "epoch:test.net.jsonl").resolve(), 0o664), capture_modes)
+
     def test_gateway_route_validation_keeps_previous_snapshot_on_failure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

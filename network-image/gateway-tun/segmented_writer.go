@@ -160,7 +160,7 @@ func (segments *captureSegments) writeManifest() error {
 	if err != nil {
 		return err
 	}
-	return atomicWriteFile(segments.manifestPath(), payload, 0o660)
+	return atomicWriteFile(segments.manifestPath(), payload, 0o664)
 }
 
 func countJSONLines(path string) int {

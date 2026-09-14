@@ -535,8 +535,10 @@ class GatewayControl:
         net_file = self._capture_path(payload.get("netFile"), ".net.jsonl")
         for path in (flow_file, net_file):
             path.parent.mkdir(parents=True, exist_ok=True)
+            os.chown(path.parent, 101, 101)
             path.touch(exist_ok=True)
-            os.chmod(path, 0o660)
+            os.chmod(path, 0o664)
+            os.chown(path, 101, 101)
         self._write_epoch({
             "active": True,
             "epochRef": epoch_ref,
@@ -955,9 +957,9 @@ def gateway() -> None:
     os.chmod(epoch_state, 0o644)
     CAPTURE_STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
     CAPTURE_STATUS_PATH.write_text('{"ready":false,"epochs":{}}', encoding="utf-8")
-    os.chmod(CAPTURE_STATUS_PATH, 0o660)
+    os.chmod(CAPTURE_STATUS_PATH, 0o664)
     CONNTRACK_STATUS_PATH.write_text('{"epochs":{}}', encoding="utf-8")
-    os.chmod(CONNTRACK_STATUS_PATH, 0o660)
+    os.chmod(CONNTRACK_STATUS_PATH, 0o664)
     ready = threading.Event()
     task_address = wait_for_gateway_networks()
     conntrack_tracker = ConntrackEpochTracker(CONNTRACK_STATUS_PATH)

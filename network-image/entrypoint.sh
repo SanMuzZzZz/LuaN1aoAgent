@@ -16,7 +16,7 @@ case "$role" in
   storage-init)
     [ "$#" -gt 0 ] || { echo "storage-init requires at least one path" >&2; exit 64; }
     chown -R 101:101 "$@"
-    find "$@" -type d -exec chmod 2770 {} +
+    find "$@" -type d -exec chmod 2755 {} +
     ;;
   index)
     exec python3 /opt/luanniao/index_server.py index "$@"
