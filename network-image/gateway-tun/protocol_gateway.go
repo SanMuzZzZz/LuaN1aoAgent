@@ -88,9 +88,11 @@ func (gateway *protocolGateway) handleTCP(ctx context.Context, request *tcp.Forw
 	upstream, err := gateway.dial(ctx, destination)
 	if err != nil {
 		reset := shouldResetTCP(err)
-		if gateway.debug {
-			log.Printf("gateway dial %s failed (reset=%v): %v", destination, reset, err)
-		}
+		// Dial failures are always logged: the success path is silent by
+		// design, so without this line an infra outage (dead broker, stale
+		// connector, firewall drop) looks exactly like a filtered target and
+		// poisons the executor's model of the network.
+		log.Printf("gateway dial %s failed (reset=%v): %v", destination, reset, err)
 		request.Complete(reset)
 		return
 	}
@@ -100,6 +102,7 @@ func (gateway *protocolGateway) handleTCP(ctx context.Context, request *tcp.Forw
 	var waitQueue waiter.Queue
 	endpoint, stackError := request.CreateEndpoint(&waitQueue)
 	if stackError != nil {
+		log.Printf("gateway handshake %s failed: %v", destination, stackError)
 		upstream.connection.Close()
 		request.Complete(true)
 		return

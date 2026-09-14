@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, chown, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { HostEgressBroker, luanniaoDebugEnabled, type HostEgressBrokerEndpoint } from "./host-egress-broker.js";
 import { normalizeScope, parseAuthorizedScope } from "../scope.js";
@@ -65,7 +65,8 @@ export type GatewayEpochDrainAck = {
   persistedNetworkSequence: number;
   flowBytes: number;
   netBytes: number;
-  flushed: true;
+  flushed: boolean;
+  captureError?: string;
 };
 
 type CommandResult = { code: number | null; stdout: string; stderr: string };
@@ -166,6 +167,8 @@ export class NetworkSandboxManager {
     const trafficRoot = join(this.runtimeDir, "traffic");
     await mkdir(join(trafficRoot, "flows"), { recursive: true });
     await mkdir(join(trafficRoot, "ca"), { recursive: true });
+    await this.chownGatewayStorage(join(trafficRoot, "flows"));
+    await this.chownGatewayStorage(join(trafficRoot, "ca"));
     if (this.manageFlowIndex) this.indexToken = await this.loadIndexToken(trafficRoot);
     await this.ensureHostEgressBroker();
     let networkCreated = false;
@@ -390,6 +393,7 @@ export class NetworkSandboxManager {
     const taskFlowName = safeName(taskId);
     const hostDir = join(this.runtimeDir, "traffic", "flows", taskFlowName);
     await mkdir(hostDir, { recursive: true });
+    await this.chownGatewayStorage(hostDir);
     const runArgs = [
       "--network", this.networkName,
       "--add-host", "host.docker.internal:host-gateway",
@@ -431,13 +435,28 @@ export class NetworkSandboxManager {
     };
   }
 
+  // Best-effort host-side expression of the uid 101 single-owner invariant:
+  // the in-container data planes run as uid/gid 101, so capture storage
+  // created by this (root) host process must be handed over before the
+  // storage-init helper or the gateway ever touches it. The storage-init
+  // container remains the authoritative enforcement point.
+  private async chownGatewayStorage(dir: string): Promise<void> {
+    try {
+      await chown(dir, 101, 101);
+      await chmod(dir, 0o2770);
+    } catch {
+      // Best-effort only: insufficient privileges (e.g. non-root host) must
+      // not block gateway startup.
+    }
+  }
+
   private async prepareGatewayStorage(taskId: string): Promise<void> {
     const taskFlowName = safeName(taskId);
     const flowDir = join(this.runtimeDir, "traffic", "flows", taskFlowName);
     const caDir = join(this.runtimeDir, "traffic", "ca");
     const result = await this.runner([
       "run", "--rm", "--network", "none",
-      "--read-only", "--cap-drop", "ALL", "--cap-add", "CHOWN", "--cap-add", "FOWNER",
+      "--read-only", "--cap-drop", "ALL", "--cap-add", "CHOWN", "--cap-add", "FOWNER", "--cap-add", "DAC_OVERRIDE",
       "--security-opt", "no-new-privileges",
       "--mount", `type=bind,src=${flowDir},dst=/storage/flows`,
       "--mount", `type=bind,src=${caDir},dst=/storage/ca`,
@@ -806,7 +825,14 @@ export class NetworkSandboxManager {
       JSON.stringify({ epochRef: epochId })
     ]);
     if (result.code !== 0) {
-      throw new Error(`Failed to end gateway epoch: ${result.stderr || result.stdout}`);
+      const message = result.stderr || result.stdout;
+      if (message.includes("capture persistence failed")) {
+        // Older gateway images still raise on a latched capture persistence
+        // error. Degrade the epoch instead of failing the whole run; the
+        // capture gap is surfaced through the acknowledgement.
+        return { ...emptyDrainAck(epochId, true), flushed: false, captureError: message };
+      }
+      throw new Error(`Failed to end gateway epoch: ${message}`);
     }
     return parseDrainAck(result.stdout, epochId);
   }
@@ -1175,7 +1201,10 @@ function parseDrainAck(stdout: string, expectedEpochRef: string): GatewayEpochDr
       throw new Error(`Failed to end gateway epoch: invalid ${field}`);
     }
   }
-  if (result.flushed !== true) {
+  const captureError = typeof result.captureError === "string" && result.captureError
+    ? result.captureError
+    : undefined;
+  if (result.flushed !== true && captureError === undefined) {
     throw new Error("Failed to end gateway epoch: capture files were not flushed");
   }
   if (Number(result.activeFlowCount) !== 0
@@ -1193,7 +1222,8 @@ function parseDrainAck(stdout: string, expectedEpochRef: string): GatewayEpochDr
     persistedNetworkSequence: Number(result.persistedNetworkSequence),
     flowBytes: Number(result.flowBytes),
     netBytes: Number(result.netBytes),
-    flushed: true
+    flushed: result.flushed === true,
+    ...(captureError !== undefined ? { captureError } : {})
   };
 }
 

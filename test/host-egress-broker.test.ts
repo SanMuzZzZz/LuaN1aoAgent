@@ -2,9 +2,56 @@ import assert from "node:assert/strict";
 import { createServer, createConnection } from "node:net";
 import { networkInterfaces } from "node:os";
 import test from "node:test";
-import { HostEgressBroker } from "../src/connectivity/host-egress-broker.js";
+import { egressBrokerPortCandidates, HostEgressBroker } from "../src/connectivity/host-egress-broker.js";
 
 const magic = Buffer.from("LNDB1", "ascii");
+
+test("egress broker port candidates stay below the ephemeral range", () => {
+  const candidates = egressBrokerPortCandidates(undefined);
+  assert.equal(candidates[0], 47610);
+  assert.ok(candidates.every((port) => port < 49152), "pool must avoid the macOS ephemeral range");
+  assert.equal(new Set(candidates).size, candidates.length);
+});
+
+test("egress broker port candidates honor a fixed override", () => {
+  assert.deepEqual(egressBrokerPortCandidates("47642"), [47642]);
+  assert.throws(() => egressBrokerPortCandidates("not-a-port"));
+  assert.throws(() => egressBrokerPortCandidates("80"));
+  assert.throws(() => egressBrokerPortCandidates("70000"));
+});
+
+test("host egress broker binds inside the managed pool and skips occupied ports", async (context) => {
+  const squatter = createServer();
+  await new Promise<void>((resolve) => squatter.listen(47610, "0.0.0.0", resolve));
+  context.after(() => new Promise<void>((resolve) => squatter.close(() => resolve())));
+
+  const previousOverride = process.env.LUANNIAO_EGRESS_BROKER_PORT;
+  delete process.env.LUANNIAO_EGRESS_BROKER_PORT;
+  context.after(() => {
+    if (previousOverride === undefined) delete process.env.LUANNIAO_EGRESS_BROKER_PORT;
+    else process.env.LUANNIAO_EGRESS_BROKER_PORT = previousOverride;
+  });
+
+  const broker = new HostEgressBroker();
+  const endpoint = await broker.start();
+  context.after(() => broker.close());
+  assert.equal(endpoint.port, 47611, "first occupied pool port must be skipped");
+  assert.ok(endpoint.port < 49152);
+});
+
+test("host egress broker honors the port override", async (context) => {
+  const previousOverride = process.env.LUANNIAO_EGRESS_BROKER_PORT;
+  process.env.LUANNIAO_EGRESS_BROKER_PORT = "47999";
+  context.after(() => {
+    if (previousOverride === undefined) delete process.env.LUANNIAO_EGRESS_BROKER_PORT;
+    else process.env.LUANNIAO_EGRESS_BROKER_PORT = previousOverride;
+  });
+
+  const broker = new HostEgressBroker();
+  const endpoint = await broker.start();
+  context.after(() => broker.close());
+  assert.equal(endpoint.port, 47999);
+});
 
 test("host egress broker reports real refusal and relays accepted connections", async (context) => {
   const target = createServer((socket) => socket.end("target-response"));

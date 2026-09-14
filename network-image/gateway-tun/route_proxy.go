@@ -166,7 +166,10 @@ func (dialer *routeDialer) dialWithRoute(ctx context.Context, destination string
 	proxyAddress := net.JoinHostPort(route.SocksHost, strconv.Itoa(route.SocksPort))
 	connection, err := dialer.socksDial(ctx, proxyAddress, destination, dialer.connectTimeout)
 	if err != nil {
-		return nil, route, fmt.Errorf("route %s failed: %w", route.RouteRef, err)
+		// Deliberately not %w: a connector transport failure (including its
+		// timeouts) is infrastructure, and must reset the flow instead of
+		// masquerading as a filtered destination.
+		return nil, route, fmt.Errorf("route %s failed: %v", route.RouteRef, err)
 	}
 	return connection, route, nil
 }

@@ -13,6 +13,21 @@ import (
 
 var hostBrokerMagic = []byte("LNDB1")
 
+// brokerTransportError reports a failure of the gateway→broker transport
+// itself. It deliberately does not wrap the underlying error: the broker is
+// local infrastructure, so its failures must surface as a TCP reset to the
+// executor instead of being classified as a filtered target (timeouts would
+// otherwise match shouldResetTCP's silent-drop branch and blackhole the flow).
+type brokerTransportError struct {
+	message string
+}
+
+func (e *brokerTransportError) Error() string { return e.message }
+
+func newBrokerTransportError(format string, args ...any) *brokerTransportError {
+	return &brokerTransportError{message: fmt.Sprintf(format, args...)}
+}
+
 func dialHostBroker(ctx context.Context, brokerAddress, token, destination string, timeout time.Duration) (net.Conn, error) {
 	tokenBytes, err := hex.DecodeString(token)
 	if err != nil || len(tokenBytes) != 32 {
@@ -31,7 +46,7 @@ func dialHostBroker(ctx context.Context, brokerAddress, token, destination strin
 	defer cancel()
 	connection, err := (&net.Dialer{}).DialContext(connectContext, "tcp", brokerAddress)
 	if err != nil {
-		return nil, fmt.Errorf("connect host broker: %w", err)
+		return nil, newBrokerTransportError("connect host broker: %v", err)
 	}
 	succeeded := false
 	defer func() {
@@ -52,16 +67,16 @@ func dialHostBroker(ctx context.Context, brokerAddress, token, destination strin
 	for len(request) > 0 {
 		written, err := connection.Write(request)
 		if err != nil {
-			return nil, fmt.Errorf("write host broker request: %w", err)
+			return nil, newBrokerTransportError("write host broker request: %v", err)
 		}
 		if written == 0 {
-			return nil, fmt.Errorf("write host broker request made no progress")
+			return nil, newBrokerTransportError("write host broker request made no progress")
 		}
 		request = request[written:]
 	}
 	reply := []byte{0xff}
 	if _, err := io.ReadFull(connection, reply); err != nil {
-		return nil, fmt.Errorf("read host broker reply: %w", err)
+		return nil, newBrokerTransportError("read host broker reply: %v", err)
 	}
 	switch reply[0] {
 	case 0:
