@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir } from "node:fs/promises";
+import { chmod, chown, mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { MitmFlowClient } from "./mitm-flow-client.js";
 import {
@@ -165,10 +165,20 @@ export class ReplayGatewayRuntime {
   private async ensureGateway(): Promise<void> {
     await mkdir(join(this.runtimeDir, "traffic", "flows", "web-replay"), { recursive: true });
     await mkdir(join(this.runtimeDir, "traffic", "ca"), { recursive: true });
+    // Best-effort host-side expression of the uid 101 single-owner invariant:
+    // hand host-created capture storage over to the container data plane uid.
+    for (const dir of [join(this.runtimeDir, "traffic", "flows", "web-replay"), join(this.runtimeDir, "traffic", "ca")]) {
+      try {
+        await chown(dir, 101, 101);
+        await chmod(dir, 0o2770);
+      } catch {
+        // Best-effort only: storage-init below remains authoritative.
+      }
+    }
     const trafficRoot = join(this.runtimeDir, "traffic");
     const storage = await this.runner([
       "run", "--rm", "--network", "none",
-      "--read-only", "--cap-drop", "ALL", "--cap-add", "CHOWN", "--cap-add", "FOWNER",
+      "--read-only", "--cap-drop", "ALL", "--cap-add", "CHOWN", "--cap-add", "FOWNER", "--cap-add", "DAC_OVERRIDE",
       "--security-opt", "no-new-privileges",
       "--mount", `type=bind,src=${join(trafficRoot, "flows", "web-replay")},dst=/storage/flows`,
       "--mount", `type=bind,src=${join(trafficRoot, "ca")},dst=/storage/ca`,
