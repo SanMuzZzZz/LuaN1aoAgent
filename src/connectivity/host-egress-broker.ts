@@ -6,6 +6,25 @@ const BROKER_REQUEST_BYTES = BROKER_MAGIC.length + 32 + 4 + 2;
 const BROKER_HANDSHAKE_TIMEOUT_MS = 5_000;
 const BROKER_CONNECT_TIMEOUT_MS = 15_000;
 
+// The broker must never bind inside the OS ephemeral port range: Docker
+// Desktop's host.docker.internal forwarding accepts container connections to
+// ephemeral host ports but silently drops their data, which turns every
+// gateway egress attempt into a handshake timeout. Keep the pool below the
+// macOS ephemeral base (49152) and scan it to dodge collisions.
+const BROKER_PORT_BASE = 47610;
+const BROKER_PORT_POOL_SIZE = 500;
+
+export function egressBrokerPortCandidates(override: unknown): number[] {
+  if (typeof override === "string" && override.trim() !== "") {
+    const port = Number.parseInt(override.trim(), 10);
+    if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+      throw new Error(`LUANNIAO_EGRESS_BROKER_PORT must be an integer in 1024-65535, got ${JSON.stringify(override)}`);
+    }
+    return [port];
+  }
+  return Array.from({ length: BROKER_PORT_POOL_SIZE }, (unused, index) => BROKER_PORT_BASE + index);
+}
+
 export type HostEgressBrokerEndpoint = {
   host: "host.docker.internal";
   port: number;
@@ -21,17 +40,45 @@ export class HostEgressBroker {
 
   start(): Promise<HostEgressBrokerEndpoint> {
     if (this.endpoint) return Promise.resolve(this.endpoint);
-    this.startPromise ??= new Promise<HostEgressBrokerEndpoint>((resolve, reject) => {
+    this.startPromise ??= this.listenOnManagedPort().catch((error: unknown) => {
+      this.startPromise = undefined;
+      throw error;
+    });
+    return this.startPromise;
+  }
+
+  private async listenOnManagedPort(): Promise<HostEgressBrokerEndpoint> {
+    const candidates = egressBrokerPortCandidates(process.env.LUANNIAO_EGRESS_BROKER_PORT);
+    let lastError: unknown = new Error(`Host egress broker has no candidate ports in ${candidates[0]}-${candidates[candidates.length - 1] ?? candidates[0]}`);
+    for (const port of candidates) {
+      try {
+        return await this.listenOnPort(port);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException)?.code !== "EADDRINUSE") throw error;
+        lastError = error;
+      }
+    }
+    throw lastError;
+  }
+
+  private listenOnPort(port: number): Promise<HostEgressBrokerEndpoint> {
+    return new Promise<HostEgressBrokerEndpoint>((resolve, reject) => {
       const server = createServer((client) => this.accept(client));
-      this.server = server;
-      server.once("error", reject);
-      server.listen({ host: "0.0.0.0", port: 0 }, () => {
-        server.off("error", reject);
+      const onError = (error: Error) => {
+        server.close();
+        reject(error);
+      };
+      server.once("error", onError);
+      server.listen({ host: "0.0.0.0", port }, () => {
+        server.off("error", onError);
+        server.on("error", (error: Error) => this.log(`server error: ${error.message}`));
         const address = server.address();
         if (!address || typeof address === "string") {
           reject(new Error("Host egress broker did not receive an IPv4 port"));
+          server.close();
           return;
         }
+        this.server = server;
         this.endpoint = {
           host: "host.docker.internal",
           port: address.port,
@@ -41,11 +88,7 @@ export class HostEgressBroker {
         server.unref();
         resolve(this.endpoint);
       });
-    }).catch((error: unknown) => {
-      this.startPromise = undefined;
-      throw error;
     });
-    return this.startPromise;
   }
 
   async close(): Promise<void> {
@@ -88,6 +131,10 @@ export class HostEgressBroker {
         client.end(Buffer.from([1]));
         return;
       }
+      // The upstream dial may legitimately take longer than the handshake
+      // window; it owns its own timeout and will report refusal or timeout on
+      // this same socket, which must stay alive until then.
+      client.setTimeout(0);
       this.connect(client, host, port);
     };
     client.on("data", onData);
