@@ -270,7 +270,7 @@ def _write_capture_status(
         }
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o660)
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o664)
     try:
         payload = json.dumps({"epochs": epochs}, separators=(",", ":")).encode()
         view = memoryview(payload)

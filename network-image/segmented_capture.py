@@ -54,7 +54,7 @@ class SegmentedCapture:
             current_size = self.path.stat().st_size if self.path.exists() else 0
             if current_size > 0 and current_size + len(payload) > self.segment_bytes:
                 self._rotate()
-            descriptor = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o660)
+            descriptor = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o664)
             try:
                 view = memoryview(payload)
                 while view:
@@ -147,7 +147,7 @@ class SegmentedCapture:
     def _write_manifest(self, existing: dict | None = None) -> None:
         value = self._manifest_value(existing)
         temporary = self.manifest_path.with_name(f".{self.manifest_path.name}.{os.getpid()}.tmp")
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o660)
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o664)
         try:
             payload = json.dumps(value, separators=(",", ":")).encode()
             view = memoryview(payload)

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { join } from "node:path";
 import test from "node:test";
 import {
   NetworkSandboxManager,
@@ -107,6 +108,39 @@ test("network capture environment is explicitly allowlisted and validated", () =
     () => networkCaptureDockerEnv({ LUANNIAO_CAPTURE_MAX_FILES: "many" }),
     /LUANNIAO_CAPTURE_MAX_FILES must be a positive integer/
   );
+});
+
+test("gateway capture storage and container capabilities stay host-readable and writable", async () => {
+  const runtimeDir = await mkdtemp("/tmp/luanniao-network-capture-permissions-");
+  const taskId = "task:capture";
+  const runRef = "run:capture";
+  const manager = new NetworkSandboxManager({
+    runtimeDir,
+    runRef,
+    runner: async (args) => ownedNetworkInspect(args, runRef, taskId)
+      ?? { code: 0, stdout: "", stderr: "" }
+  });
+  const internal = manager as unknown as {
+    chownGatewayStorage(dir: string): Promise<void>;
+    gatewaySpec(taskId: string): Promise<{ runArgs: string[] }>;
+  };
+
+  try {
+    await manager.configureAuthorizedScope("198.51.100.0/24");
+    const storageDir = join(runtimeDir, "traffic", "flows", taskId);
+    await mkdir(storageDir, { recursive: true });
+    await internal.chownGatewayStorage(storageDir);
+    assert.equal((await stat(storageDir)).mode & 0o777, 0o755);
+
+    const spec = await internal.gatewaySpec(taskId);
+    for (const capability of ["CHOWN", "DAC_OVERRIDE"]) {
+      const index = spec.runArgs.indexOf(capability);
+      assert.ok(index > 0);
+      assert.deepEqual(spec.runArgs.slice(index - 1, index + 1), ["--cap-add", capability]);
+    }
+  } finally {
+    await rm(runtimeDir, { recursive: true, force: true });
+  }
 });
 
 test("network sandbox gives only the gateway network capability and reconciles labeled containers", async () => {

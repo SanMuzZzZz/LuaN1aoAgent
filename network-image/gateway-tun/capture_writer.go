@@ -242,11 +242,11 @@ func (writer *captureWriter) writeStatusLocked() error {
 	if err := os.MkdirAll(filepath.Dir(writer.statusPath), 0o755); err != nil {
 		return fmt.Errorf("create capture status directory: %w", err)
 	}
-	return atomicWriteFile(writer.statusPath, payload, 0o660)
+	return atomicWriteFile(writer.statusPath, payload, 0o664)
 }
 
 func appendAndSync(path string, payload []byte) error {
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o660)
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o664)
 	if err != nil {
 		return fmt.Errorf("open capture file: %w", err)
 	}
