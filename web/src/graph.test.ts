@@ -118,6 +118,30 @@ describe("projectTaskTree", () => {
     expect(assess?.properties.blockers).toEqual([expect.objectContaining({ id: "blocker:assess", reason: "sandbox-exec profile is unavailable" })]);
   });
 
+  it("nests tasks under their basis task instead of flattening under the goal", () => {
+    const taskNodes: GraphNode[] = [
+      { id: "scope:root", graphKind: "task", type: "Scope", label: "Scope", properties: {}, evidenceRefs: [] },
+      { id: "goal:root", graphKind: "task", type: "Goal", label: "Goal", properties: {}, evidenceRefs: [] },
+      { id: "task:recon-portal", graphKind: "task", type: "Task", label: "Recon portal", properties: { basisRefs: ["goal:root", "scope:root"] }, evidenceRefs: [] },
+      { id: "task:sat-control", graphKind: "task", type: "Task", label: "Sat control", properties: { basisRefs: ["task:recon-portal", "artifact:1", "goal:root"] }, evidenceRefs: [] },
+      { id: "task:ssti", graphKind: "task", type: "Task", label: "SSTI", properties: { basisRefs: ["task:recon-portal", "task:sat-control", "goal:root"] }, evidenceRefs: [] }
+    ];
+    const taskEdges: GraphEdge[] = [
+      { from: "goal:root", to: "scope:root", type: "within_scope", properties: {}, evidenceRefs: [] },
+      { from: "goal:root", to: "task:recon-portal", type: "decomposes_to", properties: {}, evidenceRefs: [] },
+      { from: "goal:root", to: "task:sat-control", type: "decomposes_to", properties: {}, evidenceRefs: [] },
+      { from: "goal:root", to: "task:ssti", type: "decomposes_to", properties: {}, evidenceRefs: [] }
+    ];
+
+    const result = projectTaskTree(taskNodes, taskEdges);
+    expect(result.edges.map((edge) => `${edge.from}-${edge.type}->${edge.to}`)).toEqual([
+      "scope:root-contains_goal->goal:root",
+      "goal:root-decomposes_to->task:recon-portal",
+      "task:recon-portal-derived_from->task:sat-control",
+      "task:recon-portal-derived_from->task:ssti"
+    ]);
+  });
+
   it("breaks dependency cycles by falling back to the goal root", () => {
     const cycleNodes: GraphNode[] = [
       { id: "goal:root", graphKind: "task", type: "Goal", label: "Goal", properties: {}, evidenceRefs: [] },
