@@ -145,6 +145,21 @@ export function projectTaskTree(nodes: GraphNode[], edges: GraphEdge[]): Filtere
     }
 
     if (!attached) {
+      // 派生关系：规划器在 basisRefs 里记录任务依据（侦察结论/前序任务），
+      // 用它把"由哪个任务衍生出来"挂成树，避免全部任务平铺在 Goal 下。
+      const basisRefs = Array.isArray(task.properties.basisRefs)
+        ? task.properties.basisRefs.filter((ref): ref is string => typeof ref === "string")
+        : [];
+      for (const ref of basisRefs) {
+        if (ref === task.id) continue;
+        if (nodeById.get(ref)?.type === "Task") {
+          attached = addTreeEdge(ref, task.id, "derived_from");
+          if (attached) break;
+        }
+      }
+    }
+
+    if (!attached) {
       const decomposition = taskKindEdges
         .filter((edge) => edge.type === "decomposes_to" && edge.to === task.id && nodeById.get(edge.from)?.type === "Goal")
         .sort(compareEdge)[0];
