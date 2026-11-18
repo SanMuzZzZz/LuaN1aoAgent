@@ -33,6 +33,8 @@
 
 ---
 
+> 🌐 **媒体报道**：LuaN1aoAgent（鸾鸟）被 Cloudflare 列入其 [Top 5 LLM 渗透与利用编排器对比表](https://blog.cloudflare.com/adapting-to-ai-penetration-testing-orchestrators/)（2026 年 11 月 13 日）。文章比较各项目的架构、规划模型、执行环境和后渗透能力。
+
 ## 📖 项目简介
 
 **LuaN1aoAgent v2** 是 LuaN1aoAgent 的完整重写版本，基于 TypeScript 与 Pi SDK 构建，面向自主、经过授权的安全研究。
