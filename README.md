@@ -33,6 +33,8 @@
 
 ---
 
+> 🌐 **Media Coverage**: LuaN1aoAgent was featured in Cloudflare's [comparison of the top five LLM penetration and exploitation orchestrators](https://blog.cloudflare.com/adapting-to-ai-penetration-testing-orchestrators/) (November 13, 2026). The table compares architectures and capabilities.
+
 ## 📖 Introduction
 
 **LuaN1aoAgent v2** is a complete rewrite of LuaN1aoAgent, built on TypeScript and the Pi SDK for autonomous, authorized security research.
